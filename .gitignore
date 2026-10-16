@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.verify/
+coverage/
+*.tgz
+.DS_Store
+packages/verify/README.md
+packages/verify/LICENSE

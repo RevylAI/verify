@@ -1,0 +1,162 @@
+export type Platform = 'ios' | 'android' | 'web';
+export type MobilePlatform = Exclude<Platform, 'web'>;
+
+export interface WebViewportRequest {
+  width?: number;
+  height?: number;
+  device_scale_factor?: number;
+}
+
+export interface WebSignInRequest {
+  path: string;
+  secret_name: string;
+  persona?: string;
+}
+
+export interface StartDeviceRequest {
+  platform: Platform;
+  is_simulation?: boolean;
+  session_id?: string;
+  app_id?: string;
+  build_id?: string;
+  app_url?: string;
+  device_model?: string;
+  os_version?: string;
+  idle_timeout_seconds?: number;
+  web?: { viewport?: WebViewportRequest; sign_in?: WebSignInRequest };
+}
+
+export interface StartDeviceResponse {
+  status: string;
+  platform: string;
+  session_id?: string | null;
+  workflow_run_id?: string | null;
+  error?: string | null;
+  message?: string | null;
+  trace_id?: string | null;
+}
+
+export type SessionStatus =
+  | 'queued'
+  | 'starting'
+  | 'running'
+  | 'verifying'
+  | 'stopping'
+  | 'validating'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'timeout';
+
+export interface DeviceSessionDetail {
+  id: string;
+  status: SessionStatus | string;
+  platform?: string | null;
+  workflow_run_id?: string | null;
+  viewer_kind?: string | null;
+  error_message?: string | null;
+  screen_width?: number | null;
+  screen_height?: number | null;
+}
+
+export interface WorkerConnection {
+  status: 'ready' | 'not_ready' | 'cancelled' | 'stopped' | 'failed';
+  workflow_run_id: string;
+  worker_ws_url?: string | null;
+  message?: string | null;
+}
+
+export interface WorkerHealth {
+  status?: string;
+  device_connected?: boolean;
+  platform?: string;
+  screen_width?: number;
+  screen_height?: number;
+}
+
+export interface DeviceSessionStopResponse {
+  success: boolean;
+  request_accepted: boolean;
+  session_id: string;
+  status: string;
+  message: string;
+}
+
+export interface AppResponse {
+  id: string;
+  name?: string | null;
+  platform?: string | null;
+  default_branch_id?: string | null;
+}
+
+export interface BuildResponse {
+  id?: string | null;
+  app_id?: string | null;
+  artifact_kind?: string | null;
+  version?: string | null;
+}
+
+export interface BuildPage {
+  items: BuildResponse[];
+}
+
+export interface WhoAmI {
+  user_id?: string | null;
+  org_id?: string | null;
+  org_name?: string | null;
+  email?: string | null;
+}
+
+export interface WorkerActionResult {
+  success: boolean;
+  action?: string;
+  error?: string | null;
+  found?: boolean | null;
+  execution_uncertain?: boolean;
+  screen_token?: string | null;
+}
+
+export interface ResolveTargetResult {
+  found: boolean;
+  x: number;
+  y: number;
+  error?: string | null;
+  screen_token?: string | null;
+}
+
+export type LiveStepType = 'instruction' | 'validation' | 'extract';
+
+export interface LiveStepOutput {
+  status?: 'success' | 'warning' | 'failed' | null;
+  status_reason?: string | null;
+  validation_result?: boolean | null;
+  reasoning?: string | null;
+  extracted_data?: { information?: string | null; reasoning?: string | null } | null;
+  agent_description?: string | null;
+}
+
+export interface LiveStepResult {
+  success: boolean;
+  step_type: LiveStepType | string;
+  step_id: string;
+  session_id?: string | null;
+  step_output: LiveStepOutput;
+}
+
+export interface StepAccepted {
+  step_id: string;
+  status: 'accepted';
+}
+
+export interface StepStatus {
+  step_id: string;
+  status: 'running' | 'completed' | 'failed' | 'cancelled' | string;
+  result?: LiveStepResult | null;
+}
+
+export interface WebTab {
+  tab_id: string;
+  active: boolean;
+  url_origin: string;
+  route_pattern: string;
+}

@@ -1,0 +1,13 @@
+export { defineConfig } from './config.js';
+export type { MobileAppConfig, MobileTargetConfig, TargetConfig, VerifyConfig, WebAppConfig, WebTargetConfig } from './config.js';
+export { test } from './registry.js';
+export type { TestBody, TestFixtures, TestOptions } from './registry.js';
+export { expect } from './expect.js';
+export type { LocatorAssertions, ValueAssertions } from './expect.js';
+export type { Locator, Role, Screen, TextMatcher } from './locator.js';
+export type { Agent, AgentStepOptions } from './agent.js';
+export type { App, Direction, Key } from './app.js';
+export type { Platform } from './api/types.js';
+export { VerifyError, isVerifyError } from './errors.js';
+export type { VerifyErrorCode } from './errors.js';
+export type { AttemptResult, RunSummary, TestResult, TestStatus } from './runner.js';

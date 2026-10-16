@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm test
+      - name: Examples load without credentials
+        env:
+          REVYL_WEB_APP_ID: 00000000-0000-4000-8000-000000000000
+        run: |
+          (cd examples/web-store && npx verify run --list)
+          (cd examples/mobile-settings && npx verify run --list)
+      - name: init writes a project that loads
+        run: |
+          project="$(mktemp -d)"
+          mkdir -p "$project/node_modules/@revyl"
+          ln -s "$GITHUB_WORKSPACE/packages/verify" "$project/node_modules/@revyl/verify"
+          cd "$project"
+          node "$GITHUB_WORKSPACE/packages/verify/dist/cli/main.js" init --platform android --app-id 00000000-0000-4000-8000-000000000000
+          node "$GITHUB_WORKSPACE/packages/verify/dist/cli/main.js" run --list
+      - name: Package contents
+        run: npm run check:package

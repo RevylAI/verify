@@ -1,0 +1,14 @@
+# Verify
+
+> Verify (@revyl/verify) is an open-source TypeScript end-to-end testing framework for web, iOS, and Android apps. Tests run on Revyl cloud browsers and devices through Revyl's public API. Tests mix exact locators (native UI tree on mobile, AI grounding on web) with natural-language agent steps.
+
+## Docs
+
+- [Getting started](getting-started.md): install, authenticate, init, run
+- [Writing tests](writing-tests.md): test(), fixtures, locators, expect(), agent, app controls
+- [Configuration](configuration.md): verify.config.ts and CLI flags
+- [Web](web.md): Revyl web sessions, URLs and builds, sign-in, what web supports
+- [Mobile](mobile.md): iOS and Android devices, installing apps, native locators
+- [CI](ci.md): GitHub Actions, exit codes, results.json, artifacts
+- [Errors](errors.md): every error code and what to do about it
+- [For coding agents](agents.md): the workflow and rules for agents writing Verify tests

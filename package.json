@@ -1,0 +1,19 @@
+{
+  "name": "verify-workspace",
+  "private": true,
+  "description": "Monorepo for @revyl/verify and its examples",
+  "license": "Apache-2.0",
+  "workspaces": [
+    "packages/*",
+    "examples/*"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build": "npm run build -w @revyl/verify && npm rebuild @revyl/verify",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm test -w @revyl/verify",
+    "check:package": "node scripts/check-package.mjs"
+  }
+}
