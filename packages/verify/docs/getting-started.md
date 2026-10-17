@@ -1,19 +1,19 @@
 # Getting started
 
-Verify needs Node.js 22.12 or later and a Revyl account.
+Verify needs Node.js 22.18 or later, which runs TypeScript files directly, and a Revyl account.
 
-## 1. Create a config and an example test
+## 1. Create a config and an example script
 
 ```bash
 npx @revyl/verify init
 ```
 
-`init` asks what you want to test (web, iOS, or Android), your Revyl app id, and for web, the URL to open. It writes two files and adds `.verify/` to `.gitignore`:
+`init` asks what you want to open (web, iOS, or Android), your Revyl app id, and for web, the URL to open. It writes two files and adds `.verify/` to `.gitignore`:
 
-- `verify.config.ts`: the targets to run on
-- `tests/example.verify.ts`: a first test
+- `verify.config.ts`: the targets `open()` can start, by name
+- `verify/example.ts`: a script that opens the target, runs a step or two, takes a screenshot, and closes
 
-In scripts and CI, pass the answers as flags instead:
+In scripts and CI, pass the answers as flags:
 
 ```bash
 npx @revyl/verify init --platform web --app-id <revyl-app-id> --url https://staging.example.com
@@ -42,24 +42,36 @@ npx verify whoami               # checks the credentials without starting a sess
 
 Every target needs a Revyl app. Open the app in Revyl and copy its id into `app.appId`, or set `REVYL_APP_ID`, which the generated config reads.
 
-- **Web:** set `app.url` to a public HTTPS URL such as a staging or preview deployment. Revyl's cloud browser cannot reach `localhost`. Without a URL, Verify opens the app's newest web build in Revyl. See [web.md](web.md).
-- **iOS and Android:** upload a build to the app in Revyl (for example with `revyl build upload`); each run installs the newest one. See [mobile.md](mobile.md).
+- **Web:** set `app.url` to a public HTTPS URL, such as a staging or preview deployment. Revyl's cloud browser cannot reach `localhost`. See [web.md](web.md).
+- **iOS and Android:** upload a build to the app in Revyl, for example with `revyl build upload`; each session installs the newest one. See [mobile.md](mobile.md).
 
-## 5. Run
+## 5. Run the script
 
 ```bash
-npx verify run
+node verify/example.ts
 ```
 
-Verify starts one cloud browser or device per target, prints a link to watch each session live, runs the tests, and stops the sessions when it finishes. Results go to the terminal and to `.verify/results.json`; failure screenshots go to `.verify/artifacts/`.
+If Node warns that the module type is not specified, add `"type": "module"` to your `package.json` or rename the script to `example.mts`.
 
 ```text
-Running 1 test on web with 1 worker
-
-  web: web session https://app.revyl.ai/sessions/…
-  ✓ [web] tests/example.verify.ts › the home page loads (21.4s)
-
-  1 passed (48.2s)
+[verify] ios: starting ios session https://app.revyl.ai/sessions/…
+[verify] ios: ready
+[verify] ios: ✓ validation "The app has opened and shows its first screen without an error" (9.8s)
+[verify] ios: closed
 ```
 
-Next, read [writing-tests.md](writing-tests.md).
+Open the link to watch the session live. After the session ends, the link keeps its recording, and the Revyl CLI prints its stored report: `revyl device report --session-id <id>`.
+
+## The whole API
+
+```ts
+import { open } from '@revyl/verify';
+
+const session = await open('ios');                                   // a target from verify.config.ts
+await session.instruction('Add the first product to the cart');      // Revyl's agent does it
+await session.validation('The cart badge shows 1');                  // throws if it does not hold
+await session.screenshot({ path: '.verify/cart.png' });
+await session.close();
+```
+
+A failed instruction or validation throws a `VerifyError`. In a plain script, that ends the script with exit code 1, and Verify closes the session before the process exits. See [api.md](api.md) for every option, and [ci.md](ci.md) for calling Verify from a test runner.

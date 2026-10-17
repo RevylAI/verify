@@ -1,16 +1,16 @@
 {
   "name": "@revyl/verify",
   "version": "0.1.0",
-  "description": "End-to-end tests for web and mobile apps, written in TypeScript and run on Revyl's cloud browsers and devices.",
+  "description": "Open Revyl cloud browsers and iOS and Android devices from TypeScript, and run instruction and validation steps on them.",
   "keywords": [
     "e2e",
     "end-to-end",
-    "testing",
     "mobile",
     "ios",
     "android",
     "web",
     "ai",
+    "agent",
     "revyl"
   ],
   "homepage": "https://github.com/RevylAI/verify#readme",
@@ -45,7 +45,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=22.12"
+    "node": ">=22.18"
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/cli/main.js",
@@ -54,9 +54,7 @@
     "prepack": "npm run build && cp ../../LICENSE LICENSE && cp ../../README.md README.md"
   },
   "dependencies": {
-    "fast-xml-parser": "^5.3.0",
-    "jiti": "^2.6.0",
-    "tinyglobby": "^0.2.15"
+    "jiti": "^2.6.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

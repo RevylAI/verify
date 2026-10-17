@@ -1,30 +1,31 @@
 # Errors
 
-Every error Verify raises is a `VerifyError` with a stable `code`. Results and terminal output show the code first.
+Everything Verify throws on purpose is a `VerifyError` with a stable `code`. Messages name the problem and, for step failures, end with the session link.
 
 ```ts
 import { isVerifyError } from '@revyl/verify';
+
+try {
+  await session.validation('The cart is empty');
+} catch (error) {
+  if (isVerifyError(error) && error.code === 'VALIDATION_FAILED') { /* … */ }
+  throw error;
+}
 ```
 
 | Code | What happened | What to do |
 | --- | --- | --- |
-| `CONFIG_NOT_FOUND` | No `verify.config.ts` in the current folder | Run `npx @revyl/verify init`, or pass `--config` |
-| `CONFIG_INVALID` | The config failed validation | The message names the exact option and the rule |
-| `COLLECTION_ERROR` | A test file failed to load, or declared tests incorrectly | Fix the file named in the message |
-| `NO_TESTS` | No files matched `tests` and the filters | Check the glob and the file filters |
-| `ONLY_IN_CI` | A `test.only` is present while `CI` is set | Remove the `.only` |
+| `INVALID_ARGUMENT` | A call got a bad value: an unknown target name, an empty step, two steps at once on one session | The message names the argument |
+| `CONFIG_NOT_FOUND` | `open('name')` found no `verify.config.ts` at or above the current folder | Run `npx @revyl/verify init`, pass `options.config`, or pass a target object |
+| `CONFIG_INVALID` | The config failed validation or did not load | The message names the exact option and the rule |
 | `AUTH_MISSING` | No `REVYL_API_KEY` and no Revyl CLI login | Set `REVYL_API_KEY` or run `revyl auth login` |
 | `AUTH_REJECTED` | Revyl rejected the credentials | Create a new API key, or log in again |
-| `API_ERROR` | Revyl returned an unexpected response | Retry; if it persists, report it with the session link |
+| `API_ERROR` | Revyl returned an unexpected response | Try again; if it persists, report it with the session link |
 | `SESSION_START_FAILED` | The browser or device did not start | The message has Revyl's reason, for example no build for the app |
-| `SESSION_ENDED` | The session stopped during the test | Usually the idle timeout or a crash; the next test starts a new session |
-| `NOT_AVAILABLE_ON_PLATFORM` | The call does not exist on this target's platform | The message names the alternative |
-| `LOCATOR_NOT_FOUND` | No element matched within the timeout | The message lists text on screen; fix the locator or wait for the right screen |
-| `LOCATOR_AMBIGUOUS` | Several native elements matched an action | Narrow the locator, or use `first()`, `last()`, or `nth()` |
-| `ACTION_FAILED` | Revyl ran the action and reported failure | Read the reason; check the session recording |
-| `ACTION_UNCERTAIN` | The connection failed mid-action, so it may or may not have happened | Verify does not repeat it and starts a fresh session for the next test |
-| `AGENT_STEP_FAILED` | `agent.act` or `agent.extract` could not finish | Make the instruction more specific, or split it into smaller steps |
-| `ASSERTION_FAILED` | An `expect` or `agent.assert` did not hold | The message has the observed state or the agent's reasoning |
-| `TIMEOUT` | A test, agent step, or session start ran out of time | Raise the matching timeout, or find what the test waits for |
-| `CANCELLED` | The run was interrupted | |
-| `INVALID_ARGUMENT` | A call or a CLI flag got a bad value | The message names the argument |
+| `SESSION_ENDED` | The session was closed, or Revyl stopped it, for example after the idle timeout | Open a new session |
+| `NOT_AVAILABLE_ON_PLATFORM` | Revyl does not offer this on the session's platform yet, such as steps on web | See [web.md](web.md) |
+| `ACTION_FAILED` | Revyl refused or failed a request on the session, for example while it was busy | Read the reason in the message |
+| `ACTION_UNCERTAIN` | The connection failed mid-request, so the step may or may not have run | Verify does not repeat it; check the session link before deciding what to do |
+| `INSTRUCTION_FAILED` | Revyl's agent could not do what the instruction asked | Make the instruction more specific, or split it into smaller steps |
+| `VALIDATION_FAILED` | The validation did not hold | The message has Revyl's reason; watch the recording at the session link |
+| `TIMEOUT` | A step, a session start, or a request ran out of time | Raise `stepTimeout` or `startTimeout`, or split the step |

@@ -8,7 +8,7 @@
     "examples/*"
   ],
   "engines": {
-    "node": ">=22.12"
+    "node": ">=22.18"
   },
   "scripts": {
     "build": "npm run build -w @revyl/verify && npm rebuild @revyl/verify",

@@ -107,10 +107,6 @@ export class RevylClient {
     return this.json('GET', `/api/v1/apps/${encodeURIComponent(appId)}`, { signal });
   }
 
-  createApp(request: { name: string; platform: 'iOS' | 'Android' | 'web'; description?: string }): Promise<AppResponse> {
-    return this.json('POST', '/api/v1/apps/', { body: request, retry: false });
-  }
-
   registerWebUrlBuild(
     appId: string,
     request: { url: string; branch_name?: string },
@@ -175,7 +171,7 @@ export class RevylClient {
       return { status: response.status, headers: response.headers, body: new Uint8Array(await response.arrayBuffer()) };
     } catch (error) {
       if (options.signal?.aborted) {
-        return new VerifyError('CANCELLED', `Revyl request ${method} ${url.pathname} was cancelled.`, { cause: error });
+        return new VerifyError('TIMEOUT', `Revyl request ${method} ${url.pathname} ran past its caller's deadline.`, { cause: error });
       }
       if (timeout.aborted) {
         return new VerifyError(

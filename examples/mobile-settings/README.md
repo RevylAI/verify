@@ -1,12 +1,12 @@
 # Mobile settings example
 
-Runs the same tests on an iOS simulator and an Android emulator in Revyl, against the Settings app each OS ships with. Nothing needs to be built or uploaded.
+Opens the Settings app that ships with iOS and Android on a Revyl cloud device, goes to the About screen, checks that it shows the OS version, and saves a screenshot. Nothing needs to be built or uploaded.
 
 ```bash
-export REVYL_API_KEY=...       # or: revyl auth login
+export REVYL_API_KEY=...        # or: revyl auth login
 npm install
-npx verify run                 # both platforms
-npx verify run --target ios    # one platform
+node verify/about.ts ios
+node verify/about.ts android
 ```
 
-The first test uses exact native locators on iOS and an agent step on Android to reach the About screen, then reads the version with `agent.extract` and carries it into a later `agent.assert`. The second test is all plain-language agent steps.
+The last step is a soft validation: it reports whether dark mode is on without failing the script either way.

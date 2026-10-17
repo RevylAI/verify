@@ -1,14 +1,14 @@
 # Verify
 
-> Verify (@revyl/verify) is an open-source TypeScript end-to-end testing framework for web, iOS, and Android apps. Tests run on Revyl cloud browsers and devices through Revyl's public API. Tests mix exact locators (native UI tree on mobile, AI grounding on web) with natural-language agent steps.
+> Verify (@revyl/verify) is an open-source TypeScript library for Revyl. It opens a Revyl cloud browser or iOS or Android device, runs natural-language instruction and validation steps on it with Revyl's agent, and closes it. Call it from a plain script, a coding agent, CI, or any test runner. It has no test runner of its own.
 
 ## Docs
 
-- [Getting started](getting-started.md): install, authenticate, init, run
-- [Writing tests](writing-tests.md): test(), fixtures, locators, expect(), agent, app controls
-- [Configuration](configuration.md): verify.config.ts and CLI flags
-- [Web](web.md): Revyl web sessions, URLs and builds, sign-in, what web supports
-- [Mobile](mobile.md): iOS and Android devices, installing apps, native locators
-- [CI](ci.md): GitHub Actions, exit codes, results.json, artifacts
+- [Getting started](getting-started.md): install, authenticate, init, run a script
+- [API](api.md): open(), session.instruction(), session.validation(), session.screenshot(), session.close()
+- [Configuration](configuration.md): verify.config.ts targets, environment variables, the init and whoami commands
+- [Web](web.md): Revyl web sessions, URLs and builds, sign-in, step availability on web
+- [Mobile](mobile.md): iOS and Android devices and installing apps
+- [CI and test runners](ci.md): GitHub Actions, node:test, Vitest, Jest, Playwright Test
 - [Errors](errors.md): every error code and what to do about it
-- [For coding agents](agents.md): the workflow and rules for agents writing Verify tests
+- [For coding agents](agents.md): the workflow and rules for agents using Verify

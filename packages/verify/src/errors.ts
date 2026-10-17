@@ -2,23 +2,17 @@ export type VerifyErrorCode =
   | 'INVALID_ARGUMENT'
   | 'CONFIG_NOT_FOUND'
   | 'CONFIG_INVALID'
-  | 'COLLECTION_ERROR'
-  | 'NO_TESTS'
-  | 'ONLY_IN_CI'
   | 'AUTH_MISSING'
   | 'AUTH_REJECTED'
   | 'API_ERROR'
   | 'SESSION_START_FAILED'
   | 'SESSION_ENDED'
   | 'NOT_AVAILABLE_ON_PLATFORM'
-  | 'LOCATOR_NOT_FOUND'
-  | 'LOCATOR_AMBIGUOUS'
   | 'ACTION_FAILED'
   | 'ACTION_UNCERTAIN'
-  | 'AGENT_STEP_FAILED'
-  | 'ASSERTION_FAILED'
-  | 'TIMEOUT'
-  | 'CANCELLED';
+  | 'INSTRUCTION_FAILED'
+  | 'VALIDATION_FAILED'
+  | 'TIMEOUT';
 
 export class VerifyError extends Error {
   readonly code: VerifyErrorCode;

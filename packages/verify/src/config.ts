@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { createJiti } from 'jiti';
 import { VerifyError } from './errors.js';
 import type { MobilePlatform } from './api/types.js';
@@ -7,7 +7,7 @@ import type { MobilePlatform } from './api/types.js';
 export interface WebAppConfig {
   /** The Revyl web app this target belongs to. */
   appId: string;
-  /** A public HTTPS URL to test, such as a preview deployment. Registered as a build on each run. */
+  /** A public HTTPS URL to open, such as a preview deployment. Registered as a build each time a session opens. */
   url?: string;
   /** An exact Revyl build to open instead of a URL. */
   buildId?: string;
@@ -17,7 +17,6 @@ export interface WebAppConfig {
 
 export interface WebTargetConfig {
   platform: 'web';
-  name?: string;
   app: WebAppConfig;
   viewport?: { width: number; height: number; deviceScaleFactor?: number };
   /** A test-only sign-in route Revyl opens before the session starts. See docs/web.md. */
@@ -33,13 +32,12 @@ export interface MobileAppConfig {
   buildId?: string;
   /** A downloadable .apk, .app.zip or .ipa to install. */
   artifactUrl?: string;
-  /** The app to launch: required when nothing is installed, such as a system app. */
+  /** An app already on the device to launch instead of installing one, such as a system app. */
   bundleId?: string;
 }
 
 export interface MobileTargetConfig {
   platform: MobilePlatform;
-  name?: string;
   app: MobileAppConfig;
   device?: { model?: string; osVersion?: string };
   startTimeout?: number;
@@ -48,20 +46,11 @@ export interface MobileTargetConfig {
 
 export type TargetConfig = WebTargetConfig | MobileTargetConfig;
 
-export type ReporterName = 'list' | 'json';
-
 export interface VerifyConfig {
-  targets: TargetConfig[];
-  tests?: string | string[];
-  timeout?: number;
-  actionTimeout?: number;
-  assertionTimeout?: number;
-  agentTimeout?: number;
-  retries?: number;
-  workers?: number;
-  reuseSessions?: boolean;
-  outputDir?: string;
-  reporters?: ReporterName[];
+  /** Named targets that open() takes by name, such as open('web'). */
+  targets: Record<string, TargetConfig>;
+  /** Milliseconds one instruction or validation may run. Defaults to 180000. */
+  stepTimeout?: number;
 }
 
 export type ResolvedTarget = (WebTargetConfig | MobileTargetConfig) & {
@@ -71,23 +60,13 @@ export type ResolvedTarget = (WebTargetConfig | MobileTargetConfig) & {
 };
 
 export interface ResolvedConfig {
-  rootDir: string;
   configFile: string;
-  targets: ResolvedTarget[];
-  tests: string[];
-  timeout: number;
-  actionTimeout: number;
-  assertionTimeout: number;
-  agentTimeout: number;
-  retries: number;
-  workers: number;
-  reuseSessions: boolean;
-  outputDir: string;
-  reporters: ReporterName[];
+  targets: Record<string, ResolvedTarget>;
+  stepTimeout: number;
 }
 
 export const CONFIG_FILE_NAMES = ['verify.config.ts', 'verify.config.mts', 'verify.config.js', 'verify.config.mjs'];
-export const DEFAULT_TEST_GLOB = 'tests/**/*.verify.{ts,mts,js,mjs}';
+export const DEFAULT_STEP_TIMEOUT_MS = 180_000;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const WEB_URL = /^https:\/\/[^/?#@\s]+(\/[^?#\s]*)?$/;
@@ -98,12 +77,15 @@ export function defineConfig(config: VerifyConfig): VerifyConfig {
   return config;
 }
 
-export function findConfigFile(rootDir: string): string | undefined {
-  for (const name of CONFIG_FILE_NAMES) {
-    const candidate = resolve(rootDir, name);
-    if (existsSync(candidate)) return candidate;
+/** The nearest verify.config file in the folder or any folder above it. */
+export function findConfigFile(startDir: string): string | undefined {
+  for (let dir = resolve(startDir); ; dir = dirname(dir)) {
+    for (const name of CONFIG_FILE_NAMES) {
+      const candidate = resolve(dir, name);
+      if (existsSync(candidate)) return candidate;
+    }
+    if (dirname(dir) === dir) return undefined;
   }
-  return undefined;
 }
 
 export async function loadConfig(cwd: string, explicitPath?: string): Promise<ResolvedConfig> {
@@ -113,7 +95,7 @@ export async function loadConfig(cwd: string, explicitPath?: string): Promise<Re
       'CONFIG_NOT_FOUND',
       explicitPath
         ? `Config file not found: ${explicitPath}`
-        : `No verify.config.ts in ${cwd}. Run 'npx @revyl/verify init' to create one.`,
+        : `No verify.config.ts in ${cwd} or any folder above it. Run 'npx @revyl/verify init' to create one, or pass a target object to open().`,
     );
   }
   const jiti = createJiti(import.meta.url, { moduleCache: false, interopDefault: true });
@@ -127,75 +109,52 @@ export async function loadConfig(cwd: string, explicitPath?: string): Promise<Re
 }
 
 export function validateConfig(raw: unknown, configFile: string): ResolvedConfig {
-  const fail = (path: string, problem: string): never => {
+  const fail: Fail = (path, problem) => {
     throw new VerifyError('CONFIG_INVALID', `${configFile}: ${path} ${problem}`);
   };
   const config = asRecord(raw, 'the default export', fail);
-  rejectUnknownKeys(
-    config,
-    ['targets', 'tests', 'timeout', 'actionTimeout', 'assertionTimeout', 'agentTimeout', 'retries', 'workers', 'reuseSessions', 'outputDir', 'reporters'],
-    '',
-    fail,
-  );
-  if (!Array.isArray(config.targets) || config.targets.length === 0) fail('targets', 'must list at least one target.');
-  const targets = (config.targets as unknown[]).map((target, index) => validateTarget(target, `targets[${index}]`, fail));
-  const names = new Set<string>();
-  for (const target of targets) {
-    if (names.has(target.name)) fail('targets', `has two targets named "${target.name}"; give each a unique name.`);
-    names.add(target.name);
+  rejectUnknownKeys(config, ['targets', 'stepTimeout'], '', fail);
+  const rawTargets = asRecord(config.targets, 'targets', fail);
+  const names = Object.keys(rawTargets);
+  if (names.length === 0) fail('targets', 'must name at least one target, such as { web: { platform: \'web\', ... } }.');
+  const targets: Record<string, ResolvedTarget> = {};
+  for (const name of names) {
+    if (!TARGET_NAME.test(name)) fail(`targets.${name}`, 'must be named with 1-64 letters, digits, dots, dashes, or underscores.');
+    targets[name] = parseTarget(rawTargets[name], name, `targets.${name}`, fail);
   }
-
-  const tests = config.tests === undefined ? [DEFAULT_TEST_GLOB] : Array.isArray(config.tests) ? config.tests : [config.tests];
-  if (tests.length === 0 || tests.some((glob) => typeof glob !== 'string' || glob.trim() === '')) {
-    fail('tests', 'must be a glob or a non-empty list of globs.');
-  }
-  const reporters = config.reporters ?? ['list', 'json'];
-  if (!Array.isArray(reporters) || reporters.some((name) => name !== 'list' && name !== 'json')) {
-    fail('reporters', "may contain only 'list' and 'json'.");
-  }
-  if (config.reuseSessions !== undefined && typeof config.reuseSessions !== 'boolean') fail('reuseSessions', 'must be a boolean.');
-  if (config.outputDir !== undefined && (typeof config.outputDir !== 'string' || config.outputDir === '')) {
-    fail('outputDir', 'must be a non-empty path.');
-  }
-  const rootDir = resolve(configFile, '..');
   return {
-    rootDir,
     configFile,
     targets,
-    tests: tests as string[],
-    timeout: integer(config.timeout, 'timeout', 1_000, 3_600_000, 300_000, fail),
-    actionTimeout: integer(config.actionTimeout, 'actionTimeout', 100, 600_000, 15_000, fail),
-    assertionTimeout: integer(config.assertionTimeout, 'assertionTimeout', 100, 600_000, 10_000, fail),
-    agentTimeout: integer(config.agentTimeout, 'agentTimeout', 1_000, 3_600_000, 180_000, fail),
-    retries: integer(config.retries, 'retries', 0, 10, process.env.CI ? 1 : 0, fail),
-    workers: integer(config.workers, 'workers', 1, 64, 1, fail),
-    reuseSessions: (config.reuseSessions as boolean | undefined) ?? true,
-    outputDir: resolve(rootDir, (config.outputDir as string | undefined) ?? '.verify'),
-    reporters: reporters as ReporterName[],
+    stepTimeout: integer(config.stepTimeout, 'stepTimeout', 1_000, 3_600_000, DEFAULT_STEP_TIMEOUT_MS, fail),
   };
+}
+
+/** Validates a target passed straight to open(); it is named after its platform. */
+export function validateTarget(raw: unknown): ResolvedTarget {
+  const fail: Fail = (path, problem) => {
+    throw new VerifyError('INVALID_ARGUMENT', `open(): ${path} ${problem}`);
+  };
+  const platform = asRecord(raw, 'target', fail).platform;
+  return parseTarget(raw, typeof platform === 'string' ? platform : 'target', 'target', fail);
 }
 
 type Fail = (path: string, problem: string) => never;
 
-function validateTarget(raw: unknown, path: string, fail: Fail): ResolvedTarget {
+function parseTarget(raw: unknown, name: string, path: string, fail: Fail): ResolvedTarget {
   const target = asRecord(raw, path, fail);
   const platform = target.platform;
   if (typeof platform !== 'string' || !(PLATFORMS as readonly string[]).includes(platform)) {
     fail(`${path}.platform`, "must be 'web', 'ios', or 'android'.");
   }
-  const name = target.name ?? platform;
-  if (typeof name !== 'string' || !TARGET_NAME.test(name)) {
-    fail(`${path}.name`, 'must be 1-64 letters, digits, dots, dashes, or underscores.');
-  }
   const common = {
-    name: name as string,
+    name,
     startTimeout: integer(target.startTimeout, `${path}.startTimeout`, 10_000, 1_800_000, 600_000, fail),
     idleTimeoutSeconds: integer(target.idleTimeoutSeconds, `${path}.idleTimeoutSeconds`, 60, 3_600, 600, fail),
   };
   const app = asRecord(target.app, `${path}.app`, fail);
 
   if (platform === 'web') {
-    rejectUnknownKeys(target, ['platform', 'name', 'app', 'viewport', 'signIn', 'startTimeout', 'idleTimeoutSeconds'], path, fail);
+    rejectUnknownKeys(target, ['platform', 'app', 'viewport', 'signIn', 'startTimeout', 'idleTimeoutSeconds'], path, fail);
     rejectUnknownKeys(app, ['appId', 'url', 'buildId', 'branch'], `${path}.app`, fail);
     uuid(app.appId, `${path}.app.appId`, true, fail);
     uuid(app.buildId, `${path}.app.buildId`, false, fail);
@@ -248,7 +207,7 @@ function validateTarget(raw: unknown, path: string, fail: Fail): ResolvedTarget 
     };
   }
 
-  rejectUnknownKeys(target, ['platform', 'name', 'app', 'device', 'startTimeout', 'idleTimeoutSeconds'], path, fail);
+  rejectUnknownKeys(target, ['platform', 'app', 'device', 'startTimeout', 'idleTimeoutSeconds'], path, fail);
   rejectUnknownKeys(app, ['appId', 'buildId', 'artifactUrl', 'bundleId'], `${path}.app`, fail);
   uuid(app.appId, `${path}.app.appId`, false, fail);
   uuid(app.buildId, `${path}.app.buildId`, false, fail);
@@ -256,10 +215,9 @@ function validateTarget(raw: unknown, path: string, fail: Fail): ResolvedTarget 
   if (app.artifactUrl !== undefined && (typeof app.artifactUrl !== 'string' || !/^https:\/\//.test(app.artifactUrl))) {
     fail(`${path}.app.artifactUrl`, 'must be an HTTPS URL.');
   }
-  const installs = [app.appId, app.buildId, app.artifactUrl].filter((value) => value !== undefined).length;
-  if (installs > 1) fail(`${path}.app`, 'takes only one of appId, buildId, or artifactUrl.');
-  if (installs === 0 && app.bundleId === undefined) {
-    fail(`${path}.app`, 'needs appId, buildId, or artifactUrl to install an app, or bundleId to open one already on the device.');
+  const sources = [app.appId, app.buildId, app.artifactUrl, app.bundleId].filter((value) => value !== undefined).length;
+  if (sources !== 1) {
+    fail(`${path}.app`, 'takes exactly one of appId, buildId, or artifactUrl to install an app, or bundleId to open one already on the device.');
   }
   let device: MobileTargetConfig['device'];
   if (target.device !== undefined) {

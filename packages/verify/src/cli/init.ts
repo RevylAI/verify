@@ -17,7 +17,7 @@ export interface InitResult {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CONFIG_FILE = 'verify.config.ts';
-const EXAMPLE_TEST = join('tests', 'example.verify.ts');
+const EXAMPLE_SCRIPT = join('verify', 'example.ts');
 
 export function validateInitAnswers(answers: InitAnswers): InitAnswers {
   if (!['web', 'ios', 'android'].includes(answers.platform)) {
@@ -35,12 +35,12 @@ export function validateInitAnswers(answers: InitAnswers): InitAnswers {
   return answers;
 }
 
-/** Writes verify.config.ts and an example test, and keeps run output out of git. */
+/** Writes verify.config.ts and an example script, and keeps screenshots out of git. */
 export async function initProject(cwd: string, answers: InitAnswers, options: { force?: boolean } = {}): Promise<InitResult> {
   validateInitAnswers(answers);
   const files: Array<[string, string]> = [
     [CONFIG_FILE, configTemplate(answers)],
-    [EXAMPLE_TEST, testTemplate(answers.platform)],
+    [EXAMPLE_SCRIPT, scriptTemplate(answers.platform)],
   ];
   const existing = files.map(([path]) => path).filter((path) => existsSync(join(cwd, path)));
   if (existing.length > 0 && !options.force) {
@@ -65,53 +65,48 @@ function configTemplate({ platform, appId, url }: InitAnswers): string {
   const app = appId ? `'${appId}'` : `process.env.REVYL_APP_ID ?? 'REPLACE_WITH_YOUR_REVYL_APP_ID'`;
   const target =
     platform === 'web'
-      ? `    {
+      ? `    web: {
       platform: 'web',
       app: {
-        // The Revyl web app to test: open it in Revyl and copy its id.
+        // The Revyl web app to open: copy its id from the app's page in Revyl.
         appId: ${app},
         // A public HTTPS URL, such as a preview deployment. Remove it to open the app's newest Revyl build.
         url: '${url ?? 'https://example.com'}',
       },
       viewport: { width: 1280, height: 800 },
     },`
-      : `    {
+      : `    ${platform}: {
       platform: '${platform}',
       app: {
-        // The Revyl app to install: each run installs its newest build. Use buildId to pin one build.
+        // The Revyl app to install: each session installs its newest build. Use buildId to pin one build.
         appId: ${app},
       },
     },`;
   return `import { defineConfig } from '@revyl/verify';
 
 export default defineConfig({
-  targets: [
+  targets: {
 ${target}
-  ],
+  },
 });
 `;
 }
 
-function testTemplate(platform: Platform): string {
-  if (platform === 'web') {
-    return `import { expect, test } from '@revyl/verify';
+function scriptTemplate(platform: Platform): string {
+  const steps =
+    platform === 'web'
+      ? `await session.instruction('Follow the link on the page');
+await session.validation('A page about domains reserved for documentation is shown');`
+      : `// Describe what a person would do and see, for example:
+// await session.instruction('Sign in as the demo user and open Settings');
+await session.validation('The app has opened and shows its first screen without an error');`;
+  return `import { open } from '@revyl/verify';
 
-test('the home page loads', async ({ screen }) => {
-  // On web, screen locators find elements with Revyl's AI grounding, so describe what a person sees.
-  await expect(screen.getByText('Example Domain')).toBeVisible();
-  await screen.getByRole('link', { name: 'More information' }).tap();
-  await expect(screen.locate('a page about IANA-managed reserved domains')).toBeVisible();
-});
-`;
-  }
-  return `import { expect, test } from '@revyl/verify';
-
-test('the app opens to its first screen', async ({ screen, agent }) => {
-  // Exact checks read the app's native UI tree: replace this with text from your first screen.
-  await expect(screen.getByRole('button').first()).toBeVisible();
-
-  // Natural-language steps run Revyl's agent on the device.
-  await agent.assert('The app has finished loading and no error message is shown');
-});
+// Opens the "${platform}" target from verify.config.ts on Revyl and prints a link to watch it live.
+// A failed instruction or validation throws, so this script exits non-zero, and Verify closes the session on the way out.
+const session = await open('${platform}');
+${steps}
+await session.screenshot({ path: '.verify/example.png' });
+await session.close();
 `;
 }

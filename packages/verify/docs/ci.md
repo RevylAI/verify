@@ -1,54 +1,70 @@
-# Running in CI
+# CI and test runners
 
-Verify needs nothing on the CI machine but Node.js and an API key: the browsers and devices run in Revyl's cloud.
+Verify is a library, so it runs wherever your code runs. The browsers and devices run in Revyl's cloud, so the machine needs nothing but Node.js and an API key.
 
-## GitHub Actions
+## A script in GitHub Actions
 
-Add `REVYL_API_KEY` as a repository secret, then:
+Add `REVYL_API_KEY` as a repository secret, then run your script with `node`. A failed instruction or validation makes the script exit non-zero, which fails the job.
 
 ```yaml
-name: E2E
+name: Verify
 on:
   pull_request:
 
 jobs:
-  e2e:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
-      - run: npx verify run
+      - run: node verify/checkout.ts
         env:
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: verify-results
+          name: verify-screenshots
           path: .verify/
 ```
 
-To test each pull request's preview deployment on web, read the URL from the environment in `verify.config.ts`:
+To open each pull request's preview deployment on web, read the URL from the environment in `verify.config.ts`:
 
 ```ts
-{ platform: 'web', app: { appId: process.env.REVYL_APP_ID!, url: process.env.PREVIEW_URL!, branch: process.env.GITHUB_HEAD_REF } }
+web: { platform: 'web', app: { appId: process.env.REVYL_APP_ID!, url: process.env.PREVIEW_URL!, branch: process.env.GITHUB_HEAD_REF } }
 ```
 
-## What CI changes
+## Inside a test runner
 
-When `CI` is set, failed tests are retried once by default and `test.only` fails the run. Set `retries` in the config or pass `--retries` to change the retry count.
+Verify has no test runner of its own. Call it from the one you already use, and close the session in `finally` or an `after` hook: test runners handle errors and shutdown themselves, so Verify's automatic cleanup steps aside for them.
 
-## Results
+### node:test
 
-- The exit code is `0` when every test passed (including flaky passes), `1` when a test failed or a test file did not load, `2` for usage, config, and authentication problems, and `130` when interrupted.
-- `.verify/results.json` has every test, attempt, step, error code, session link, and screenshot path. `schemaVersion` is `1`.
-- `.verify/artifacts/` holds failure screenshots and any `app.screenshot()` files.
-- Each failure in the terminal output links to the Revyl session, where the recording of the run stays available.
+```ts
+import { test } from 'node:test';
+import { open } from '@revyl/verify';
+
+test('a shopper can check out', async () => {
+  const session = await open('ios');
+  try {
+    await session.instruction('Add the first product to the cart and check out with the saved card');
+    await session.validation('An order confirmation with an order number is shown');
+  } finally {
+    await session.close();
+  }
+});
+```
+
+### Vitest, Jest, or Playwright Test
+
+The same code works with `import { test } from 'vitest'`, Jest's global `test`, or `import { test } from '@playwright/test'`. Give the test a timeout long enough for a session to start and the steps to run, for example `test('…', async () => { … }, 600_000)` in Vitest and Jest, or `test.setTimeout(600_000)` in Playwright Test.
+
+A thrown `VerifyError` fails the test with its code, Revyl's reason, and the session link.
 
 ## Cost and parallelism
 
-Each worker holds one Revyl session per target while it has tests for that target, and releases it as soon as the target's tests are done. `workers: 2` with two targets can hold up to four sessions at once. Verify stops every session it started when the run ends, fails, or is cancelled; a session that loses its runner stops itself after `idleTimeoutSeconds`.
+Each `open()` holds one Revyl session until `close()`. Sessions run in parallel when you open several at once, so close each one as soon as you are done with it. A session that loses its process stops itself after `idleTimeoutSeconds` (10 minutes by default).

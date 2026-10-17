@@ -5,7 +5,8 @@
   "description": "Verify example: the built-in Settings app on iOS and Android",
   "type": "module",
   "scripts": {
-    "test": "verify run",
+    "ios": "node verify/about.ts ios",
+    "android": "node verify/about.ts android",
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {

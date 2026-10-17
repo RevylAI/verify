@@ -6,12 +6,13 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
+    "erasableSyntaxOnly": true,
     "types": [
       "node"
     ]
   },
   "include": [
     "verify.config.ts",
-    "tests"
+    "verify"
   ]
 }

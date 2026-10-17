@@ -9,6 +9,7 @@ const required = [
   'dist/cli/main.js',
   'docs/README.md',
   'docs/agents.md',
+  'docs/api.md',
   'docs/getting-started.md',
   'docs/llms.txt',
 ];

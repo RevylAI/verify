@@ -1,46 +1,32 @@
 # For coding agents
 
-This page is for AI coding agents (Claude Code, Cursor, Codex, and others) that write or fix Verify tests. The rest of the docs in this folder describe the API in full; this page is the workflow.
+This page is for AI coding agents (Claude Code, Cursor, Codex, and others) that use Verify to check an app on a real browser or device. The rest of this folder describes the API in full; this page is the workflow.
 
 ## Workflow
 
-1. Read `verify.config.ts` to learn the targets and their platforms. A test runs on every target unless it passes `{ targets: [...] }`.
-2. Write tests in files matching the config's `tests` glob (by default `tests/**/*.verify.ts`). Import only from `@revyl/verify`.
-3. Check that the test files load without starting any session or needing credentials:
-   ```bash
-   npx verify run --list
+1. Read `verify.config.ts` to learn the target names and their platforms. If there is none, run `npx @revyl/verify init --platform <web|ios|android> --app-id <id>`, or pass a target object to `open()`.
+2. Check the credentials once with `npx verify whoami`. It starts no session.
+3. Write a short script, or extend an existing one, that opens one target, runs the steps you need, and closes:
+   ```ts
+   import { open } from '@revyl/verify';
+
+   const session = await open('ios');
+   await session.instruction('Sign in as the demo user');
+   await session.validation('The dashboard shows at least one project card');
+   await session.screenshot({ path: '.verify/dashboard.png' });
+   await session.close();
    ```
-4. Run one file on one target while iterating, because every run starts real cloud sessions:
-   ```bash
-   npx verify run tests/checkout.verify.ts --target ios
-   ```
-5. Read `.verify/results.json` rather than scraping terminal output. For each failed test, look at `attempts[].error.code`, `attempts[].error.message`, the failed entry in `attempts[].steps`, `attempts[].viewerUrl`, and the screenshot in `attempts[].attachments`.
-6. Look at the failure screenshot before changing the test. The error message for `LOCATOR_NOT_FOUND` on mobile lists the text that was on screen.
+4. Run it with `node path/to/script.ts`. Share the session link from the first `[verify]` line with the user, so they can watch.
+5. Read the outcome from the exit code and stderr. Each step prints `✓` or `✗` with its text; a failure prints `CODE: message`, ending with the session link. Look at any screenshot you saved before changing the script or the app.
 
 ## Rules
 
-- Prefer exact locators (`getByText` with `exact: true`, `getByTestId`, `getByRole` with a name) on iOS and Android. They are deterministic and cost no model calls.
-- Use `agent.act` for multi-step flows that would be brittle as taps, `agent.assert` for visual or semantic checks, and `agent.extract` to read values. Every agent call runs the model again on every run; nothing is cached or replayed.
-- `agent.extract` returns a string. Revyl does not carry values between agent steps, so keep the value in a variable and interpolate it into later steps yourself.
-- Never add `app.wait(ms)` to fix timing. Use `expect(locator).toBeVisible()` or `locator.waitFor()`, which wait only as long as needed.
-- On web, locators are AI-grounded. Write descriptions a person would understand, and do not use `getByTestId`, `nth()`, or regular expressions there. Use `agent.assert` for text and state checks on web.
-- Do not catch `VerifyError` to make a test pass. A `NOT_AVAILABLE_ON_PLATFORM` error means the call needs a different approach on that platform; restrict the test with `{ targets }` or use the alternative named in the message.
-- Leave `test.only` out of committed code; CI rejects it.
-- Do not put secrets in tests or config. Credentials come from `REVYL_API_KEY` or a Revyl CLI login; web sign-in uses the **name** of a Revyl organization secret.
-- Each `verify run` starts paid cloud sessions. Use `--list`, file filters, and `--target` to keep runs small, and do not loop a full suite to probe a fix.
-
-## A good test
-
-```ts
-import { expect, test } from '@revyl/verify';
-
-test.describe('sign in', () => {
-  test('a returning user lands on their dashboard', async ({ screen, agent }) => {
-    await screen.getByTestId('email').fill('demo@example.com');
-    await screen.getByTestId('password').fill(process.env.DEMO_PASSWORD!);
-    await screen.getByRole('button', { name: 'Sign in', exact: true }).tap();
-    await expect(screen.getByText('Dashboard')).toBeVisible({ timeout: 20_000 });
-    await agent.assert('The dashboard shows at least one project card');
-  });
-});
-```
+- Write steps the way you would brief a person: what to do, or what should be true, in one sentence. Name visible things ("the blue Save button in the footer"), not implementation details.
+- Use `instruction` for doing and `validation` for checking. Do not ask an instruction to check something, or a validation to change anything.
+- Prefer several small steps to one long one. Small steps fail with clearer reasons and time out less.
+- Each step stands alone: Revyl does not carry values from one step to the next. Put everything a step needs into its text.
+- Every step runs Revyl's agent again; nothing is cached or replayed. Do not rerun a whole script to probe one step.
+- Await each step. Two steps at once on one session throw `INVALID_ARGUMENT`.
+- Do not catch `VerifyError` to make a check pass. A `NOT_AVAILABLE_ON_PLATFORM` error means Revyl does not offer the call on that platform yet; see [web.md](web.md).
+- Always close what you open. Each open session is a paid cloud browser or device.
+- Never put secrets in scripts or config. Credentials come from `REVYL_API_KEY` or a Revyl CLI login; web sign-in uses the **name** of a Revyl organization secret.

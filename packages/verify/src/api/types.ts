@@ -111,28 +111,15 @@ export interface WorkerActionResult {
   success: boolean;
   action?: string;
   error?: string | null;
-  found?: boolean | null;
-  execution_uncertain?: boolean;
-  screen_token?: string | null;
 }
 
-export interface ResolveTargetResult {
-  found: boolean;
-  x: number;
-  y: number;
-  error?: string | null;
-  screen_token?: string | null;
-}
-
-export type LiveStepType = 'instruction' | 'validation' | 'extract';
+export type LiveStepType = 'instruction' | 'validation';
 
 export interface LiveStepOutput {
   status?: 'success' | 'warning' | 'failed' | null;
   status_reason?: string | null;
   validation_result?: boolean | null;
   reasoning?: string | null;
-  extracted_data?: { information?: string | null; reasoning?: string | null } | null;
-  agent_description?: string | null;
 }
 
 export interface LiveStepResult {
@@ -152,11 +139,4 @@ export interface StepStatus {
   step_id: string;
   status: 'running' | 'completed' | 'failed' | 'cancelled' | string;
   result?: LiveStepResult | null;
-}
-
-export interface WebTab {
-  tab_id: string;
-  active: boolean;
-  url_origin: string;
-  route_pattern: string;
 }
