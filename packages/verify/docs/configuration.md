@@ -58,8 +58,8 @@ Give exactly one of `appId`, `buildId`, `artifactUrl`, or `bundleId`.
 | Variable | Meaning |
 | --- | --- |
 | `REVYL_API_KEY` | API key. Takes precedence over a Revyl CLI login. |
-| `REVYL_BACKEND_URL` | API origin. Defaults to `https://backend.revyl.ai`. |
-| `REVYL_APP_URL` | Web app origin used in session links. Defaults to `https://app.revyl.ai`. |
+| `REVYL_BACKEND_URL` | API origin. Defaults to `https://backend.revyl.ai`. Revyl staging is `https://backend-staging.revyl.ai`. |
+| `REVYL_APP_URL` | Web app origin used in session links. Defaults to `https://app.revyl.ai`. Revyl staging is `https://staging.revyl.ai`. |
 
 ## Command line
 

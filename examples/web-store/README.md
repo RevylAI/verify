@@ -9,4 +9,4 @@ npm install
 node verify/checkout.ts
 ```
 
-Revyl's live web sessions do not run instruction and validation steps yet. Until they do, this script opens the store, saves `.verify/sign-in.png`, and then stops at the first step with `NOT_AVAILABLE_ON_PLATFORM`. It needs no change once Revyl enables steps on web. See [web.md](../../packages/verify/docs/web.md).
+Instruction and validation steps on web run on Revyl staging now and reach Revyl production when Revyl promotes staging to main. To run the whole script on staging, set `REVYL_BACKEND_URL`, `REVYL_APP_URL`, and a staging `REVYL_API_KEY` as [web.md](../../packages/verify/docs/web.md) shows, with `REVYL_WEB_APP_ID` naming a web app in your staging organization. Against a Revyl backend without steps on web, the script opens the store, saves `.verify/sign-in.png`, and stops at the first step with `NOT_AVAILABLE_ON_PLATFORM`.

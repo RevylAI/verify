@@ -28,6 +28,16 @@ signIn: { path: '/__test/sign-in', secret: 'E2E_SIGN_IN_TOKEN', persona: 'admin'
 
 ## Steps on web
 
-`instruction` and `validation` use the same Revyl endpoint on web as on iOS and Android. Revyl's live web sessions do not run these steps yet. They answer with `step_output_not_available`, which Verify reports as `NOT_AVAILABLE_ON_PLATFORM`. When Revyl enables steps on web, the same code starts working with no change to Verify or to your scripts.
+`instruction` and `validation` use the same Revyl endpoints on web as on iOS and Android, and each step shows up in the session's report.
 
-`open`, `screenshot`, `viewerUrl`, and `close` work on web today.
+Steps on web run on Revyl staging now, and reach Revyl production when Revyl promotes staging to main. To run them on staging, point Verify at it and use an API key from your Revyl staging organization:
+
+```bash
+export REVYL_BACKEND_URL=https://backend-staging.revyl.ai
+export REVYL_APP_URL=https://staging.revyl.ai
+export REVYL_API_KEY=...   # a key from your Revyl staging organization
+```
+
+A Revyl backend that does not run steps on web yet answers with `step_output_not_available`, which Verify reports as `NOT_AVAILABLE_ON_PLATFORM`. The same script works there with no change once it does. `open`, `screenshot`, `viewerUrl`, and `close` work on web everywhere.
+
+Revyl runs one step at a time on a session. A step sent while another is still running, for example one that just timed out and is still being cancelled, fails with `SESSION_BUSY`.

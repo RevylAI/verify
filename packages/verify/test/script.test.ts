@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { APP_ID, FakeRevyl, fakeAndroid, json, stepResult } from './helpers/fake-revyl.js';
+import { APP_ID, FakeRevyl, fakeAndroid, json, verdict } from './helpers/fake-revyl.js';
 
 const entry = fileURLToPath(new URL('../src/index.ts', import.meta.url));
 const jiti = pathToFileURL(createRequire(import.meta.url).resolve('jiti')).href;
@@ -54,9 +54,7 @@ async function runScript(
 const target = `{ platform: 'android', app: { appId: '${APP_ID}' } }`;
 
 function stepOutcome(passed: boolean): FakeRevyl {
-  return fakeAndroid(new FakeRevyl()).on('POST', /execute_step$/, () =>
-    json(stepResult({ status: passed ? 'success' : 'failed', validation_result: passed, status_reason: passed ? 'ok' : 'The cart is not empty' })),
-  );
+  return fakeAndroid(new FakeRevyl()).on('POST', /execute_step$/, () => json(verdict(passed, passed ? 'ok' : 'The cart is not empty')));
 }
 
 describe('a script using Verify', () => {
@@ -101,7 +99,7 @@ await session.close();`,
   it('closes the session on Ctrl+C during a step and exits 130', async () => {
     const fake = fakeAndroid(new FakeRevyl())
       .on('POST', /execute_step$/, () => json({ step_id: 'long', status: 'accepted' }, 202))
-      .on('GET', /step_status\/long$/, () => json({ step_id: 'long', status: 'running' }));
+      .on('GET', /step_status\/long$/, () => json({ step_id: 'long', status: 'running', result: null }));
     const run = await runScript(fake, `const session = await open(${target});\nawait session.instruction('Browse for a while');`, {
       interruptWhen: () => fake.calls('GET', /step_status\/long$/).length > 0,
     });

@@ -128,6 +128,34 @@ export function fakeWeb(fake: FakeRevyl): FakeRevyl {
     .on('POST', STOP, () => json({ success: true, request_accepted: true, session_id: 'x', status: 'stopping', message: '' }));
 }
 
-export function stepResult(output: Record<string, unknown>, success = true): Record<string, unknown> {
-  return { success, step_type: 'instruction', step_id: 'step-1', session_id: SESSION_ID, step_output: output };
+/** A LiveStepResponse as Revyl returns it. step_output is the agent's StepExecutionResult. */
+export function stepResult(output: Record<string, unknown>, success = true, stepType = 'instruction'): Record<string, unknown> {
+  return {
+    success,
+    step_type: stepType,
+    step_id: 'step-1',
+    workflow_run_id: RUN_ID,
+    session_id: SESSION_ID,
+    execution_id: null,
+    report_id: null,
+    step_output: output,
+  };
+}
+
+/** A validation that ran: Revyl reports status 'success' and puts the verdict in validation_result. */
+export function verdict(holds: boolean, reason: string): Record<string, unknown> {
+  return stepResult({ action_type: 'validation', status: 'success', status_reason: reason, validation_result: holds }, true, 'validation');
+}
+
+/** The busy refusal mobile workers and the web live-step adapter both send while a step is queued or running. */
+export const STEP_BUSY = { detail: 'A step is already executing. Wait for it to complete before sending another.' };
+
+/** The async live-step contract: execute_step answers 202, then step_status reports running once and then the terminal status. */
+export function fakeStep(fake: FakeRevyl, terminal: { status: 'completed' | 'failed' | 'cancelled'; result: Record<string, unknown> }): FakeRevyl {
+  let polls = 0;
+  return fake
+    .on('POST', /execute_step$/, () => json({ step_id: 'step-1', status: 'accepted' }, 202))
+    .on('GET', /step_status\/step-1$/, () =>
+      json(++polls < 2 ? { step_id: 'step-1', status: 'running', result: null } : { step_id: 'step-1', ...terminal }),
+    );
 }

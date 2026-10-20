@@ -7,7 +7,7 @@
 - [Getting started](getting-started.md): install, authenticate, init, run a script
 - [API](api.md): open(), session.instruction(), session.validation(), session.screenshot(), session.close()
 - [Configuration](configuration.md): verify.config.ts targets, environment variables, the init and whoami commands
-- [Web](web.md): Revyl web sessions, URLs and builds, sign-in, step availability on web
+- [Web](web.md): Revyl web sessions, URLs and builds, sign-in, steps on web and Revyl staging
 - [Mobile](mobile.md): iOS and Android devices and installing apps
 - [CI and test runners](ci.md): GitHub Actions, node:test, Vitest, Jest, Playwright Test
 - [Errors](errors.md): every error code and what to do about it

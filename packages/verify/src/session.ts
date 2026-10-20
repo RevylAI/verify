@@ -32,7 +32,8 @@ const STEP_POLL_MAX_MS = 5_000;
 const STEP_CANCEL_TIMEOUT_MS = 5_000;
 const MAX_STEP_TEXT_LENGTH = 4_000;
 const ENDED_STATUSES = new Set(['completed', 'failed', 'cancelled', 'timeout', 'stopping']);
-const STEP_TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
+const STEP_TERMINAL_STATUSES = new Set(['completed', 'failed']);
+const SESSION_NOT_RUNNING = /session is (not running|not active|stopping)/i;
 const UNCERTAIN_ERROR_CODES = new Set(['request_timeout', 'connection_closed', 'protocol_error']);
 
 export type StepType = LiveStepType;
@@ -168,7 +169,10 @@ export class Session {
     return result;
   }
 
-  /** Asks Revyl's agent whether something holds on screen, such as "the cart shows 2 items". Throws VALIDATION_FAILED when it does not, unless soft is set. */
+  /**
+   * Asks Revyl's agent whether something holds on screen, such as "the cart shows 2 items". Throws VALIDATION_FAILED when it does not,
+   * unless soft is set, and STEP_FAILED when Revyl could not reach a verdict.
+   */
   async validation(text: string, options: ValidationOptions = {}): Promise<StepResult> {
     const result = await this.step('validation', text, options.timeout);
     if (!result.passed && !options.soft) {
@@ -224,11 +228,12 @@ export class Session {
     try {
       const outcome = await this.runStep(type, description, timeoutMs);
       const output = outcome.step_output ?? {};
-      const passed =
-        type === 'validation'
-          ? (output.validation_result ?? (outcome.success && output.status === 'success')) === true
-          : outcome.success === true && output.status !== 'failed';
       const reason = output.status_reason ?? output.reasoning ?? undefined;
+      if (type === 'validation' && (outcome.success !== true || typeof output.validation_result !== 'boolean')) {
+        const why = outcome.success === true ? 'Revyl returned no verdict.' : sentence(reason);
+        throw new VerifyError('STEP_FAILED', `Validation did not reach a verdict: "${description}". ${why} See ${this.viewerUrl}`);
+      }
+      const passed = type === 'validation' ? output.validation_result === true : outcome.success === true && output.status !== 'failed';
       const result: StepResult = { type, text: description, passed, ...(reason ? { reason } : {}), durationMs: Date.now() - startedAt };
       this.steps.push(result);
       this.log(`${passed ? '✓' : '✗'} ${type} "${description}" (${formatDuration(result.durationMs)})${!passed && reason ? `: ${reason}` : ''}`);
@@ -268,6 +273,9 @@ export class Session {
           'step_status',
         );
         if (status.status === 'running') continue;
+        if (status.status === 'cancelled') {
+          throw new VerifyError('STEP_FAILED', `The ${type} was cancelled on Revyl before it finished: "${description}". See ${this.viewerUrl}`);
+        }
         if (!STEP_TERMINAL_STATUSES.has(status.status) || !status.result) {
           throw new VerifyError('API_ERROR', `Step ${stepId} reported status ${status.status} without a result Verify can read.`);
         }
@@ -321,8 +329,7 @@ export class Session {
       if (baseAction === 'execute_step' || baseAction === 'step_status') {
         return new VerifyError(
           'NOT_AVAILABLE_ON_PLATFORM',
-          `Revyl's ${this.platform} sessions do not run instruction and validation steps yet (${code ?? 'HTTP 501'}). ` +
-            'They will work here with no change to your code once Revyl enables them.',
+          `The Revyl backend at ${this.client.backendUrl} does not run instruction and validation steps on ${this.platform} sessions (${code ?? 'HTTP 501'}).`,
         );
       }
       return new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `${baseAction} is not available on ${this.platform} sessions (${reason}).`);
@@ -331,7 +338,10 @@ export class Session {
       return new VerifyError('SESSION_ENDED', `The ${this.target} session is no longer reachable (${reason}). See ${this.viewerUrl}`);
     }
     if (response.status === 409) {
-      return new VerifyError('ACTION_FAILED', `The ${this.target} session is busy and refused ${baseAction}: ${reason}`);
+      if (SESSION_NOT_RUNNING.test(reason)) {
+        return new VerifyError('SESSION_ENDED', `The ${this.target} session is no longer running (${reason}). See ${this.viewerUrl}`);
+      }
+      return new VerifyError('SESSION_BUSY', `The ${this.target} session is busy and refused ${baseAction}: ${reason}`);
     }
     if (method === 'POST' && (isExecutionUncertain(response) || (code && UNCERTAIN_ERROR_CODES.has(code)))) {
       return new VerifyError(

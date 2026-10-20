@@ -55,10 +55,10 @@ Every error is a `VerifyError` with a stable code, Revyl's reason, and the sessi
 | --- | --- | --- | --- |
 | Runs on | Revyl cloud browser | Revyl iOS simulator | Revyl Android emulator |
 | Opens | A public URL, or a web build in Revyl | A build in Revyl, a build URL, or an installed app | A build in Revyl, a build URL, or an installed app |
-| `instruction`, `validation` | When Revyl enables steps on web sessions | Yes | Yes |
+| `instruction`, `validation` | On Revyl staging; in production once Revyl promotes staging to main | Yes | Yes |
 | `screenshot`, `viewerUrl` | Yes | Yes | Yes |
 
-Steps on web already go through the same Revyl API as on mobile. Revyl answers them with `NOT_AVAILABLE_ON_PLATFORM` today, and they will start working without changes to Verify or your code once Revyl turns them on.
+Steps on web go through the same Revyl API as on mobile. They run on Revyl staging now: set `REVYL_BACKEND_URL` and `REVYL_APP_URL` to point Verify at it, as [web.md](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/web.md) shows. A Revyl backend that does not run steps on web yet answers with `NOT_AVAILABLE_ON_PLATFORM`, and the same code works there once it does.
 
 Each step runs Revyl's agent on the live session every time. Verify does not cache or replay steps, and Revyl does not carry values from one step to the next.
 

@@ -118,6 +118,7 @@ export type LiveStepType = 'instruction' | 'validation';
 export interface LiveStepOutput {
   status?: 'success' | 'warning' | 'failed' | null;
   status_reason?: string | null;
+  /** The verdict of a validation step. Revyl reports a validation that ran as status 'success', whatever its verdict. */
   validation_result?: boolean | null;
   reasoning?: string | null;
 }
@@ -126,10 +127,12 @@ export interface LiveStepResult {
   success: boolean;
   step_type: LiveStepType | string;
   step_id: string;
+  workflow_run_id?: string | null;
   session_id?: string | null;
   step_output: LiveStepOutput;
 }
 
+/** HTTP 202 from execute_step: the step runs asynchronously; poll step_status/{step_id}. */
 export interface StepAccepted {
   step_id: string;
   status: 'accepted';
@@ -137,6 +140,7 @@ export interface StepAccepted {
 
 export interface StepStatus {
   step_id: string;
-  status: 'running' | 'completed' | 'failed' | 'cancelled' | string;
+  status: 'running' | 'completed' | 'failed' | 'cancelled';
+  /** Present once the status is terminal. */
   result?: LiveStepResult | null;
 }

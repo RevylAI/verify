@@ -4,7 +4,21 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { validateTarget } from '../src/config.js';
 import { Session } from '../src/session.js';
-import { APP_ID, BUILD_ID, FakeRevyl, RUN_ID, SESSION_ID, fakeAndroid, fakeWeb, json, png, stepResult } from './helpers/fake-revyl.js';
+import {
+  APP_ID,
+  BUILD_ID,
+  FakeRevyl,
+  RUN_ID,
+  SESSION_ID,
+  STEP_BUSY,
+  fakeAndroid,
+  fakeStep,
+  fakeWeb,
+  json,
+  png,
+  stepResult,
+  verdict,
+} from './helpers/fake-revyl.js';
 
 const started: Session[] = [];
 
@@ -99,25 +113,14 @@ describe('instruction and validation', () => {
   });
 
   it('polls an accepted step until it completes', async () => {
-    let polls = 0;
-    const fake = fakeAndroid(new FakeRevyl())
-      .on('POST', /execute_step$/, () => json({ step_id: 'step-9', status: 'accepted' }, 202))
-      .on('GET', /step_status\/step-9$/, () =>
-        json(
-          ++polls < 2
-            ? { step_id: 'step-9', status: 'running' }
-            : { step_id: 'step-9', status: 'completed', result: stepResult({ status: 'success', validation_result: true }) },
-        ),
-      );
+    const fake = fakeStep(fakeAndroid(new FakeRevyl()), { status: 'completed', result: verdict(true, 'The cart is empty.') });
     const session = await start(fake, android);
-    expect((await session.validation('The cart is empty')).passed).toBe(true);
-    expect(polls).toBe(2);
+    expect(await session.validation('The cart is empty')).toMatchObject({ passed: true, reason: 'The cart is empty.' });
+    expect(fake.calls('GET', /step_status\/step-1$/)).toHaveLength(2);
   });
 
   it('throws VALIDATION_FAILED when the validation does not hold, or returns the result when soft', async () => {
-    const fake = fakeAndroid(new FakeRevyl()).on('POST', /execute_step$/, () =>
-      json(stepResult({ status: 'failed', validation_result: false, status_reason: 'The cart shows 1 item, not 2.' })),
-    );
+    const fake = fakeAndroid(new FakeRevyl()).on('POST', /execute_step$/, () => json(verdict(false, 'The cart shows 1 item, not 2.')));
     const lines: string[] = [];
     const session = await start(fake, android, lines);
     await expect(session.validation('The cart shows 2 items')).rejects.toMatchObject({
@@ -133,31 +136,78 @@ describe('instruction and validation', () => {
   it('cancels a step on Revyl when it runs past its timeout', async () => {
     const fake = fakeAndroid(new FakeRevyl())
       .on('POST', /execute_step$/, () => json({ step_id: 'slow', status: 'accepted' }, 202))
-      .on('GET', /step_status\/slow$/, () => json({ step_id: 'slow', status: 'running' }))
-      .on('POST', /step_cancel\/slow$/, () => json({ step_id: 'slow', status: 'cancelled' }));
+      .on('GET', /step_status\/slow$/, () => json({ step_id: 'slow', status: 'running', result: null }))
+      .on('POST', /step_cancel\/slow$/, () => json({ step_id: 'slow', status: 'cancelling' }, 202));
     const session = await start(fake, android);
     await expect(session.instruction('Wait forever', { timeout: 1_200 })).rejects.toMatchObject({ code: 'TIMEOUT' });
     expect(fake.calls('POST', /step_cancel\/slow$/)).toHaveLength(1);
   });
 
-  it('sends web steps through the same endpoint and reports 501 as a typed platform error', async () => {
+  it('runs web steps through the same endpoint as mobile', async () => {
+    const fake = fakeStep(fakeWeb(new FakeRevyl()), { status: 'completed', result: verdict(true, 'The product list is visible.') });
+    const session = await start(fake, web);
+    expect(await session.validation('The page loaded')).toMatchObject({ passed: true, reason: 'The product list is visible.' });
+    expect(fake.calls('POST', /device-proxy\/run-1\/execute_step$/)[0]?.body).toEqual({
+      step_type: 'validation',
+      step_description: 'The page loaded',
+      session_id: session.id,
+      workflow_run_id: RUN_ID,
+    });
+  });
+
+  it('reports a backend that does not run steps on web as a typed platform error', async () => {
     const fake = fakeWeb(new FakeRevyl()).on('POST', /execute_step$/, () => json({ error: 'step_output_not_available' }, 501));
     const session = await start(fake, web);
     await expect(session.validation('The page loaded')).rejects.toMatchObject({
       code: 'NOT_AVAILABLE_ON_PLATFORM',
-      message: expect.stringContaining('step_output_not_available'),
+      message: 'The Revyl backend at https://revyl.test does not run instruction and validation steps on web sessions (step_output_not_available).',
     });
-    expect(fake.calls('POST', /device-proxy\/run-1\/execute_step$/)).toHaveLength(1);
   });
 
-  it('runs web steps with no change once Revyl accepts them asynchronously', async () => {
-    const fake = fakeWeb(new FakeRevyl())
-      .on('POST', /execute_step$/, () => json({ step_id: 'web-1', status: 'accepted' }, 202))
-      .on('GET', /step_status\/web-1$/, () =>
-        json({ step_id: 'web-1', status: 'completed', result: stepResult({ status: 'success', validation_result: true }) }),
-      );
+  it('throws STEP_FAILED, even when soft, when a validation fails to run', async () => {
+    const failed = stepResult({ action_type: 'validation', status: 'failed', status_reason: 'Live step ended with status: failed' }, false, 'validation');
+    const fake = fakeStep(fakeWeb(new FakeRevyl()), { status: 'failed', result: failed });
     const session = await start(fake, web);
-    expect((await session.validation('The page loaded')).passed).toBe(true);
+    await expect(session.validation('The cart is empty', { soft: true })).rejects.toMatchObject({
+      code: 'STEP_FAILED',
+      message: expect.stringContaining('Live step ended with status: failed.'),
+    });
+    expect(session.steps).toEqual([]);
+  });
+
+  it('throws STEP_FAILED when a validation completes without a verdict', async () => {
+    const fake = fakeAndroid(new FakeRevyl()).on('POST', /execute_step$/, () => json(stepResult({ status: 'success' }, true, 'validation')));
+    const session = await start(fake, android);
+    await expect(session.validation('The cart is empty')).rejects.toMatchObject({
+      code: 'STEP_FAILED',
+      message: expect.stringContaining('Revyl returned no verdict.'),
+    });
+  });
+
+  it('throws STEP_FAILED when the step is cancelled on Revyl', async () => {
+    const cancelled = stepResult({ status: 'failed', status_reason: 'Cancelled by user', metadata: { cancelled: true } }, false);
+    const fake = fakeStep(fakeWeb(new FakeRevyl()), { status: 'cancelled', result: cancelled });
+    const session = await start(fake, web);
+    await expect(session.instruction('Open the cart')).rejects.toMatchObject({
+      code: 'STEP_FAILED',
+      message: expect.stringContaining('cancelled on Revyl'),
+    });
+  });
+
+  it('reports a session that is running another step as SESSION_BUSY, and one that stopped as SESSION_ENDED', async () => {
+    const fake = fakeWeb(new FakeRevyl()).on('POST', /execute_step$/, () => json(STEP_BUSY, 409));
+    const session = await start(fake, web);
+    await expect(session.instruction('Open the cart')).rejects.toMatchObject({
+      code: 'SESSION_BUSY',
+      message: expect.stringContaining('A step is already executing'),
+    });
+    fake.on('POST', /execute_step$/, () => json({ detail: 'A running Web test already owns this session' }, 409));
+    await expect(session.instruction('Open the cart')).rejects.toMatchObject({ code: 'SESSION_BUSY' });
+    fake.on('POST', /execute_step$/, () => json({ detail: 'Web session is not running' }, 409));
+    await expect(session.instruction('Open the cart')).rejects.toMatchObject({
+      code: 'SESSION_ENDED',
+      message: expect.stringContaining('Web session is not running'),
+    });
   });
 
   it('does not repeat a step whose outcome is uncertain', async () => {

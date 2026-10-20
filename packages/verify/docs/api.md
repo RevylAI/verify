@@ -24,7 +24,7 @@ const ios = await open({ platform: 'ios', app: { appId: '…' } });    // or a t
 Asks Revyl's agent to do something in the app, described the way you would tell a person: `'Sign in as the demo user and open Settings'`. The agent looks at the screen and acts until it is done or decides it cannot.
 
 - Resolves with a `StepResult` when the agent finishes.
-- Throws `INSTRUCTION_FAILED`, with Revyl's reason and the session link, when it cannot.
+- Throws `INSTRUCTION_FAILED`, with Revyl's reason and the session link, when it cannot, and `STEP_FAILED` when the step is cancelled on Revyl.
 - `options.timeout`: milliseconds before the step is cancelled on Revyl (`TIMEOUT`). Defaults to `stepTimeout` in the config, or 180000.
 
 ## session.validation(text, options?)
@@ -33,7 +33,8 @@ Asks Revyl's agent whether something holds on screen right now: `'The cart shows
 
 - Resolves with a `StepResult` whose `passed` is `true` when it holds.
 - Throws `VALIDATION_FAILED`, with Revyl's reason and the session link, when it does not. This is what makes a plain script exit non-zero.
-- `options.soft: true` returns the failed result instead of throwing, for scripts that want to collect several outcomes.
+- Throws `STEP_FAILED` when Revyl cannot reach a verdict, for example because the step errored or was cancelled on Revyl.
+- `options.soft: true` returns a failed result instead of throwing `VALIDATION_FAILED`, for scripts that want to collect several outcomes. It does not turn `STEP_FAILED` into a result.
 - `options.timeout`: as for `instruction`.
 
 ## StepResult

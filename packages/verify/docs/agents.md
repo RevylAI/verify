@@ -27,6 +27,6 @@ This page is for AI coding agents (Claude Code, Cursor, Codex, and others) that 
 - Each step stands alone: Revyl does not carry values from one step to the next. Put everything a step needs into its text.
 - Every step runs Revyl's agent again; nothing is cached or replayed. Do not rerun a whole script to probe one step.
 - Await each step. Two steps at once on one session throw `INVALID_ARGUMENT`.
-- Do not catch `VerifyError` to make a check pass. A `NOT_AVAILABLE_ON_PLATFORM` error means Revyl does not offer the call on that platform yet; see [web.md](web.md).
+- Do not catch `VerifyError` to make a check pass. A `NOT_AVAILABLE_ON_PLATFORM` error means the Revyl backend does not offer the call on that platform; see [web.md](web.md). A `STEP_FAILED` error means the step did not run to an outcome, not that the app is wrong.
 - Always close what you open. Each open session is a paid cloud browser or device.
 - Never put secrets in scripts or config. Credentials come from `REVYL_API_KEY` or a Revyl CLI login; web sign-in uses the **name** of a Revyl organization secret.
