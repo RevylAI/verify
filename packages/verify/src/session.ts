@@ -22,7 +22,7 @@ import type {
   WorkerHealth,
 } from './api/types.js';
 import { trackSession, untrackSession } from './cleanup.js';
-import type { ResolvedTarget } from './config.js';
+import type { ResolvedDeviceTarget } from './config.js';
 import { VerifyError, errorMessage, isVerifyError } from './errors.js';
 
 const POLL_INTERVAL_MS = 2_000;
@@ -58,13 +58,82 @@ export interface ValidationOptions extends StepOptions {
   soft?: boolean;
 }
 
+export interface OperationOptions {
+  /** Milliseconds Revyl lets the operation run on the computer, up to 300000. Defaults to 30000. */
+  timeout?: number;
+}
+
+export interface ExecOptions extends OperationOptions {
+  /** Throw COMMAND_FAILED when the command exits non-zero. Defaults to true; false returns the result instead. */
+  check?: boolean;
+  /** Bytes sent to the command's standard input. */
+  stdin?: string | Uint8Array;
+}
+
+/** The outcome of a command run on a computer. Revyl keeps the first 1 MiB of stdout and stderr together. */
+export interface ExecResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+export interface FileStat {
+  kind: 'file' | 'directory';
+  size: number;
+}
+
+/** A process a command on this computer started. Its id is Revyl's handle, not a PID. */
+export interface ComputerProcess {
+  id: string;
+  state: 'running' | 'exited';
+  exitCode?: number;
+}
+
+/**
+ * One live Revyl session: a cloud browser, an iOS or Android device, or a computer.
+ * A call the session's platform does not offer throws NOT_AVAILABLE_ON_PLATFORM.
+ */
+export interface Session {
+  readonly platform: Platform;
+  /** The target name: its key in verify.config.ts, or the platform for a target passed inline. */
+  readonly target: string;
+  /** Revyl's session id. */
+  readonly id: string;
+  /** The live view of the session in Revyl, and its recording and report once it ends. */
+  readonly viewerUrl: string;
+  /** Every instruction and validation run on this session, in order. */
+  readonly steps: StepResult[];
+  readonly closed: boolean;
+  /** Asks Revyl's agent to do something on the app. Browsers and devices only. */
+  instruction(text: string, options?: StepOptions): Promise<StepResult>;
+  /** Asks Revyl's agent whether something holds on screen. Browsers and devices only. */
+  validation(text: string, options?: ValidationOptions): Promise<StepResult>;
+  /** A PNG of the screen right now, also written to path when given. */
+  screenshot(options?: { path?: string }): Promise<Uint8Array>;
+  /** Runs a program with its arguments, not a shell line. Computers only. */
+  exec(argv: string[], options?: ExecOptions): Promise<ExecResult>;
+  /** Up to the first 1 MiB of a file, by a path relative to the computer's workspace. Computers only. */
+  readFile(path: string, options?: OperationOptions): Promise<Buffer>;
+  /** Writes up to 64 KiB to a file, by a path relative to the computer's workspace. Computers only. */
+  writeFile(path: string, data: string | Uint8Array, options?: OperationOptions): Promise<void>;
+  /** Whether a path is a file or a directory, and its size. Computers only. */
+  stat(path: string, options?: OperationOptions): Promise<FileStat>;
+  /** The processes commands on this computer started. Computers only. */
+  processes(options?: OperationOptions): Promise<ComputerProcess[]>;
+  /** Stops a process from processes(). Computers only. */
+  terminate(processId: string, options?: OperationOptions): Promise<void>;
+  /** Stops the session on Revyl. Safe to call more than once. */
+  close(): Promise<void>;
+  [Symbol.asyncDispose](): Promise<void>;
+}
+
 export interface SessionOptions {
   stepTimeout: number;
   log: ((line: string) => void) | undefined;
 }
 
-/** One live Revyl cloud browser or device session. */
-export class Session {
+/** A Revyl cloud browser or iOS or Android device. */
+export class DeviceSession implements Session {
   readonly platform: Platform;
   /** The target name: its key in verify.config.ts, or the platform for a target passed inline. */
   readonly target: string;
@@ -80,7 +149,7 @@ export class Session {
 
   private constructor(
     private readonly client: RevylClient,
-    target: ResolvedTarget,
+    target: ResolvedDeviceTarget,
     id: string,
     workflowRunId: string,
     private readonly options: SessionOptions,
@@ -92,7 +161,7 @@ export class Session {
     this.viewerUrl = sessionViewerUrl(id);
   }
 
-  static async start(client: RevylClient, target: ResolvedTarget, options: SessionOptions): Promise<Session> {
+  static async start(client: RevylClient, target: ResolvedDeviceTarget, options: SessionOptions): Promise<DeviceSession> {
     const deadline = Date.now() + target.startTimeout;
     if (target.platform === 'web') {
       const buildId = await resolveWebBuildId(client, target);
@@ -125,7 +194,7 @@ export class Session {
           `Revyl did not start the ${target.name} web session: ${response.error ?? response.message ?? 'the start was not acknowledged'}`,
         );
       }
-      const session = new Session(client, target, sessionId, response.workflow_run_id ?? '', options);
+      const session = new DeviceSession(client, target, sessionId, response.workflow_run_id ?? '', options);
       await session.untilReady(() => session.waitForWebReady(deadline));
       return session;
     }
@@ -148,7 +217,7 @@ export class Session {
         `Revyl did not start the ${target.name} device: ${response.error ?? response.message ?? 'no workflow run was returned'}`,
       );
     }
-    const session = new Session(client, target, response.session_id ?? '', response.workflow_run_id, options);
+    const session = new DeviceSession(client, target, response.session_id ?? '', response.workflow_run_id, options);
     await session.untilReady(async () => {
       await session.waitForDeviceReady(deadline);
       if (app.bundleId) await session.launch(app.bundleId);
@@ -191,6 +260,30 @@ export class Session {
       await writeFile(path, response.body);
     }
     return response.body;
+  }
+
+  exec(): Promise<ExecResult> {
+    return this.computerOnly('exec');
+  }
+
+  readFile(): Promise<Buffer> {
+    return this.computerOnly('readFile');
+  }
+
+  writeFile(): Promise<void> {
+    return this.computerOnly('writeFile');
+  }
+
+  stat(): Promise<FileStat> {
+    return this.computerOnly('stat');
+  }
+
+  processes(): Promise<ComputerProcess[]> {
+    return this.computerOnly('processes');
+  }
+
+  terminate(): Promise<void> {
+    return this.computerOnly('terminate');
   }
 
   /** Stops the session on Revyl. Safe to call more than once. */
@@ -308,6 +401,12 @@ export class Session {
     this.options.log?.(`${this.target}: ${line}`);
   }
 
+  private computerOnly(call: string): Promise<never> {
+    return Promise.reject(
+      new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `${call}() runs on computer targets (platform 'mac' or 'linux'), not on ${this.platform} sessions.`),
+    );
+  }
+
   private async worker(
     method: 'GET' | 'POST',
     action: string,
@@ -409,7 +508,7 @@ export class Session {
 
 async function resolveWebBuildId(
   client: RevylClient,
-  target: Extract<ResolvedTarget, { platform: 'web' }>,
+  target: Extract<ResolvedDeviceTarget, { platform: 'web' }>,
 ): Promise<string> {
   const { app } = target;
   if (app.buildId) return app.buildId;

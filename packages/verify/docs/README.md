@@ -5,10 +5,12 @@ These files ship inside the npm package at `node_modules/@revyl/verify/docs/`, s
 | File | Read it when you want to |
 | --- | --- |
 | [getting-started.md](getting-started.md) | Install Verify, authenticate, and run a first script |
-| [api.md](api.md) | Look up `open`, `instruction`, `validation`, `screenshot`, and `close` |
+| [api.md](api.md) | Look up session lifecycle, agent steps, screenshots, commands, files, and processes |
 | [configuration.md](configuration.md) | Look up every option in `verify.config.ts`, the environment variables, and the CLI |
 | [web.md](web.md) | Open a web app in a Revyl cloud browser |
 | [mobile.md](mobile.md) | Open an iOS or Android app on a Revyl cloud device |
+| [computers.md](computers.md) | Open a Mac computer for commands, files, processes, and screenshots |
+| [linux-computers-contract.md](linux-computers-contract.md) | Read the deferred Linux request/response contract and unconfirmed assumptions |
 | [ci.md](ci.md) | Call Verify from CI or from a test runner you already use |
 | [errors.md](errors.md) | Understand an error code and fix it |
 | [agents.md](agents.md) | Use Verify as a coding agent |

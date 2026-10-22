@@ -8,10 +8,10 @@ import { VerifyError, errorMessage, isVerifyError } from '../errors.js';
 import { VERSION } from '../version.js';
 import { initProject, validateInitAnswers, type InitAnswers } from './init.js';
 
-const HELP = `verify ${VERSION}: open Revyl cloud browsers and devices from your code, and run instruction and validation steps on them
+const HELP = `verify ${VERSION}: open Revyl cloud browsers, devices, and Mac computers from your code
 
 Usage
-  verify init [--platform web|ios|android] [--app-id <id>] [--url <https-url>] [--force]
+  verify init [--platform web|ios|android|mac] [--app-id <id>] [--url <https-url>] [--force]
       Write verify.config.ts and an example script, verify/example.ts
   verify whoami
       Check which Revyl account your credentials belong to
@@ -67,13 +67,14 @@ async function initCommand(args: string[]): Promise<number> {
   } else if (process.stdin.isTTY) {
     answers = await askInitQuestions(values['app-id'], values.url);
   } else {
-    throw new VerifyError('INVALID_ARGUMENT', 'Pass --platform web, ios, or android when not running in a terminal.');
+    throw new VerifyError('INVALID_ARGUMENT', 'Pass --platform web, ios, android, or mac when not running in a terminal.');
   }
   const result = await initProject(process.cwd(), answers, { force: values.force ?? false });
   const steps = [
     'npm install --save-dev @revyl/verify',
     "Authenticate: export REVYL_API_KEY=<key from Revyl settings>, or run 'revyl auth login'",
-    ...(answers.appId ? [] : ['Put your Revyl app id in verify.config.ts (or set REVYL_APP_ID)']),
+    ...(answers.platform === 'mac' ? ['Use a computers-enabled organization; see node_modules/@revyl/verify/docs/computers.md for staging setup'] : []),
+    ...(answers.platform === 'mac' || answers.appId ? [] : ['Put your Revyl app id in verify.config.ts (or set REVYL_APP_ID)']),
     'node verify/example.ts',
   ];
   process.stdout.write(
@@ -91,7 +92,8 @@ async function initCommand(args: string[]): Promise<number> {
 async function askInitQuestions(appId: string | undefined, url: string | undefined): Promise<InitAnswers> {
   const readline = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const platform = ((await readline.question('What do you want to open? [web/ios/android] (web): ')).trim().toLowerCase() || 'web') as Platform;
+    const platform = ((await readline.question('What do you want to open? [web/ios/android/mac] (web): ')).trim().toLowerCase() || 'web') as Platform;
+    if (platform === 'mac') return validateInitAnswers({ platform, ...(appId ? { appId } : {}), ...(url ? { url } : {}) });
     const id = appId ?? ((await readline.question('Revyl app id (Enter to fill in later): ')).trim() || undefined);
     const webUrl =
       platform === 'web' ? (url ?? ((await readline.question('HTTPS URL to open (Enter for https://example.com): ')).trim() || undefined)) : undefined;

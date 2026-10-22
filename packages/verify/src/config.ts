@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { createJiti } from 'jiti';
 import { VerifyError } from './errors.js';
-import type { MobilePlatform } from './api/types.js';
+import type { ComputerPlatform, MobilePlatform } from './api/types.js';
 
 export interface WebAppConfig {
   /** The Revyl web app this target belongs to. */
@@ -44,7 +44,13 @@ export interface MobileTargetConfig {
   idleTimeoutSeconds?: number;
 }
 
-export type TargetConfig = WebTargetConfig | MobileTargetConfig;
+/** A Revyl computer: a cloud macOS machine that runs commands and files instead of agent steps. See docs/computers.md. */
+export interface ComputerTargetConfig {
+  platform: ComputerPlatform;
+  startTimeout?: number;
+}
+
+export type TargetConfig = WebTargetConfig | MobileTargetConfig | ComputerTargetConfig;
 
 export interface VerifyConfig {
   /** Named targets that open() takes by name, such as open('web'). */
@@ -53,11 +59,11 @@ export interface VerifyConfig {
   stepTimeout?: number;
 }
 
-export type ResolvedTarget = (WebTargetConfig | MobileTargetConfig) & {
-  name: string;
-  startTimeout: number;
-  idleTimeoutSeconds: number;
-};
+type Resolved<T> = T & { name: string; startTimeout: number };
+
+export type ResolvedDeviceTarget = Resolved<(WebTargetConfig | MobileTargetConfig) & { idleTimeoutSeconds: number }>;
+export type ResolvedComputerTarget = Resolved<ComputerTargetConfig & ({ platform: 'mac' } | { platform: 'linux' })>;
+export type ResolvedTarget = ResolvedDeviceTarget | ResolvedComputerTarget;
 
 export interface ResolvedConfig {
   configFile: string;
@@ -71,7 +77,7 @@ export const DEFAULT_STEP_TIMEOUT_MS = 180_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const WEB_URL = /^https:\/\/[^/?#@\s]+(\/[^?#\s]*)?$/;
 const TARGET_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
-const PLATFORMS = ['web', 'ios', 'android'] as const;
+const PLATFORMS = ['web', 'ios', 'android', 'mac', 'linux'] as const;
 
 export function defineConfig(config: VerifyConfig): VerifyConfig {
   return config;
@@ -144,11 +150,16 @@ function parseTarget(raw: unknown, name: string, path: string, fail: Fail): Reso
   const target = asRecord(raw, path, fail);
   const platform = target.platform;
   if (typeof platform !== 'string' || !(PLATFORMS as readonly string[]).includes(platform)) {
-    fail(`${path}.platform`, "must be 'web', 'ios', or 'android'.");
+    fail(`${path}.platform`, "must be 'web', 'ios', 'android', 'mac', or 'linux'.");
+  }
+  const startTimeout = integer(target.startTimeout, `${path}.startTimeout`, 10_000, 1_800_000, 600_000, fail);
+  if (platform === 'mac' || platform === 'linux') {
+    rejectUnknownKeys(target, ['platform', 'startTimeout'], path, fail);
+    return { name, startTimeout, platform };
   }
   const common = {
     name,
-    startTimeout: integer(target.startTimeout, `${path}.startTimeout`, 10_000, 1_800_000, 600_000, fail),
+    startTimeout,
     idleTimeoutSeconds: integer(target.idleTimeoutSeconds, `${path}.idleTimeoutSeconds`, 60, 3_600, 600, fail),
   };
   const app = asRecord(target.app, `${path}.app`, fail);

@@ -1,6 +1,6 @@
 # CI and test runners
 
-Verify is a library, so it runs wherever your code runs. The browsers and devices run in Revyl's cloud, so the machine needs nothing but Node.js and an API key.
+Verify is a library, so it runs wherever your code runs. Browsers, devices, and computers run in Revyl's cloud, so the runner needs nothing but Node.js and an API key. A Mac target works from a Linux runner; no local macOS host is needed. Use the same staging URL overrides and organization enablement as [computers.md](computers.md).
 
 ## A script in GitHub Actions
 
@@ -67,4 +67,4 @@ A thrown `VerifyError` fails the test with its code, Revyl's reason, and the ses
 
 ## Cost and parallelism
 
-Each `open()` holds one Revyl session until `close()`. Sessions run in parallel when you open several at once, so close each one as soon as you are done with it. A session that loses its process stops itself after `idleTimeoutSeconds` (10 minutes by default).
+Each `open()` holds one Revyl session until `close()`. Sessions run in parallel when you open several at once, so close each one as soon as you are done with it. A browser/mobile session that loses its process stops itself after `idleTimeoutSeconds` (10 minutes by default). Computers instead have a server-bounded one-hour lifetime and no configurable idle timeout; close in `finally` and do not treat a timed-out CI job as proof of physical release.

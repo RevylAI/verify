@@ -6,11 +6,12 @@ import { open, defineConfig, VerifyError, isVerifyError } from '@revyl/verify';
 
 ## open(target, options?)
 
-Starts a Revyl cloud browser or device and resolves with a `Session` once it is ready for steps. Starting usually takes from a few seconds to a couple of minutes.
+Starts a Revyl cloud browser, device, or Mac computer and resolves with a `Session` once it is ready. Starting usually takes from a few seconds to a couple of minutes. Linux targets are accepted in config/types but opening them throws `NOT_AVAILABLE_ON_PLATFORM` before credentials or network access.
 
 ```ts
 const web = await open('web');                                       // a target named in verify.config.ts
 const ios = await open({ platform: 'ios', app: { appId: '…' } });    // or a target object, no config needed
+const mac = await open({ platform: 'mac' });                        // computer, no app needed
 ```
 
 - `target`: a target name from `verify.config.ts`, or a target object with the same shape as a config entry (see [configuration.md](configuration.md)). Verify reads the nearest `verify.config.ts` at or above the current folder.
@@ -21,6 +22,8 @@ const ios = await open({ platform: 'ios', app: { appId: '…' } });    // or a t
 
 ## session.instruction(text, options?)
 
+Available on web/iOS/Android only. Computers throw `NOT_AVAILABLE_ON_PLATFORM` without sending an agent request.
+
 Asks Revyl's agent to do something in the app, described the way you would tell a person: `'Sign in as the demo user and open Settings'`. The agent looks at the screen and acts until it is done or decides it cannot.
 
 - Resolves with a `StepResult` when the agent finishes.
@@ -28,6 +31,8 @@ Asks Revyl's agent to do something in the app, described the way you would tell 
 - `options.timeout`: milliseconds before the step is cancelled on Revyl (`TIMEOUT`). Defaults to `stepTimeout` in the config, or 180000.
 
 ## session.validation(text, options?)
+
+Available on web/iOS/Android only, not computers.
 
 Asks Revyl's agent whether something holds on screen right now: `'The cart shows 2 items and a total of $40'`.
 
@@ -59,13 +64,19 @@ Resolves with a PNG of the screen as a `Uint8Array`. With `options.path`, also w
 
 Stops the session on Revyl. It is safe to call more than once, and steps after it throw `SESSION_ENDED`. A `Session` also works with `await using`, which closes it at the end of the block.
 
+For computers, cleanup must be confirmed; a terminal state alone does not prove physical release. Uncertain release throws `ACTION_UNCERTAIN`.
+
+## Computer commands, files, and processes
+
+Mac sessions provide `exec(argv: string[], options?)`, `readFile(path, options?)` returning `Buffer`, `writeFile(path, string | Uint8Array, options?)`, `stat(path, options?)` returning `{ kind, size }`, `processes(options?)` returning `{ id, state, exitCode? }[]`, and `terminate(id, options?)`. They throw `NOT_AVAILABLE_ON_PLATFORM` on web/iOS/Android. See [computers.md](computers.md) for complete signatures, limits, timeouts, and examples. Mac also supports `screenshot()`; instruction/validation do not run on computers.
+
 ## Other session properties
 
 | Property | Meaning |
 | --- | --- |
-| `viewerUrl` | The session in Revyl: a live view while it runs, its recording after. `revyl device report --session-id <id>` prints the stored report. |
+| `viewerUrl` | The session in Revyl: a live view while it runs, its recording/report after. Use `revyl device report --session-id <id>` for web/mobile, or `revyl computer report <id>` for computers. |
 | `id` | Revyl's session id |
-| `platform` | `'web'`, `'ios'`, or `'android'` |
+| `platform` | `'web'`, `'ios'`, `'android'`, `'mac'`, or the reserved `'linux'` type (opening Linux is unavailable) |
 | `target` | The target name, or the platform for a target object |
 | `closed` | Whether `close()` was called |
 
@@ -84,7 +95,7 @@ While a session is open, Verify closes it before the process ends:
 - on an uncaught error, such as a failed validation that nothing catches: it prints the error, closes open sessions, then exits with 1;
 - when the script finishes without calling `close()`: it closes the sessions and prints a reminder.
 
-Verify only takes over a signal or error event that nothing else in the process listens to, so test runners and apps that manage their own shutdown keep control of it; there, close sessions in `finally` or an `after` hook. A process that is killed outright, or calls `process.exit()` with sessions open, leaves them running until Revyl stops them after `idleTimeoutSeconds` (10 minutes by default).
+Verify only takes over a signal or error event that nothing else in the process listens to, so test runners and apps that manage their own shutdown keep control of it; there, close sessions in `finally` or an `after` hook. A process that is killed outright, or calls `process.exit()` with sessions open, leaves browser/mobile sessions running until their idle timeout (10 minutes by default). Computers have a server-bounded one-hour lifetime instead; no idle timeout is configurable.
 
 ## defineConfig(config)
 

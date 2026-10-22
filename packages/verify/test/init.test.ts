@@ -42,9 +42,33 @@ describe('initProject', () => {
     await expect(initProject(dir, { platform: 'android' })).rejects.toMatchObject({ message: expect.stringContaining('--force') });
   });
 
+  it('writes a Mac config without an app and a shell/file script without agent steps', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'verify-init-'));
+    await initProject(dir, { platform: 'mac' });
+    const source = await readFile(join(dir, 'verify.config.ts'), 'utf8');
+    const config = validateConfig(
+      new Function(`return ${source.slice(source.indexOf('defineConfig(') + 'defineConfig('.length, source.lastIndexOf(')'))}`)(),
+      join(dir, 'verify.config.ts'),
+    );
+    expect(config.targets.mac).toMatchObject({ platform: 'mac' });
+    expect(source).not.toContain('app');
+    const script = await readFile(join(dir, 'verify/example.ts'), 'utf8');
+    expect(script).toContain("await open('mac')");
+    expect(script).toContain("session.exec(['uname', '-s'])");
+    expect(script).toContain('session.writeFile(');
+    expect(script).toContain('session.readFile(');
+    expect(script).toContain('session.stat(');
+    expect(script).toContain('finally');
+    expect(script).toContain('session.close()');
+    expect(script).not.toMatch(/instruction|validation|screenshot/);
+  });
+
   it('validates answers', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'verify-init-'));
     await expect(initProject(dir, { platform: 'ios', url: 'https://x.com' })).rejects.toThrow('web targets only');
     await expect(initProject(dir, { platform: 'web', appId: 'nope' })).rejects.toThrow('UUID');
+    await expect(initProject(dir, { platform: 'mac', appId: APP_ID })).rejects.toThrow('--app-id does not apply');
+    await expect(initProject(dir, { platform: 'mac', url: 'https://x.com' })).rejects.toThrow('web targets only');
+    await expect(initProject(dir, { platform: 'linux' })).rejects.toThrow('Linux computers are not available');
   });
 });
