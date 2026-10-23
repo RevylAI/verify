@@ -33,3 +33,4 @@ For Mac work, use structured `exec(['program', 'arg'])`, `readFile`, `writeFile`
 - Never automatically repeat a computer mutation after `ACTION_UNCERTAIN` or a timeout: the command may have run, and timeout does not prove termination or rollback. Do not log argv, stdin, file contents, or credentials.
 - Always close what you open. Each open session is a paid cloud browser, device, or computer.
 - Never put secrets in scripts or config. Credentials come from `REVYL_API_KEY` or a Revyl CLI login; web sign-in uses the **name** of a Revyl organization secret.
+- Step descriptions are sent to Revyl and logged to stderr by default. Do not include private credentials or customer data in instruction or validation text; use test-only sign-in and synthetic data instead. `log: false` suppresses local progress, not remote processing or reports.

@@ -2,9 +2,9 @@
 
 Status: contract only. Verify accepts `platform: 'linux'` in types and target config, but rejects opening it with `NOT_AVAILABLE_ON_PLATFORM` before resolving credentials or making any network request. This applies to named and inline targets. `init` does not generate Linux projects. No Linux provider or live run is claimed.
 
-This contract follows the staging source inspected at `c7d0b9044`, especially `cognisim_schemas/cognisim_schemas/schemas/computer_schema.py`, `computer_report_schema.py`, and `cognisim_backend/app/routes/computer_runs_routes/computer_runs_xpt.py`. The existing API accepts `os: 'linux'`; that is a schema value, not a working Linux provider. Mac uses `os: 'macos'`. No backend changes are included here.
+This contract follows Revyl's existing computer API. The schema accepts `os: 'linux'`; that is a schema value, not a working Linux provider. Mac uses `os: 'macos'`. No backend changes are included here.
 
-The current hosted implementation explicitly rejects any OS other than `macos` in `HostedComputerRuntime._admit_and_start` with `runtime_unavailable`. Linux needs backend provider work before Verify can enable it; removing the client refusal alone is insufficient.
+The current hosted implementation rejects any OS other than `macos` with `runtime_unavailable`. Linux needs backend provider work before Verify can enable it; removing the client refusal alone is insufficient.
 
 ## Intended public surface
 

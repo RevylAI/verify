@@ -3,4 +3,6 @@ import { fileURLToPath } from 'node:url';
 
 const manifestPath = fileURLToPath(new URL('../package.json', import.meta.url));
 
-export const VERSION: string = (JSON.parse(readFileSync(manifestPath, 'utf8')) as { version: string }).version;
+const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { name: string; version: string };
+export const VERSION: string = manifest.version;
+export const PACKAGE_NAME: string = manifest.name;

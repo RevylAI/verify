@@ -1,4 +1,5 @@
 node_modules/
+release-artifacts/
 dist/
 .verify/
 coverage/
@@ -6,3 +7,5 @@ coverage/
 .DS_Store
 packages/verify/README.md
 packages/verify/LICENSE
+packages/verify/CHANGELOG.md
+packages/verify/SECURITY.md

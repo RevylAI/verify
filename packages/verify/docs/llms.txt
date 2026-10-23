@@ -7,9 +7,9 @@
 - [Getting started](getting-started.md): install, authenticate, init, run a script
 - [API](api.md): open(), agent steps, screenshot(), exec(), file/process methods, close()
 - [Configuration](configuration.md): verify.config.ts targets, environment variables, the init and whoami commands
-- [Web](web.md): Revyl web sessions, URLs and builds, sign-in, steps on web and Revyl staging
+- [Web](web.md): Revyl web sessions, URLs and builds, sign-in, steps, and optional staging access
 - [Mobile](mobile.md): iOS and Android devices and installing apps
-- [Computers](computers.md): Mac commands, files, process handles, screenshots, staging availability, and cleanup
+- [Computers](computers.md): early-access Mac commands, files, process handles, screenshots, and cleanup
 - [Linux contract](linux-computers-contract.md): deferred implementation, requests/responses, readiness, errors, and assumptions to confirm
 - [CI and test runners](ci.md): GitHub Actions, node:test, Vitest, Jest, Playwright Test
 - [Errors](errors.md): every error code and what to do about it

@@ -24,7 +24,7 @@ try {
 | `SESSION_START_FAILED` | The browser or device did not start | The message has Revyl's reason, for example no build for the app |
 | `SESSION_ENDED` | The session was closed, or Revyl stopped it, for example after the idle timeout | Open a new session |
 | `SESSION_BUSY` | The session refused a step because another one was still running on it, for example a step that just timed out | Wait for it to finish, then send the step again |
-| `NOT_AVAILABLE_ON_PLATFORM` | The call is unavailable: Linux open, computer agent steps, device shell/file methods, or web steps before production promotion | See [web.md](web.md) and [computers.md](computers.md) |
+| `NOT_AVAILABLE_ON_PLATFORM` | The call is unavailable: Linux open, computer agent steps, device shell/file methods, an organization without Mac early access, or a backend without web steps | See [web.md](web.md) and [computers.md](computers.md) |
 | `COMMAND_FAILED` | A computer command exited nonzero | Read its reason; use `exec(argv, { check: false })` to inspect the exit code and output instead |
 | `NOT_FOUND` | A computer file or resource was not found | Check the workspace-relative path |
 | `ACCESS_DENIED` | The computer refused access | Check permissions; do not assume host/root access |

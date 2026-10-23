@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { initProject } from '../src/cli/init.js';
 import { validateConfig } from '../src/config.js';
 import { APP_ID } from './helpers/fake-revyl.js';
+import { PACKAGE_NAME } from '../src/version.js';
 
 describe('initProject', () => {
   it('writes a web config, an example script, and ignores screenshots', async () => {
@@ -13,6 +14,7 @@ describe('initProject', () => {
     const result = await initProject(dir, { platform: 'web', appId: APP_ID, url: 'https://shop.example.com' });
     expect(result).toEqual({ created: ['verify.config.ts', 'verify/example.ts'], gitignoreUpdated: true });
     const config = await readFile(join(dir, 'verify.config.ts'), 'utf8');
+    expect(config).toContain(`from '${PACKAGE_NAME}'`);
     expect(config).toContain(`appId: '${APP_ID}'`);
     expect(config).toContain("url: 'https://shop.example.com'");
     const script = await readFile(join(dir, 'verify/example.ts'), 'utf8');

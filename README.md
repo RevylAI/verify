@@ -58,11 +58,11 @@ Revyl failures are `VerifyError`s with a stable code, a safe reason, and the ses
 | --- | --- | --- | --- | --- | --- |
 | Runs on | Revyl cloud browser | Revyl iOS simulator | Revyl Android emulator | Revyl macOS computer | Contract only; open unavailable |
 | Opens | A public URL, or a web build in Revyl | A build in Revyl, a build URL, or an installed app | A build in Revyl, a build URL, or an installed app | A workspace, no app id | Nothing in this release |
-| `instruction`, `validation` | On Revyl staging; pending production promotion | Yes | Yes | Unavailable | Unavailable |
+| `instruction`, `validation` | Yes | Yes | Yes | Unavailable | Unavailable |
 | Commands, files, processes | Unavailable | Unavailable | Unavailable | Early access; organization enablement required | Contract only |
 | `screenshot`, `viewerUrl` | Yes | Yes | Yes | Yes | Unconfirmed |
 
-Steps on web go through the same Revyl API as on mobile. They run on Revyl staging now: set `REVYL_BACKEND_URL` and `REVYL_APP_URL` to point Verify at it, as [web.md](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/web.md) shows. A Revyl backend that does not run steps on web yet answers with `NOT_AVAILABLE_ON_PLATFORM`, and the same code works there once it does.
+Steps on web go through the same Revyl API as on mobile. Production is the default; optional environment overrides are documented in [web.md](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/web.md). A backend without web-step support returns `NOT_AVAILABLE_ON_PLATFORM`.
 
 Each step runs Revyl's agent on the live session every time. Verify does not cache or replay steps, and Revyl does not carry values from one step to the next.
 
@@ -94,8 +94,8 @@ npm test          # unit tests against a mocked Revyl API; no account needed
 npm run typecheck
 ```
 
-The library lives in [`packages/verify`](packages/verify) and the examples in [`examples/`](examples).
+The library lives in [`packages/verify`](https://github.com/RevylAI/verify/tree/main/packages/verify) and the examples in [`examples/`](https://github.com/RevylAI/verify/tree/main/examples). Read [Contributing](https://github.com/RevylAI/verify/blob/main/CONTRIBUTING.md), [Security](https://github.com/RevylAI/verify/blob/main/SECURITY.md), and [Releasing](https://github.com/RevylAI/verify/blob/main/RELEASING.md) before changing or publishing the package.
 
 ## License
 
-[Apache 2.0](LICENSE)
+[Apache 2.0](https://github.com/RevylAI/verify/blob/main/LICENSE)

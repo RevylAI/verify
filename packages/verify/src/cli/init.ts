@@ -3,6 +3,7 @@ import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import type { Platform } from '../api/types.js';
 import { VerifyError } from '../errors.js';
+import { PACKAGE_NAME } from '../version.js';
 
 export interface InitAnswers {
   platform: Platform;
@@ -86,7 +87,7 @@ function configTemplate({ platform, appId, url }: InitAnswers): string {
         appId: ${app},
       },
     },`;
-  return `import { defineConfig } from '@revyl/verify';
+  return `import { defineConfig } from '${PACKAGE_NAME}';
 
 export default defineConfig({
   targets: {
@@ -121,7 +122,7 @@ await session.validation('A page about domains reserved for documentation is sho
       : `// Describe what a person would do and see, for example:
 // await session.instruction('Sign in as the demo user and open Settings');
 await session.validation('The app has opened and shows its first screen without an error');`;
-  return `import { open } from '@revyl/verify';
+  return `import { open } from '${PACKAGE_NAME}';
 
 // Opens the "${platform}" target from verify.config.ts on Revyl and prints a link to watch it live.
 // A failed instruction or validation throws, so this script exits non-zero, and Verify closes the session on the way out.
