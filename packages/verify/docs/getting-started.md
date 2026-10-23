@@ -45,7 +45,7 @@ Web and mobile targets need an app. Open the app in Revyl and copy its id into `
 
 - **Web:** set `app.url` to a public HTTPS URL, such as a staging or preview deployment. Revyl's cloud browser cannot reach `localhost`. See [web.md](web.md).
 - **iOS and Android:** upload a build to the app in Revyl, for example with `revyl build upload`; each session installs the newest one. See [mobile.md](mobile.md).
-- **Mac:** computers must be enabled for your organization. Use staging credentials and the existing backend/app URL overrides while production promotion is pending. Commands, files, processes, and screenshots are available; agent instruction/validation are not. See [computers.md](computers.md). Linux is a contract only and cannot be opened yet.
+- **Mac:** early access is not yet available in Revyl production. It works only on Revyl staging for enabled organizations through the optional `REVYL_BACKEND_URL` override and matching staging credentials. Agent instruction/validation are unavailable. See [computers.md](computers.md#availability-and-errors). Linux is a contract only and cannot be opened yet.
 
 ## 5. Run the script
 

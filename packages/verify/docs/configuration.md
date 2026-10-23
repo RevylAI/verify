@@ -20,6 +20,8 @@ Unknown keys are rejected, so a typo fails loudly instead of being ignored.
 
 ## Top-level options
 
+Mac targets currently require staging early access for an enabled organization through the optional `REVYL_BACKEND_URL` override and matching credentials; they are not yet available in Revyl production. See [computer availability](computers.md#availability-and-errors).
+
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `targets` | required | Named targets. The key is the name you pass to `open()`: letters, digits, dots, dashes, and underscores. |

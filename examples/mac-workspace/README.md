@@ -2,7 +2,7 @@
 
 Opens a Revyl Mac computer, checks `uname`, writes and reads a file, checks its size, and reads it through a command. It closes the computer in `finally`. No app id is needed.
 
-Computers must be enabled for your organization. This API is on Revyl staging; production support depends on its promotion. With credentials for that staging organization:
+Mac computers are **early access and not yet available in Revyl production**. They work only on Revyl staging for enabled organizations through the optional `REVYL_BACKEND_URL` override. Ask support@revyl.ai about access; no availability date is promised. Use credentials for that staging organization:
 
 ```bash
 export REVYL_BACKEND_URL=https://backend-staging.revyl.ai

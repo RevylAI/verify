@@ -12,6 +12,7 @@ import { pngSize, type ComputerProcess, type ExecOptions, type ExecResult, type 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATES = new Set(['starting', 'active', 'closing', 'stopped', 'failed', 'owner_lost']);
 const MAX_OUTPUT_BYTES = 1_048_576;
+const MAC_AVAILABILITY = 'Mac computers are not yet available in Revyl production. Early access works only on Revyl staging for enabled organizations. See https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#availability-and-errors';
 const ERROR_CODES = new Set(['computer_not_enabled', 'run_closed', 'inaccessible', 'invalid_handle', 'operation_not_found', 'owner_unavailable', 'invalid_request', 'unauthenticated', 'forbidden', 'runtime_unavailable', 'start_failed', 'computer_limit', 'request_conflict', 'run_conflict', 'evidence_conflict', 'evidence_unavailable', 'authentication_unavailable', 'operation_limit', 'screen_starting', 'screen_unavailable']);
 
 export class ComputerSession implements Session {
@@ -34,7 +35,7 @@ export class ComputerSession implements Session {
     const signal = AbortSignal.any([AbortSignal.timeout(target.startTimeout), session.lifetime.signal]);
     trackSession(session);
     try {
-      session.log(`starting mac computer ${session.viewerUrl}`);
+      session.log(`starting mac computer ${session.viewerUrl}. ${MAC_AVAILABILITY}`);
       let report = session.report(await session.request('POST', '', { computer_session_id: session.id, os: 'macos' }, signal));
       for (;;) {
         if (report.state === 'active') break;
@@ -52,7 +53,7 @@ export class ComputerSession implements Session {
       } else {
         await session.close().catch(() => undefined);
       }
-      if (timedOut) throw new VerifyError('TIMEOUT', `The ${session.target} computer was not ready within ${target.startTimeout} ms. See ${session.viewerUrl}`);
+      if (timedOut) throw new VerifyError('TIMEOUT', `The ${session.target} computer was not ready within ${target.startTimeout} ms. A possible cause is that no Mac computer could be assigned. ${MAC_AVAILABILITY}. Inspect ${session.viewerUrl}`);
       throw error;
     }
   }
@@ -144,6 +145,11 @@ export class ComputerSession implements Session {
         if (!['stopped', 'failed', 'owner_lost'].includes(report.state)) throw invalidResponse();
         this.log('closed');
       } catch (error) {
+        if (isVerifyError(error) && error.code === 'ACTION_UNCERTAIN') {
+          const message = `${error.message} A possible cause is that no Mac computer could be assigned. ${MAC_AVAILABILITY}`;
+          this.log(`close failed (ACTION_UNCERTAIN); ${message}`);
+          throw new VerifyError('ACTION_UNCERTAIN', message, { cause: error });
+        }
         this.log(`close failed (${isVerifyError(error) ? error.code : 'API_ERROR'}); inspect ${this.viewerUrl}`);
         throw error;
       } finally {
@@ -211,9 +217,11 @@ export class ComputerSession implements Session {
     }
     if (response.status >= 200 && response.status < 300) return response;
     const detail = responseDetail(response);
+    if (detail === 'computer_not_enabled' || (method === 'POST' && suffix === '' && response.status === 503 && detail === 'runtime_unavailable')) {
+      throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `Revyl refused the computer request (${detail}). ${MAC_AVAILABILITY}. Ask support@revyl.ai about staging organization enablement. See ${this.viewerUrl}`);
+    }
     let code: VerifyErrorCode = 'API_ERROR';
-    if (detail === 'computer_not_enabled') code = 'NOT_AVAILABLE_ON_PLATFORM';
-    else if (detail === 'run_closed') code = 'SESSION_ENDED';
+    if (detail === 'run_closed') code = 'SESSION_ENDED';
     else if (detail === 'inaccessible' || detail === 'invalid_handle') code = 'NOT_FOUND';
     else if (detail === 'operation_not_found' || detail === 'owner_unavailable') code = 'ACTION_UNCERTAIN';
     else if (detail === 'invalid_request' || response.status === 422) code = 'INVALID_ARGUMENT';
@@ -223,7 +231,7 @@ export class ComputerSession implements Session {
     else if (suffix.startsWith('/operations/') && response.status >= 500) code = 'ACTION_UNCERTAIN';
     else if (method === 'POST' && (response.status >= 500 || response.status < 400)) code = 'ACTION_UNCERTAIN';
     const reason = detail && ERROR_CODES.has(detail) ? detail : `HTTP ${response.status}`;
-    throw new VerifyError(code, `Revyl refused the computer request (${reason}).${detail === 'computer_not_enabled' ? ' Mac computers are in early access; ask Revyl at support@revyl.ai to enable your organization.' : ''} See ${this.viewerUrl}`);
+    throw new VerifyError(code, `Revyl refused the computer request (${reason}). See ${this.viewerUrl}`);
   }
 
   private report(response: RawResponse): ComputerReport {
