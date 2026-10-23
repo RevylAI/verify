@@ -1,9 +1,11 @@
 # Mac computers (early access)
 
-Verify opens a Revyl cloud macOS computer for commands, files, processes, and screenshots. It does not open an assigned physical Mac. Mac computers are in **early access**: ask [support@revyl.ai](mailto:support@revyl.ai) to enable your organization, which also needs compute credits and a free computer slot. The computer routes are present in the production source; availability still depends on deployment and organization enablement. Verify has not live-verified a Mac run.
+Verify opens a Revyl cloud macOS computer for commands, files, processes, and screenshots. It does not open an assigned physical Mac. Mac computers are in **early access and not yet available in Revyl production**. They work only on Revyl staging for enabled organizations, which also need compute credits and a free computer slot. Ask [support@revyl.ai](mailto:support@revyl.ai) about staging access. No production availability date is promised.
 
 ```bash
-export REVYL_API_KEY=...    # credentials for your enabled organization
+export REVYL_BACKEND_URL=https://backend-staging.revyl.ai
+export REVYL_APP_URL=https://staging.revyl.ai
+export REVYL_API_KEY=...    # staging credentials for your enabled organization
 npx @revyl/verify init --platform mac
 npm install --save-dev @revyl/verify
 node verify/example.ts
@@ -11,7 +13,7 @@ node verify/example.ts
 
 `init` only writes local files; running the script starts a paid computer. No app id, build, device selector, image selector, or local Mac is needed. The generated script checks commands and a file round trip without agent steps.
 
-For optional staging access, use staging credentials and set `REVYL_BACKEND_URL=https://backend-staging.revyl.ai` and `REVYL_APP_URL=https://staging.revyl.ai`. Production origins are the defaults; never mix credentials between environments.
+`REVYL_BACKEND_URL` is an optional environment override for Verify generally, but currently required for Mac early access on staging. Production origins remain the defaults; never mix credentials between environments.
 
 ## Commands and files
 
@@ -49,6 +51,10 @@ Paths are relative to the computer's workspace: no leading slash, empty componen
 Operation `timeout` is milliseconds, defaults to 30,000, and must be an integer from 1 to 300,000. It is also bounded by the run's remaining lifetime. A computer runs for at most one hour; `idleTimeoutSeconds` and the agent `stepTimeout` do not configure computer lifetime or commands. Revyl allows at most 256 operations per run.
 
 ## Availability and errors
+
+Mac computers are early access on Revyl staging only, not yet available in Revyl production. A computer-create `503 runtime_unavailable` or typed `computer_not_enabled` becomes `NOT_AVAILABLE_ON_PLATFORM` with this availability guidance; Verify does not retry the create or send a stop after these definite refusals. Other admission and runtime failures retain their own error codes. Availability is determined by the server, not a client-side production-URL block.
+
+The default `startTimeout` remains 600000 ms to allow a cold staging host to become ready; there is no measured cold-host baseline that justifies shortening it. Override it explicitly if needed. Progress announces availability immediately. A start timeout explains that no Mac computer may have been assigned; an unconfirmed close also links here. Neither proves that resources were released. Inspect the session and contact support rather than blindly repeating a start or stop.
 
 `instruction()` and `validation()` throw `NOT_AVAILABLE_ON_PLATFORM` on computers without sending agent requests. Screenshot is supported on Mac; agent control of the screen is not part of this release. On web, iOS, and Android, shell/file/process methods throw `NOT_AVAILABLE_ON_PLATFORM`.
 

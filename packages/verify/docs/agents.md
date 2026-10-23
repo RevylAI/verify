@@ -21,6 +21,8 @@ This page is for AI coding agents (Claude Code, Cursor, Codex, and others) that 
 
 ## Rules
 
+Mac computers are early access and not yet available in Revyl production. They work only on Revyl staging for enabled organizations through the optional `REVYL_BACKEND_URL` override with matching staging credentials. Read [availability and errors](computers.md#availability-and-errors) before starting a computer; do not try production or repeat an uncertain start/stop to probe availability.
+
 For Mac work, use structured `exec(['program', 'arg'])`, `readFile`, `writeFile`, `stat`, and run-owned handles from `processes()`/`terminate(id)`. Check command output with ordinary assertions and close in `finally`; screenshots are supported, but instruction/validation are not. Do not fall back to agent steps on computers or shell/file methods on mobile/web. See [computers.md](computers.md) for limits and staging setup. Linux is a contract only: opening it fails before auth/network, so do not probe it with live calls. Starting a computer is a paid external action and needs the same approval as starting a device.
 
 - Write steps the way you would brief a person: what to do, or what should be true, in one sentence. Name visible things ("the blue Save button in the footer"), not implementation details.

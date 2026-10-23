@@ -8,6 +8,8 @@ import { open, defineConfig, VerifyError, isVerifyError } from '@revyl/verify';
 
 Starts a Revyl cloud browser, device, or Mac computer and resolves with a `Session` once it is ready. Starting usually takes from a few seconds to a couple of minutes. Linux targets are accepted in config/types but opening them throws `NOT_AVAILABLE_ON_PLATFORM` before credentials or network access.
 
+Mac computers are early access on staging only for enabled organizations, not yet available in Revyl production. Use the optional `REVYL_BACKEND_URL` override and staging credentials described in [computer availability](computers.md#availability-and-errors).
+
 ```ts
 const web = await open('web');                                       // a target named in verify.config.ts
 const ios = await open({ platform: 'ios', app: { appId: '…' } });    // or a target object, no config needed

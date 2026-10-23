@@ -79,9 +79,14 @@ describe('computer lifecycle', () => {
     expect(fake.calls('POST', /\/stop$/)).toHaveLength(1);
   });
 
-  it('does not send a stop mutation after a definite admission refusal', async () => {
-    const fake = fakeMac().on('POST', /^\/api\/v1\/computer-runs$/, () => json({ detail: 'computer_not_enabled' }, 403));
-    await expect(start(fake)).rejects.toMatchObject({ code: 'NOT_AVAILABLE_ON_PLATFORM', message: expect.stringContaining('Mac computers are in early access') });
+  it.each([
+    [403, { detail: 'computer_not_enabled' }],
+    [503, { error: 'computer_not_enabled' }],
+    [503, { detail: 'runtime_unavailable' }],
+    [503, { error: 'runtime_unavailable' }],
+  ])('explains definite admission refusal %s without a stop mutation', async (status, body) => {
+    const fake = fakeMac().on('POST', /^\/api\/v1\/computer-runs$/, () => json(body, status));
+    await expect(start(fake)).rejects.toMatchObject({ code: 'NOT_AVAILABLE_ON_PLATFORM', message: expect.stringMatching(/Mac computers are not yet available in Revyl production.*computers\.md#availability-and-errors/) });
     expect(fake.requests).toHaveLength(1);
   });
 
@@ -91,7 +96,7 @@ describe('computer lifecycle', () => {
     vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => ms === 600_000 ? controller.signal : timeout(ms));
     const fake = fakeMac().on('POST', /^\/api\/v1\/computer-runs$/, ({ body }) => json({ computer_session_id: body.computer_session_id, state: 'starting' }))
       .on('GET', /\/report$/, () => json({ computer_session_id: fake.requests[0]?.body.computer_session_id, state: 'starting' }));
-    const pending = expect(start(fake)).rejects.toMatchObject({ code: 'TIMEOUT' });
+    const pending = expect(start(fake)).rejects.toMatchObject({ code: 'TIMEOUT', message: expect.stringMatching(/no Mac computer could be assigned.*Mac computers are not yet available in Revyl production.*computers\.md#availability-and-errors/) });
     await vi.waitFor(() => expect(fake.requests).toHaveLength(1));
     controller.abort();
     await pending;
@@ -106,13 +111,17 @@ describe('computer lifecycle', () => {
     expect(fake.requests).toHaveLength(1);
   });
 
-  it('reports uncertain physical release rather than claiming the computer closed', async () => {
-    const fake = fakeMac().on('POST', /\/computer-runs\/([^/]+)\/stop$/, (_request, match) => json({ computer_session_id: match[1], state: 'stopped', release: 'unknown' }));
+  it.each([
+    ['stopped', 'unknown'],
+    ['starting', 'pending'],
+  ])('reports uncertain physical release rather than claiming the computer closed (%s/%s)', async (state, release) => {
+    const fake = fakeMac().on('POST', /\/computer-runs\/([^/]+)\/stop$/, (_request, match) => json({ computer_session_id: match[1], state, release }));
     const lines: string[] = [];
     const session = await start(fake, lines);
-    await expect(session.close()).rejects.toMatchObject({ code: 'ACTION_UNCERTAIN' });
+    await expect(session.close()).rejects.toMatchObject({ code: 'ACTION_UNCERTAIN', message: expect.stringMatching(/no Mac computer could be assigned.*Mac computers are not yet available in Revyl production.*computers\.md#availability-and-errors/) });
     expect(lines).not.toContain('mac: closed');
     expect(lines.at(-1)).toContain('close failed');
+    expect(lines.at(-1)).toContain('Mac computers are not yet available in Revyl production');
     await expect(session.close()).rejects.toMatchObject({ code: 'ACTION_UNCERTAIN' });
     expect(fake.calls('POST', /\/stop$/)).toHaveLength(1);
   });

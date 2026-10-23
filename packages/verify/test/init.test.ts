@@ -6,8 +6,21 @@ import { initProject } from '../src/cli/init.js';
 import { validateConfig } from '../src/config.js';
 import { APP_ID } from './helpers/fake-revyl.js';
 import { PACKAGE_NAME } from '../src/version.js';
+import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 describe('initProject', () => {
+  it('prints the staging-only Mac availability note exactly once', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'verify-init-cli-'));
+    const jiti = pathToFileURL(createRequire(import.meta.url).resolve('jiti')).href;
+    const entry = fileURLToPath(new URL('../src/cli/main.ts', import.meta.url));
+    const output = execFileSync(process.execPath, ['--input-type=module', '-e', `import { createJiti } from ${JSON.stringify(jiti)}; process.argv = ['node', 'verify', 'init', '--platform', 'mac']; await createJiti(import.meta.url).import(${JSON.stringify(entry)});`], { cwd: dir, encoding: 'utf8' });
+    expect(output.match(/Mac computers are not yet available in Revyl production/g)).toHaveLength(1);
+    expect(output).toContain('only on Revyl staging for enabled organizations');
+    expect(output).toContain('REVYL_BACKEND_URL');
+    expect(output).toContain('computers.md#availability-and-errors');
+  });
   it('writes a web config, an example script, and ignores screenshots', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'verify-init-'));
     await writeFile(join(dir, '.gitignore'), 'node_modules');

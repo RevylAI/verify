@@ -59,14 +59,14 @@ Revyl failures are `VerifyError`s with a stable code, a safe reason, and the ses
 | Runs on | Revyl cloud browser | Revyl iOS simulator | Revyl Android emulator | Revyl macOS computer | Contract only; open unavailable |
 | Opens | A public URL, or a web build in Revyl | A build in Revyl, a build URL, or an installed app | A build in Revyl, a build URL, or an installed app | A workspace, no app id | Nothing in this release |
 | `instruction`, `validation` | Yes | Yes | Yes | Unavailable | Unavailable |
-| Commands, files, processes | Unavailable | Unavailable | Unavailable | Early access; organization enablement required | Contract only |
+| Commands, files, processes | Unavailable | Unavailable | Unavailable | Early access on staging only for enabled organizations; not yet available in Revyl production | Contract only |
 | `screenshot`, `viewerUrl` | Yes | Yes | Yes | Yes | Unconfirmed |
 
 Steps on web go through the same Revyl API as on mobile. Production is the default; optional environment overrides are documented in [web.md](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/web.md). A backend without web-step support returns `NOT_AVAILABLE_ON_PLATFORM`.
 
 Each step runs Revyl's agent on the live session every time. Verify does not cache or replay steps, and Revyl does not carry values from one step to the next.
 
-For a Mac workspace, run `npx @revyl/verify init --platform mac`; it generates a command and file-round-trip script with no app id or agent steps. Computers require organization enablement. Linux targets are typed but `open()` rejects them with `NOT_AVAILABLE_ON_PLATFORM` before credentials or network access. See [computers](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md) and the [Linux contract](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/linux-computers-contract.md).
+For a Mac workspace, run `npx @revyl/verify init --platform mac`; it generates a command and file-round-trip script with no app id or agent steps. Mac computers are early access and not yet available in Revyl production. They work only on Revyl staging for enabled organizations using the optional `REVYL_BACKEND_URL` override and matching credentials. Linux targets are typed but `open()` rejects them with `NOT_AVAILABLE_ON_PLATFORM` before credentials or network access. See [computers](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#availability-and-errors) and the [Linux contract](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/linux-computers-contract.md).
 
 ## Docs
 

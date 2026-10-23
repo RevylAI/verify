@@ -25,7 +25,7 @@ It updates the maintained package references, examples and install/import docs, 
 
 ## Cut 0.1.0
 
-1. Merge the reviewed library, Mac early-access, and release-preparation changes to `main`, in that order. Do not include unapproved features by tagging their branch. Review the approved production mobile/web smoke results before release approval; unit tests are not live proof. Mac remains early access and has no live-run proof in this release preparation.
+1. Merge the reviewed library, Mac early-access, and release-preparation changes to `main`, in that order. Do not include unapproved features by tagging their branch. Review the approved production mobile/web smoke results before release approval; unit tests are not live proof. Mac remains staging-only early access for enabled organizations and is not yet available in Revyl production. A production start did not reach active; it proved no Mac operation or confirmed cleanup.
 2. In a clean checkout of the intended `main` commit, verify `packages/verify/package.json` is `0.1.0`, update the changelog, and run `npm ci`, `npm run build`, `npm run typecheck`, `npm test`, and `npm run check:package`. Pack and dry-run that exact archive:
 
    ```bash
