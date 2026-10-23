@@ -1,17 +1,17 @@
-# Mac computers
+# Mac computers (early access)
 
-Verify opens a Revyl cloud macOS computer for commands, files, processes, and screenshots. It does not open an assigned physical Mac. Computers must be enabled for your organization, with compute credits and a free computer slot. The computer API is on Revyl staging; production availability depends on its promotion.
+Verify opens a Revyl cloud macOS computer for commands, files, processes, and screenshots. It does not open an assigned physical Mac. Mac computers are in **early access**: ask [support@revyl.ai](mailto:support@revyl.ai) to enable your organization, which also needs compute credits and a free computer slot. The computer routes are present in the production source; availability still depends on deployment and organization enablement. Verify has not live-verified a Mac run.
 
 ```bash
-export REVYL_BACKEND_URL=https://backend-staging.revyl.ai
-export REVYL_APP_URL=https://staging.revyl.ai
-export REVYL_API_KEY=...    # credentials for your staging organization
+export REVYL_API_KEY=...    # credentials for your enabled organization
 npx @revyl/verify init --platform mac
 npm install --save-dev @revyl/verify
 node verify/example.ts
 ```
 
 `init` only writes local files; running the script starts a paid computer. No app id, build, device selector, image selector, or local Mac is needed. The generated script checks commands and a file round trip without agent steps.
+
+For optional staging access, use staging credentials and set `REVYL_BACKEND_URL=https://backend-staging.revyl.ai` and `REVYL_APP_URL=https://staging.revyl.ai`. Production origins are the defaults; never mix credentials between environments.
 
 ## Commands and files
 

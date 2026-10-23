@@ -59,7 +59,7 @@ Revyl failures are `VerifyError`s with a stable code, a safe reason, and the ses
 | Runs on | Revyl cloud browser | Revyl iOS simulator | Revyl Android emulator | Revyl macOS computer | Contract only; open unavailable |
 | Opens | A public URL, or a web build in Revyl | A build in Revyl, a build URL, or an installed app | A build in Revyl, a build URL, or an installed app | A workspace, no app id | Nothing in this release |
 | `instruction`, `validation` | On Revyl staging; pending production promotion | Yes | Yes | Unavailable | Unavailable |
-| Commands, files, processes | Unavailable | Unavailable | Unavailable | Yes, on staging; pending production promotion | Contract only |
+| Commands, files, processes | Unavailable | Unavailable | Unavailable | Early access; organization enablement required | Contract only |
 | `screenshot`, `viewerUrl` | Yes | Yes | Yes | Yes | Unconfirmed |
 
 Steps on web go through the same Revyl API as on mobile. They run on Revyl staging now: set `REVYL_BACKEND_URL` and `REVYL_APP_URL` to point Verify at it, as [web.md](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/web.md) shows. A Revyl backend that does not run steps on web yet answers with `NOT_AVAILABLE_ON_PLATFORM`, and the same code works there once it does.

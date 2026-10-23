@@ -98,7 +98,8 @@ ${target}
 
 function scriptTemplate(platform: Platform): string {
   if (platform === 'mac') {
-    return `import assert from 'node:assert/strict';
+    return `// Mac computers are in early access; ask support@revyl.ai to enable your organization.
+import assert from 'node:assert/strict';
 import { open } from '@revyl/verify';
 
 const session = await open('mac');

@@ -81,7 +81,7 @@ describe('computer lifecycle', () => {
 
   it('does not send a stop mutation after a definite admission refusal', async () => {
     const fake = fakeMac().on('POST', /^\/api\/v1\/computer-runs$/, () => json({ detail: 'computer_not_enabled' }, 403));
-    await expect(start(fake)).rejects.toMatchObject({ code: 'NOT_AVAILABLE_ON_PLATFORM', message: expect.stringContaining('enable your organization') });
+    await expect(start(fake)).rejects.toMatchObject({ code: 'NOT_AVAILABLE_ON_PLATFORM', message: expect.stringContaining('Mac computers are in early access') });
     expect(fake.requests).toHaveLength(1);
   });
 

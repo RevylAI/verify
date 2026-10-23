@@ -223,7 +223,7 @@ export class ComputerSession implements Session {
     else if (suffix.startsWith('/operations/') && response.status >= 500) code = 'ACTION_UNCERTAIN';
     else if (method === 'POST' && (response.status >= 500 || response.status < 400)) code = 'ACTION_UNCERTAIN';
     const reason = detail && ERROR_CODES.has(detail) ? detail : `HTTP ${response.status}`;
-    throw new VerifyError(code, `Revyl refused the computer request (${reason}).${detail === 'computer_not_enabled' ? ' Computers are alpha; ask support@revyl.ai to enable your organization.' : ''} See ${this.viewerUrl}`);
+    throw new VerifyError(code, `Revyl refused the computer request (${reason}).${detail === 'computer_not_enabled' ? ' Mac computers are in early access; ask Revyl at support@revyl.ai to enable your organization.' : ''} See ${this.viewerUrl}`);
   }
 
   private report(response: RawResponse): ComputerReport {
