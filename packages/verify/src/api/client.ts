@@ -249,7 +249,7 @@ function validateBackendUrl(raw: string): string {
   try {
     url = new URL(raw);
   } catch {
-    throw new VerifyError('CONFIG_INVALID', `REVYL_BACKEND_URL is not a valid URL: ${raw}`);
+    throw new VerifyError('CONFIG_INVALID', 'REVYL_BACKEND_URL is not a valid URL.');
   }
   const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
   if (url.protocol !== 'https:' && !(loopback && url.protocol === 'http:')) {
