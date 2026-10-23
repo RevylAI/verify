@@ -3,6 +3,9 @@ import { RevylClient } from '../src/api/client.js';
 import { FakeRevyl, json } from './helpers/fake-revyl.js';
 
 describe('RevylClient', () => {
+  it('does not echo a malformed backend setting into a printable error', () => {
+    expect(() => new RevylClient({ token: 'test', backendUrl: 'not-a-url private-value' })).toThrow(expect.objectContaining({ code: 'CONFIG_INVALID', message: 'REVYL_BACKEND_URL is not a valid URL.' }));
+  });
   it('identifies itself as Verify on every request', async () => {
     const fake = new FakeRevyl().on('GET', /get_user_uuid/, () => json({ email: 'dev@example.com' }));
     await fake.client().whoAmI();
