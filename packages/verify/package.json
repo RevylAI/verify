@@ -43,7 +43,9 @@
     "dist",
     "docs",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md",
+    "SECURITY.md"
   ],
   "engines": {
     "node": ">=22.18"
@@ -52,7 +54,7 @@
     "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/cli/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "prepack": "npm run build && cp ../../LICENSE LICENSE && cp ../../README.md README.md"
+    "prepack": "npm run build && cp ../../LICENSE LICENSE && cp ../../README.md README.md && cp ../../CHANGELOG.md CHANGELOG.md && cp ../../SECURITY.md SECURITY.md"
   },
   "dependencies": {
     "jiti": "^2.6.0"

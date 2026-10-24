@@ -30,7 +30,7 @@ signIn: { path: '/__test/sign-in', secret: 'E2E_SIGN_IN_TOKEN', persona: 'admin'
 
 `instruction` and `validation` use the same Revyl endpoints on web as on iOS and Android, and each step shows up in the session's report.
 
-Steps on web run on Revyl staging now, and reach Revyl production when Revyl promotes staging to main. To run them on staging, point Verify at it and use an API key from your Revyl staging organization:
+Production is the default. **Optional staging access** is for users with a staging organization and matching credentials; it is not required for normal setup:
 
 ```bash
 export REVYL_BACKEND_URL=https://backend-staging.revyl.ai

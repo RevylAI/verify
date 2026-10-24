@@ -71,8 +71,8 @@ Computers do not accept `idleTimeoutSeconds`, image, provider, cwd, or lifetime 
 | Variable | Meaning |
 | --- | --- |
 | `REVYL_API_KEY` | API key. Takes precedence over a Revyl CLI login. |
-| `REVYL_BACKEND_URL` | API origin. Defaults to `https://backend.revyl.ai`. Revyl staging is `https://backend-staging.revyl.ai`. |
-| `REVYL_APP_URL` | Web app origin used in session links. Defaults to `https://app.revyl.ai`. Revyl staging is `https://staging.revyl.ai`. |
+| `REVYL_BACKEND_URL` | Optional API origin override. Defaults to production `https://backend.revyl.ai`. Optional staging access uses `https://backend-staging.revyl.ai` with staging credentials. |
+| `REVYL_APP_URL` | Optional session-link origin override. Defaults to production `https://app.revyl.ai`. Optional staging access uses `https://staging.revyl.ai`. |
 
 ## Command line
 

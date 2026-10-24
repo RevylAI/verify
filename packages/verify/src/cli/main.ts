@@ -5,7 +5,7 @@ import { RevylClient } from '../api/client.js';
 import type { Platform } from '../api/types.js';
 import { missingCredentialsMessage, resolveCredentials } from '../auth.js';
 import { VerifyError, errorMessage, isVerifyError } from '../errors.js';
-import { VERSION } from '../version.js';
+import { PACKAGE_NAME, VERSION } from '../version.js';
 import { initProject, validateInitAnswers, type InitAnswers } from './init.js';
 
 const HELP = `verify ${VERSION}: open Revyl cloud browsers, devices, and Mac computers from your code
@@ -71,7 +71,7 @@ async function initCommand(args: string[]): Promise<number> {
   }
   const result = await initProject(process.cwd(), answers, { force: values.force ?? false });
   const steps = [
-    'npm install --save-dev @revyl/verify',
+    `npm install --save-dev ${PACKAGE_NAME}`,
     "Authenticate: export REVYL_API_KEY=<key from Revyl settings>, or run 'revyl auth login'",
     ...(answers.platform === 'mac' ? ['Mac computers are not yet available in Revyl production. Early access works only on Revyl staging for enabled organizations; use the optional REVYL_BACKEND_URL override with staging credentials. Ask support@revyl.ai for access. See https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#availability-and-errors'] : []),
     ...(answers.platform === 'mac' || answers.appId ? [] : ['Put your Revyl app id in verify.config.ts (or set REVYL_APP_ID)']),

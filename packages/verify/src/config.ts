@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { createJiti } from 'jiti';
 import { VerifyError } from './errors.js';
 import type { ComputerPlatform, MobilePlatform } from './api/types.js';
+import { PACKAGE_NAME } from './version.js';
 
 export interface WebAppConfig {
   /** The Revyl web app this target belongs to. */
@@ -101,7 +102,7 @@ export async function loadConfig(cwd: string, explicitPath?: string): Promise<Re
       'CONFIG_NOT_FOUND',
       explicitPath
         ? `Config file not found: ${explicitPath}`
-        : `No verify.config.ts in ${cwd} or any folder above it. Run 'npx @revyl/verify init' to create one, or pass a target object to open().`,
+        : `No verify.config.ts in ${cwd} or any folder above it. Run 'npx ${PACKAGE_NAME} init' to create one, or pass a target object to open().`,
     );
   }
   const jiti = createJiti(import.meta.url, { moduleCache: false, interopDefault: true });
