@@ -1,0 +1,17 @@
+{
+  "name": "verify-example-mobile-settings",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Verify example: the built-in Settings app on iOS and Android",
+  "type": "module",
+  "scripts": {
+    "ios": "node verify/about.ts ios",
+    "android": "node verify/about.ts android",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@revyl/verify": "0.1.0",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.9.0"
+  }
+}

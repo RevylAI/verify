@@ -1,0 +1,67 @@
+{
+  "name": "@revyl/verify",
+  "version": "0.1.0",
+  "description": "Open Revyl cloud browsers and iOS and Android devices from TypeScript, and run instruction and validation steps on them.",
+  "keywords": [
+    "e2e",
+    "end-to-end",
+    "mobile",
+    "ios",
+    "android",
+    "web",
+    "ai",
+    "agent",
+    "revyl"
+  ],
+  "homepage": "https://github.com/RevylAI/verify#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RevylAI/verify.git",
+    "directory": "packages/verify"
+  },
+  "bugs": {
+    "url": "https://github.com/RevylAI/verify/issues"
+  },
+  "license": "Apache-2.0",
+  "author": "Revyl <support@revyl.ai>",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "verify": "./dist/cli/main.js",
+    "revyl-verify": "./dist/cli/main.js"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/cli/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "prepack": "npm run build && cp ../../LICENSE LICENSE && cp ../../README.md README.md"
+  },
+  "dependencies": {
+    "jiti": "^2.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.5"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

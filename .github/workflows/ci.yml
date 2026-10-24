@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm test
+      - name: init writes a project that type-checks and runs
+        run: |
+          project="$(mktemp -d)"
+          cd "$project"
+          echo '{ "type": "module" }' > package.json
+          ln -s "$GITHUB_WORKSPACE/node_modules" node_modules
+          npx verify init --platform android --app-id 00000000-0000-4000-8000-000000000000
+          npx tsc --noEmit --strict --skipLibCheck --erasableSyntaxOnly --target es2022 --module nodenext --types node verify.config.ts verify/example.ts
+          set +e
+          output="$(HOME="$project" node verify/example.ts 2>&1)"
+          code=$?
+          set -e
+          echo "$output"
+          test "$code" -eq 1
+          grep -q 'No Revyl credentials found' <<<"$output"
+      - name: Package contents
+        run: npm run check:package
