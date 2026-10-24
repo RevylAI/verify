@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { APP_ID, FakeRevyl, fakeAndroid, json, verdict } from './helpers/fake-revyl.js';
+import { computerOperationId } from '../src/computer-session.js';
 
 const entry = fileURLToPath(new URL('../src/index.ts', import.meta.url));
 const jiti = pathToFileURL(createRequire(import.meta.url).resolve('jiti')).href;
@@ -58,6 +59,17 @@ function stepOutcome(passed: boolean): FakeRevyl {
 }
 
 describe('a script using Verify', () => {
+  it.each(['forgotten', 'error', 'interrupt'])('closes a Mac computer after %s', async (mode) => {
+    const fake = new FakeRevyl()
+      .on('POST', /^\/api\/v1\/computer-runs$/, ({ body }) => json({ computer_session_id: body.computer_session_id, state: 'active' }))
+      .on('POST', /\/computer-runs\/([^/]+)\/stop$/, (_request, match) => json({ computer_session_id: match[1], state: 'stopped', release: 'confirmed' }))
+      .on('POST', /\/operations$/, ({ body }) => mode === 'interrupt' ? json(null, 202) : json({ computer_session_id: body.computer_session_id, operation_id: computerOperationId(body.computer_session_id, body.request_id), execution: { outcome: 'failed', error_code: 'exec_nonzero', result: { kind: 'exec', exit_code: 1 } }, evidence: 'recorded' }));
+    const body = mode === 'forgotten' ? `const session = await open('mac');` : `const session = await open('mac'); await session.exec(['false']);`;
+    const run = await runScript(fake, body, { config: `export default {targets:{mac:{platform:'mac'}}}`, ...(mode === 'interrupt' ? { interruptWhen: () => fake.calls('POST', /\/operations$/).length > 0 } : {}) });
+    expect(run.code).toBe(mode === 'interrupt' ? 130 : mode === 'error' ? 1 : 0);
+    expect(fake.calls('POST', /\/stop$/)).toHaveLength(1);
+    if (mode === 'error') expect(run.stderr).toContain('COMMAND_FAILED');
+  });
   it('opens a target by name from verify.config.ts, runs steps, closes, and exits 0', async () => {
     const fake = stepOutcome(true);
     const run = await runScript(

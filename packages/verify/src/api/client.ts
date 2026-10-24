@@ -189,8 +189,8 @@ export function appUrl(): string {
   return (process.env.REVYL_APP_URL ?? DEFAULT_APP_URL).replace(/\/+$/, '');
 }
 
-export function sessionViewerUrl(sessionId: string): string {
-  return `${appUrl()}/sessions/${encodeURIComponent(sessionId)}`;
+export function sessionViewerUrl(sessionId: string, kind?: 'computer'): string {
+  return `${appUrl()}/sessions/${encodeURIComponent(sessionId)}${kind ? `?kind=${kind}` : ''}`;
 }
 
 export function parseJson<T>(response: RawResponse, what: string): T {

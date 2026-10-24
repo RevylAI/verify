@@ -20,8 +20,11 @@ const CONFIG_FILE = 'verify.config.ts';
 const EXAMPLE_SCRIPT = join('verify', 'example.ts');
 
 export function validateInitAnswers(answers: InitAnswers): InitAnswers {
-  if (!['web', 'ios', 'android'].includes(answers.platform)) {
-    throw new VerifyError('INVALID_ARGUMENT', "--platform must be 'web', 'ios', or 'android'.");
+  if (!['web', 'ios', 'android', 'mac'].includes(answers.platform)) {
+    throw new VerifyError('INVALID_ARGUMENT', "--platform must be 'web', 'ios', 'android', or 'mac'. Linux computers are not available yet.");
+  }
+  if (answers.platform === 'mac' && answers.appId !== undefined) {
+    throw new VerifyError('INVALID_ARGUMENT', '--app-id does not apply to Mac computers.');
   }
   if (answers.appId !== undefined && !UUID.test(answers.appId)) {
     throw new VerifyError('INVALID_ARGUMENT', '--app-id must be a Revyl app id (a UUID).');
@@ -35,7 +38,6 @@ export function validateInitAnswers(answers: InitAnswers): InitAnswers {
   return answers;
 }
 
-/** Writes verify.config.ts and an example script, and keeps screenshots out of git. */
 export async function initProject(cwd: string, answers: InitAnswers, options: { force?: boolean } = {}): Promise<InitResult> {
   validateInitAnswers(answers);
   const files: Array<[string, string]> = [
@@ -64,7 +66,9 @@ async function ignoreOutput(cwd: string): Promise<boolean> {
 function configTemplate({ platform, appId, url }: InitAnswers): string {
   const app = appId ? `'${appId}'` : `process.env.REVYL_APP_ID ?? 'REPLACE_WITH_YOUR_REVYL_APP_ID'`;
   const target =
-    platform === 'web'
+    platform === 'mac'
+      ? `    mac: { platform: 'mac' },`
+      : platform === 'web'
       ? `    web: {
       platform: 'web',
       app: {
@@ -93,6 +97,23 @@ ${target}
 }
 
 function scriptTemplate(platform: Platform): string {
+  if (platform === 'mac') {
+    return `// Mac computers are in early access; ask support@revyl.ai to enable your organization.
+import assert from 'node:assert/strict';
+import { open } from '@revyl/verify';
+
+const session = await open('mac');
+try {
+  const result = await session.exec(['uname', '-s']);
+  assert.equal(result.stdout.trim(), 'Darwin');
+  await session.writeFile('hello.txt', 'Hello from Verify!\\n');
+  assert.equal((await session.readFile('hello.txt')).toString('utf8'), 'Hello from Verify!\\n');
+  assert.equal((await session.stat('hello.txt')).kind, 'file');
+} finally {
+  await session.close();
+}
+`;
+  }
   const steps =
     platform === 'web'
       ? `await session.instruction('Follow the link on the page');

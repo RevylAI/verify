@@ -8,16 +8,17 @@ Verify needs Node.js 22.18 or later, which runs TypeScript files directly, and a
 npx @revyl/verify init
 ```
 
-`init` asks what you want to open (web, iOS, or Android), your Revyl app id, and for web, the URL to open. It writes two files and adds `.verify/` to `.gitignore`:
+`init` asks what you want to open (web, iOS, Android, or Mac), your Revyl app id for web/mobile, and for web, the URL to open. It writes two files and adds `.verify/` to `.gitignore`:
 
 - `verify.config.ts`: the targets `open()` can start, by name
-- `verify/example.ts`: a script that opens the target, runs a step or two, takes a screenshot, and closes
+- `verify/example.ts`: a script that opens the target, runs steps and takes a screenshot (web/mobile) or checks commands and files (Mac), and closes
 
 In scripts and CI, pass the answers as flags:
 
 ```bash
 npx @revyl/verify init --platform web --app-id <revyl-app-id> --url https://staging.example.com
 npx @revyl/verify init --platform ios --app-id <revyl-app-id>
+npx @revyl/verify init --platform mac
 ```
 
 ## 2. Install Verify
@@ -40,10 +41,11 @@ npx verify whoami               # checks the credentials without starting a sess
 
 ## 4. Point the config at your app
 
-Every target needs a Revyl app. Open the app in Revyl and copy its id into `app.appId`, or set `REVYL_APP_ID`, which the generated config reads.
+Web and mobile targets need an app. Open the app in Revyl and copy its id into `app.appId`, or set `REVYL_APP_ID`, which the generated config reads. Mac targets need no app id.
 
 - **Web:** set `app.url` to a public HTTPS URL, such as a staging or preview deployment. Revyl's cloud browser cannot reach `localhost`. See [web.md](web.md).
 - **iOS and Android:** upload a build to the app in Revyl, for example with `revyl build upload`; each session installs the newest one. See [mobile.md](mobile.md).
+- **Mac:** early access is not yet available in Revyl production. It works only on Revyl staging for enabled organizations through the optional `REVYL_BACKEND_URL` override and matching staging credentials. Agent instruction/validation are unavailable. See [computers.md](computers.md#availability-and-errors). Linux is a contract only and cannot be opened yet.
 
 ## 5. Run the script
 
@@ -60,7 +62,7 @@ If Node warns that the module type is not specified, add `"type": "module"` to y
 [verify] ios: closed
 ```
 
-Open the link to watch the session live. After the session ends, the link keeps its recording, and the Revyl CLI prints its stored report: `revyl device report --session-id <id>`.
+Open the link to watch the session live. After the session ends, the link keeps its recording/report. The Revyl CLI prints the stored report with `revyl device report --session-id <id>` for web/mobile, or `revyl computer report <id>` for Mac.
 
 ## The whole API
 

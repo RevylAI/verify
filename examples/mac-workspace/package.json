@@ -1,0 +1,16 @@
+{
+  "name": "verify-example-mac-workspace",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Verify example: commands and files on a Revyl Mac computer",
+  "type": "module",
+  "scripts": {
+    "workspace": "node verify/workspace.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@revyl/verify": "0.1.0",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.9.0"
+  }
+}

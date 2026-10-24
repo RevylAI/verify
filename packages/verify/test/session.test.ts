@@ -2,8 +2,8 @@ import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { validateTarget } from '../src/config.js';
-import { Session } from '../src/session.js';
+import { validateTarget, type ResolvedDeviceTarget } from '../src/config.js';
+import { DeviceSession, type Session } from '../src/session.js';
 import {
   APP_ID,
   BUILD_ID,
@@ -27,7 +27,7 @@ afterEach(async () => {
 });
 
 async function start(fake: FakeRevyl, target: Record<string, unknown>, lines: string[] = []): Promise<Session> {
-  const session = await Session.start(fake.client(), validateTarget(target), { stepTimeout: 5_000, log: (line) => lines.push(line) });
+  const session = await DeviceSession.start(fake.client(), validateTarget(target) as ResolvedDeviceTarget, { stepTimeout: 5_000, log: (line) => lines.push(line) });
   started.push(session);
   return session;
 }

@@ -1,5 +1,6 @@
-export type Platform = 'ios' | 'android' | 'web';
-export type MobilePlatform = Exclude<Platform, 'web'>;
+export type Platform = 'ios' | 'android' | 'web' | 'mac' | 'linux';
+export type MobilePlatform = 'ios' | 'android';
+export type ComputerPlatform = 'mac' | 'linux';
 
 export interface WebViewportRequest {
   width?: number;
@@ -14,7 +15,7 @@ export interface WebSignInRequest {
 }
 
 export interface StartDeviceRequest {
-  platform: Platform;
+  platform: MobilePlatform | 'web';
   is_simulation?: boolean;
   session_id?: string;
   app_id?: string;
@@ -143,4 +144,69 @@ export interface StepStatus {
   status: 'running' | 'completed' | 'failed' | 'cancelled';
   /** Present once the status is terminal. */
   result?: LiveStepResult | null;
+}
+
+export interface ComputerRunCreate {
+  computer_session_id: string;
+  os: 'macos' | 'linux';
+}
+
+export type ComputerState = 'starting' | 'active' | 'closing' | 'stopped' | 'failed' | 'owner_lost';
+
+/** The fields Verify reads from a ComputerReport. */
+export interface ComputerReport {
+  computer_session_id: string;
+  state: ComputerState;
+  release: 'pending' | 'confirmed' | 'unknown';
+  failure_reason?: string | null;
+}
+
+export interface ComputerProcessHandle {
+  computer_session_id: string;
+  handle_id: string;
+}
+
+/** Binary fields are base64. */
+export type ComputerCommand = { timeout_ms: number } & (
+  | { kind: 'exec'; argv: string[]; stdin?: string }
+  | { kind: 'file_read'; path: string }
+  | { kind: 'file_write'; path: string; data: string }
+  | { kind: 'file_stat'; path: string }
+  | { kind: 'process_list' }
+  | { kind: 'process_terminate'; handle: ComputerProcessHandle }
+);
+
+export interface ComputerExecResult {
+  kind: 'exec';
+  exit_code: number;
+  stdout?: string;
+  stderr?: string;
+}
+
+export type ComputerResult =
+  | ComputerExecResult
+  | { kind: 'file_read'; data: string }
+  | { kind: 'file_write'; byte_count: number }
+  | { kind: 'file_stat'; file_kind: 'file' | 'directory'; size_bytes: number }
+  | { kind: 'process_list'; processes: Array<{ handle: ComputerProcessHandle; state: 'running' | 'exited'; exit_code?: number | null }> }
+  | { kind: 'process_terminate'; termination: 'confirmed' };
+
+export type ComputerExecution =
+  | { outcome: 'succeeded'; result: ComputerResult }
+  | { outcome: 'failed'; error_code: 'not_found' | 'access_denied' | 'exec_nonzero'; result?: ComputerExecResult | null }
+  | { outcome: 'timed_out'; error_code: 'timed_out'; termination: 'confirmed' | 'unknown'; observed_exit_code?: number | null }
+  | { outcome: 'unknown'; error_code: string; termination: 'confirmed' | 'unknown' };
+
+export interface ComputerCommandResponse {
+  computer_session_id: string;
+  operation_id: string;
+  execution: ComputerExecution;
+  evidence: 'recorded' | 'pending' | 'failed';
+}
+
+export interface ComputerScreenshot {
+  width: number;
+  height: number;
+  /** Standard base64. */
+  png: string;
 }

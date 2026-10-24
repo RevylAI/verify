@@ -14,6 +14,9 @@ export type VerifyErrorCode =
   | 'INSTRUCTION_FAILED'
   | 'VALIDATION_FAILED'
   | 'STEP_FAILED'
+  | 'COMMAND_FAILED'
+  | 'NOT_FOUND'
+  | 'ACCESS_DENIED'
   | 'TIMEOUT';
 
 export class VerifyError extends Error {

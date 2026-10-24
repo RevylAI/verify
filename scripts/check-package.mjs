@@ -12,6 +12,8 @@ const required = [
   'docs/api.md',
   'docs/getting-started.md',
   'docs/llms.txt',
+  'docs/computers.md',
+  'docs/linux-computers-contract.md',
 ];
 
 const [pack] = JSON.parse(execFileSync('npm', ['pack', '--dry-run', '--json', '--workspace', '@revyl/verify'], { encoding: 'utf8' }));
