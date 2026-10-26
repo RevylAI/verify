@@ -100,11 +100,13 @@ func startComputer(ctx context.Context, c *client, viewer string, target Target,
 	if target.Platform == Linux {
 		computerOS = "linux"
 	}
+	createAcknowledged := false
 	err = func() error {
 		r, err := s.computerRequest(ctx, "POST", "", map[string]string{"computer_session_id": id, "os": computerOS})
 		if err != nil {
 			return err
 		}
+		createAcknowledged = true
 		for {
 			report, err := s.readComputerReport(r)
 			if err != nil {
@@ -138,7 +140,7 @@ func startComputer(ctx context.Context, c *client, viewer string, target Target,
 		s.computerLog("ready")
 		return s, nil
 	}
-	if errors.Is(err, ErrAuthRejected) || errors.Is(err, ErrNotAvailableOnPlatform) || errors.Is(err, ErrInvalidArgument) || errors.Is(err, ErrComputerLimit) {
+	if !createAcknowledged && (errors.Is(err, ErrAuthRejected) || errors.Is(err, ErrNotAvailableOnPlatform) || errors.Is(err, ErrInvalidArgument) || errors.Is(err, ErrComputerLimit)) {
 		stop()
 	} else {
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), computerObservationTimeout)

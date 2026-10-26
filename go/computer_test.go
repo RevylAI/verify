@@ -1255,3 +1255,39 @@ func TestComputerExpiryCancelsInflightObservation(t *testing.T) {
 		t.Fatal("expiry cancellation lost deadline cause")
 	}
 }
+
+func TestComputerAdmittedStartupFailureCleansUp(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		detail string
+		code   verify.Code
+	}{
+		{403, "computer_not_enabled", verify.ErrNotAvailableOnPlatform},
+		{422, "invalid_request", verify.ErrInvalidArgument},
+		{429, "computer_limit", verify.ErrComputerLimit},
+		{503, "runtime_unavailable", verify.ErrNotAvailableOnPlatform},
+	} {
+		t.Run(tc.detail, func(t *testing.T) {
+			var id string
+			f := newComputerFake(t, func(_ *fakeRevyl, w http.ResponseWriter, r *http.Request, body map[string]any) bool {
+				if r.URL.Path == computerPath {
+					id = body["computer_session_id"].(string)
+					writeJSON(w, 200, map[string]any{"computer_session_id": id, "state": "starting"})
+					return true
+				}
+				if strings.HasSuffix(r.URL.Path, "/report") {
+					writeJSON(w, tc.status, map[string]any{"detail": tc.detail})
+					return true
+				}
+				return false
+			})
+			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+			defer cancel()
+			_, err := verify.Open(ctx, verify.Target{Platform: verify.Linux}, verify.OpenOptions{BackendURL: f.server.URL})
+			requireCode(t, err, tc.code)
+			if len(f.calls("POST", computerPath)) != 1 || len(f.calls("POST", computerPath+"/"+id+"/stop")) != 1 {
+				t.Fatal("admitted startup failure skipped cleanup or replayed create")
+			}
+		})
+	}
+}
