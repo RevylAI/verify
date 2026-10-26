@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add a standard-library-only Go SDK for web, iOS, Android, and early-access Mac and Linux computers. Computer commands, binary files, process handles, screenshots, recording metadata, and confirmed-release cleanup require an enabled staging organization and are not yet available in production. Capacity refusals have a distinct `COMPUTER_LIMIT` code; no start or operation is automatically replayed.
+
 ## 0.2.0
 
 Release preparation only; no publication is implied.

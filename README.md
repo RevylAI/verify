@@ -23,6 +23,8 @@ Verify is a small TypeScript library on top of [Revyl](https://revyl.com). Open 
 - **CI.** Run the script in a job. The browsers and devices run in Revyl's cloud, so the runner needs nothing but Node and an API key.
 - **Your test runner.** Call it inside node:test, Vitest, Jest, or Playwright Test, next to the tests you already have.
 
+Using Go? The [Go SDK](https://github.com/RevylAI/verify/tree/main/go) supports web, iOS, Android, and early-access Mac/Linux computers (not yet available in production), with contexts, typed errors, and no external dependencies.
+
 ## Quick start
 
 You need Node.js 22.18 or later and a Revyl account.
@@ -55,6 +57,8 @@ Full walkthrough: [getting started](https://github.com/RevylAI/verify/blob/main/
 Revyl failures are `VerifyError`s with a stable code, a safe reason, and the session link when one exists.
 
 ## Platforms
+
+This table describes the TypeScript API. The [Go SDK](https://github.com/RevylAI/verify/tree/main/go) also supports early-access Linux computers.
 
 | | Web | iOS | Android | Mac | Linux |
 | --- | --- | --- | --- | --- | --- |
