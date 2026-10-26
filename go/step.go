@@ -19,6 +19,9 @@ type liveStep struct {
 }
 
 func (s *Session) Instruction(ctx context.Context, text string, options ...StepOptions) (StepResult, error) {
+	if s.platform.computer() {
+		return StepResult{}, s.computerAgentUnavailable("instruction")
+	}
 	if len(options) > 1 {
 		return StepResult{}, failure(ErrInvalidArgument, "Instruction accepts at most one options value.")
 	}
@@ -34,6 +37,9 @@ func (s *Session) Instruction(ctx context.Context, text string, options ...StepO
 }
 
 func (s *Session) Validation(ctx context.Context, text string, options ...ValidationOptions) (StepResult, error) {
+	if s.platform.computer() {
+		return StepResult{}, s.computerAgentUnavailable("validation")
+	}
 	if len(options) > 1 {
 		return StepResult{}, failure(ErrInvalidArgument, "Validation accepts at most one options value.")
 	}

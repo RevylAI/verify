@@ -16,6 +16,7 @@ const (
 	ErrSessionStartFailed     Code = "SESSION_START_FAILED"
 	ErrSessionEnded           Code = "SESSION_ENDED"
 	ErrSessionBusy            Code = "SESSION_BUSY"
+	ErrComputerLimit          Code = "COMPUTER_LIMIT"
 	ErrNotAvailableOnPlatform Code = "NOT_AVAILABLE_ON_PLATFORM"
 	ErrActionFailed           Code = "ACTION_FAILED"
 	ErrActionUncertain        Code = "ACTION_UNCERTAIN"
@@ -29,9 +30,10 @@ const (
 )
 
 type Error struct {
-	Code    Code
-	Message string
-	Cause   error
+	Code       Code
+	Message    string
+	Cause      error
+	ExecResult *ExecResult
 }
 
 func (e *Error) Error() string { return fmt.Sprintf("%s: %s", e.Code, e.Message) }

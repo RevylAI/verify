@@ -10,10 +10,14 @@ import (
 
 type Platform string
 
+func (p Platform) computer() bool { return p == Mac || p == Linux }
+
 const (
 	Web     Platform = "web"
 	IOS     Platform = "ios"
 	Android Platform = "android"
+	Mac     Platform = "mac"
+	Linux   Platform = "linux"
 )
 
 type Viewport struct {
@@ -53,17 +57,20 @@ func textLength(s string) int { return len(utf16.Encode([]rune(s))) }
 
 func (t *Target) validate() error {
 	bad := func(message string) error { return failure(ErrInvalidArgument, message) }
-	if t.Platform == "mac" || t.Platform == "linux" {
-		return failure(ErrNotAvailableOnPlatform, "Go Verify supports web, iOS, and Android only.")
-	}
-	if t.Platform != Web && t.Platform != IOS && t.Platform != Android {
-		return bad("Platform must be web, ios, or android.")
+	if t.Platform != Web && t.Platform != IOS && t.Platform != Android && !t.Platform.computer() {
+		return bad("Platform must be web, ios, android, mac, or linux.")
 	}
 	if t.StartTimeout == 0 {
 		t.StartTimeout = 10 * time.Minute
 	}
 	if t.StartTimeout < 10*time.Second || t.StartTimeout > 30*time.Minute {
 		return bad("StartTimeout must be between 10 seconds and 30 minutes.")
+	}
+	if t.Platform.computer() {
+		if t.AppID != "" || t.BundleID != "" || t.URL != "" || t.BuildID != "" || t.ArtifactURL != "" || t.Branch != "" || t.DeviceModel != "" || t.OSVersion != "" || t.IdleTimeoutSeconds != 0 || t.Viewport != nil || t.SignIn != nil {
+			return bad("Computer targets accept only Platform and StartTimeout.")
+		}
+		return nil
 	}
 	if t.IdleTimeoutSeconds == 0 {
 		t.IdleTimeoutSeconds = 600

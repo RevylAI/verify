@@ -22,6 +22,7 @@ type OpenOptions struct {
 	AppURL      string
 	HTTPClient  *http.Client
 	StepTimeout time.Duration
+	Log         func(string)
 }
 
 type StepOptions struct{ Timeout time.Duration }
@@ -38,20 +39,25 @@ type StepResult struct {
 }
 
 type Session struct {
-	client      *client
-	id          string
-	runID       string
-	viewer      string
-	platform    Platform
-	stepTimeout time.Duration
-	mu          sync.Mutex
-	stepRunning bool
-	closeDone   chan struct{}
-	closeErr    error
+	client       *client
+	id           string
+	runID        string
+	viewer       string
+	platform     Platform
+	stepTimeout  time.Duration
+	mu           sync.Mutex
+	stepRunning  bool
+	closeDone    chan struct{}
+	closeErr     error
+	lifetime     context.Context
+	stopLifetime context.CancelFunc
+	log          func(string)
+	expiresAt    time.Time
 }
 
-func (s *Session) ID() string        { return s.id }
-func (s *Session) ViewerURL() string { return s.viewer }
+func (s *Session) ID() string           { return s.id }
+func (s *Session) ViewerURL() string    { return s.viewer }
+func (s *Session) ExpiresAt() time.Time { return s.expiresAt }
 
 func Open(ctx context.Context, target Target, options ...OpenOptions) (*Session, error) {
 	if len(options) > 1 {
@@ -79,6 +85,9 @@ func Open(ctx context.Context, target Target, options ...OpenOptions) (*Session,
 	if err != nil {
 		return nil, err
 	}
+	if target.Platform.computer() {
+		return startComputer(ctx, c, viewer, target, opt)
+	}
 	request := map[string]any{"platform": target.Platform, "idle_timeout_seconds": target.IdleTimeoutSeconds}
 	var id string
 	if target.Platform == Web {
@@ -86,13 +95,10 @@ func Open(ctx context.Context, target Target, options ...OpenOptions) (*Session,
 		if err != nil {
 			return nil, err
 		}
-		b := make([]byte, 16)
-		if _, err := rand.Read(b); err != nil {
+		id, err = newUUID()
+		if err != nil {
 			return nil, failure(ErrAPI, "Could not generate a session ID.")
 		}
-		b[6] = b[6]&0x0f | 0x40
-		b[8] = b[8]&0x3f | 0x80
-		id = fmt.Sprintf("%x-%x-%x-%x-%x", b[:4], b[4:6], b[6:8], b[8:10], b[10:])
 		request["session_id"], request["app_id"], request["build_id"] = id, target.AppID, build
 		web := map[string]any{}
 		if target.Viewport != nil {
@@ -343,12 +349,26 @@ func (s *Session) Close(ctx context.Context) error {
 		select {
 		case <-done:
 			return s.closeErr
+		default:
+		}
+		select {
+		case <-done:
+			return s.closeErr
 		case <-ctx.Done():
 			return contextError(ctx)
 		}
 	}
 	s.closeDone = make(chan struct{})
 	s.mu.Unlock()
+	if s.platform.computer() {
+		s.stopLifetime()
+		err := s.closeComputer(ctx)
+		s.mu.Lock()
+		s.closeErr = err
+		close(s.closeDone)
+		s.mu.Unlock()
+		return err
+	}
 	closeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	path := "/api/v1/execution/device/sessions/" + url.PathEscape(s.id) + "/stop"
@@ -372,6 +392,9 @@ func (s *Session) Screenshot(ctx context.Context, paths ...string) ([]byte, erro
 	if len(paths) > 1 {
 		return nil, failure(ErrInvalidArgument, "Screenshot accepts at most one path.")
 	}
+	if s.platform.computer() {
+		return s.computerScreenshot(ctx, paths...)
+	}
 	ctx, cancel := context.WithTimeout(ctx, 95*time.Second)
 	defer cancel()
 	r, err := s.worker(ctx, "GET", "screenshot", nil, true, 30*time.Second)
@@ -390,4 +413,14 @@ func (s *Session) Screenshot(ctx context.Context, paths ...string) ([]byte, erro
 		}
 	}
 	return r.body, nil
+}
+
+func newUUID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	b[6] = b[6]&0x0f | 0x40
+	b[8] = b[8]&0x3f | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[:4], b[4:6], b[6:8], b[8:10], b[10:]), nil
 }

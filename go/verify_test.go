@@ -779,14 +779,6 @@ func TestEnvironmentOverridesAndRedirectRejection(t *testing.T) {
 }
 
 func TestUnsupportedAndInvalidOptions(t *testing.T) {
-	for _, platform := range []verify.Platform{"mac", "linux"} {
-		t.Run(string(platform), func(t *testing.T) {
-			f := newFake(t)
-			t.Setenv("REVYL_API_KEY", "")
-			_, err := verify.Open(context.Background(), verify.Target{Platform: platform}, verify.OpenOptions{BackendURL: f.server.URL})
-			requireCode(t, err, verify.ErrNotAvailableOnPlatform)
-		})
-	}
 	for _, backend := range []string{"not-a-url", "http://example.test", "https://user:password@example.test", "https://example.test?token=placeholder", "https://example.test#fragment"} {
 		t.Run(backend, func(t *testing.T) {
 			newFake(t)

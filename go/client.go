@@ -175,6 +175,9 @@ func (c *client) sendOnce(ctx context.Context, method, path string, body []byte,
 	if worker {
 		req.Header.Set("X-Revyl-Agent", "Verify")
 	}
+	if method == "POST" && strings.HasPrefix(path, "/api/v1/computer-runs/") && strings.HasSuffix(path, "/operations") {
+		req.Header.Set("Prefer", "respond-async")
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -189,15 +192,19 @@ func (c *client) sendOnce(ctx context.Context, method, path string, body []byte,
 		return response{}, failure(ErrAPI, "Could not reach Revyl; the request was not replayed unless it is safe to retry.")
 	}
 	defer r.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(r.Body, 16*1024*1024+1))
+	maxBytes := int64(16 * 1024 * 1024)
+	if strings.HasPrefix(path, "/api/v1/computer-runs/") && strings.HasSuffix(path, "/screen/screenshot") {
+		maxBytes = 4*((128*1024*1024+2)/3) + 4096
+	}
+	data, err := io.ReadAll(io.LimitReader(r.Body, maxBytes+1))
 	if err != nil {
 		if requestCtx.Err() != nil {
 			return response{}, contextError(requestCtx)
 		}
 		return response{}, failure(ErrAPI, "Could not read the Revyl response.")
 	}
-	if len(data) > 16*1024*1024 {
-		return response{}, failure(ErrAPI, "Revyl response exceeds the 16 MiB limit.")
+	if int64(len(data)) > maxBytes {
+		return response{}, failure(ErrAPI, "Revyl response exceeds the response size limit.")
 	}
 	return response{status: r.StatusCode, body: data}, nil
 }
