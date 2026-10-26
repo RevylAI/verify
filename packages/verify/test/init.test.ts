@@ -84,6 +84,6 @@ describe('initProject', () => {
     await expect(initProject(dir, { platform: 'web', appId: 'nope' })).rejects.toThrow('UUID');
     await expect(initProject(dir, { platform: 'mac', appId: APP_ID })).rejects.toThrow('--app-id does not apply');
     await expect(initProject(dir, { platform: 'mac', url: 'https://x.com' })).rejects.toThrow('web targets only');
-    await expect(initProject(dir, { platform: 'linux' })).rejects.toThrow('Linux computers are not available');
+    await expect(initProject(dir, { platform: 'linux' })).rejects.toThrow("Linux init is unavailable; use open({ platform: 'linux' }) or a Linux config target.");
   });
 });

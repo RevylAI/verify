@@ -41,11 +41,11 @@ npx verify whoami               # checks the credentials without starting a sess
 
 ## 4. Point the config at your app
 
-Web and mobile targets need an app. Open the app in Revyl and copy its id into `app.appId`, or set `REVYL_APP_ID`, which the generated config reads. Mac targets need no app id.
+Web and mobile targets need an app. Open the app in Revyl and copy its id into `app.appId`, or set `REVYL_APP_ID`, which the generated config reads. Mac and Linux targets need no app id. Linux init is intentionally unavailable; use `open({ platform: 'linux' })` or add a Linux config target.
 
 - **Web:** set `app.url` to a public HTTPS URL, such as a staging or preview deployment. Revyl's cloud browser cannot reach `localhost`. See [web.md](web.md).
 - **iOS and Android:** upload a build to the app in Revyl, for example with `revyl build upload`; each session installs the newest one. See [mobile.md](mobile.md).
-- **Mac:** early access is not yet available in Revyl production. It works only on Revyl staging for enabled organizations through the optional `REVYL_BACKEND_URL` override and matching staging credentials. Agent instruction/validation are unavailable. See [computers.md](computers.md#availability-and-errors). Linux is a contract only and cannot be opened yet.
+- **Mac and Linux:** early access is not yet available in Revyl production. Both work only on Revyl staging for organizations enabled for the requested OS through the optional `REVYL_BACKEND_URL` override and matching staging credentials. Agent instruction/validation are unavailable. See [computers.md](computers.md#availability-and-errors).
 
 ## 5. Run the script
 
@@ -62,7 +62,7 @@ If Node warns that the module type is not specified, add `"type": "module"` to y
 [verify] ios: closed
 ```
 
-Open the link to watch the session live. After the session ends, the link keeps its recording/report. The Revyl CLI prints the stored report with `revyl device report --session-id <id>` for web/mobile, or `revyl computer report <id>` for Mac.
+Open the link to watch the session live. After the session ends, the link keeps its report and any available recording. The Revyl CLI prints the stored report with `revyl device report --session-id <id>` for web/mobile, or `revyl computer report <id>` for computers. Computer recordings can be absent or still processing after release; `recording()` retrieves optional private metadata without waiting or downloading.
 
 ## The whole API
 

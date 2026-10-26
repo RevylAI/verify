@@ -1,6 +1,6 @@
 # Verify
 
-**Open cloud browsers and mobile devices for Revyl's agent, or a Mac computer for commands and files, from TypeScript.**
+**Open cloud browsers and mobile devices for Revyl's agent, or Mac and Linux computers for commands and files, from TypeScript.**
 
 ```ts
 import { open } from '@revyl/verify';
@@ -16,7 +16,7 @@ npx @revyl/verify init       # writes verify.config.ts and verify/example.ts
 node verify/example.ts       # opens the session, prints a link to watch it live, runs the steps
 ```
 
-Verify is a small TypeScript library on top of [Revyl](https://revyl.com). Open a browser or mobile device for **instruction** and **validation** steps, or a Mac computer for commands, files, processes, and screenshots. It has no test framework of its own, so you call it from wherever you already write code:
+Verify is a small TypeScript library on top of [Revyl](https://revyl.com). Open a browser or mobile device for **instruction** and **validation** steps, or a Mac or Linux computer for commands, files, processes, and screenshots. It has no test framework of its own, so you call it from wherever you already write code:
 
 - **A plain script.** A failed validation throws, the script exits non-zero, and Verify closes the session on the way out.
 - **A coding agent.** An agent can check its own change on a real device in five lines, then read a one-line outcome per step and a link to the recording.
@@ -40,13 +40,15 @@ Full walkthrough: [getting started](https://github.com/RevylAI/verify/blob/main/
 
 | Call | What it does |
 | --- | --- |
-| `open(target)` | Starts a Revyl cloud browser, device, or Mac computer, from a target name in `verify.config.ts` or a target object, and waits until it is ready |
-| `session.exec(argv, options?)` | Runs structured argv on a Mac computer; returns `{ exitCode, stdout, stderr }` |
+| `open(target)` | Starts a Revyl cloud browser, device, or computer, from a target name in `verify.config.ts` or a target object, and waits until it is ready |
+| `session.exec(argv, options?)` | Runs structured argv on a computer; returns `{ exitCode, stdout, stderr }` |
 | `session.readFile(path)`, `writeFile(path, data)`, `stat(path)` | Reads a `Buffer`, writes a string or bytes, or returns `{ kind, size }` on a computer |
 | `session.processes()`, `terminate(id)` | Lists run-owned process handles or terminates one on a computer |
 | `session.instruction(text)` | Revyl's agent does what the text says. Throws `INSTRUCTION_FAILED` if it cannot. |
 | `session.validation(text)` | Revyl's agent checks that the text holds on screen. Throws `VALIDATION_FAILED` if it does not, or returns the result with `{ soft: true }`. |
 | `session.screenshot({ path })` | A PNG of the screen |
+| `session.recording()` | Private computer recording metadata or null after terminal state and confirmed release; no download or automatic wait |
+| `session.expiresAt` | Computer expiry as a `Date` when returned by the API; otherwise undefined |
 | `session.viewerUrl` | The session in Revyl: live while it runs, its recording after |
 | `session.close()` | Stops the session. Verify also closes open sessions on Ctrl+C, on an uncaught error, and when a script ends without closing. |
 
@@ -56,24 +58,24 @@ Revyl failures are `VerifyError`s with a stable code, a safe reason, and the ses
 
 | | Web | iOS | Android | Mac | Linux |
 | --- | --- | --- | --- | --- | --- |
-| Runs on | Revyl cloud browser | Revyl iOS simulator | Revyl Android emulator | Revyl macOS computer | Contract only; open unavailable |
-| Opens | A public URL, or a web build in Revyl | A build in Revyl, a build URL, or an installed app | A build in Revyl, a build URL, or an installed app | A workspace, no app id | Nothing in this release |
+| Runs on | Revyl cloud browser | Revyl iOS simulator | Revyl Android emulator | Revyl macOS computer | Revyl Linux computer |
+| Opens | A public URL, or a web build in Revyl | A build in Revyl, a build URL, or an installed app | A build in Revyl, a build URL, or an installed app | A workspace, no app id | A workspace, no app id |
 | `instruction`, `validation` | Yes | Yes | Yes | Unavailable | Unavailable |
-| Commands, files, processes | Unavailable | Unavailable | Unavailable | Early access on staging only for enabled organizations; not yet available in Revyl production | Contract only |
-| `screenshot`, `viewerUrl` | Yes | Yes | Yes | Yes | Unconfirmed |
+| Commands, files, processes | Unavailable | Unavailable | Unavailable | Early access on staging only; not yet available in production | Early access on staging only; not yet available in production |
+| `screenshot`, `viewerUrl` | Yes | Yes | Yes | Yes | Yes |
 
 Steps on web go through the same Revyl API as on mobile. Production is the default; optional environment overrides are documented in [web.md](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/web.md). A backend without web-step support returns `NOT_AVAILABLE_ON_PLATFORM`.
 
 Each step runs Revyl's agent on the live session every time. Verify does not cache or replay steps, and Revyl does not carry values from one step to the next.
 
-For a Mac workspace, run `npx @revyl/verify init --platform mac`; it generates a command and file-round-trip script with no app id or agent steps. Mac computers are early access and not yet available in Revyl production. They work only on Revyl staging for enabled organizations using the optional `REVYL_BACKEND_URL` override and matching credentials. Linux targets are typed but `open()` rejects them with `NOT_AVAILABLE_ON_PLATFORM` before credentials or network access. See [computers](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#availability-and-errors) and the [Linux contract](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/linux-computers-contract.md).
+For a Mac workspace, run `npx @revyl/verify init --platform mac`; it generates a command and file-round-trip script with no app id or agent steps. For Linux, use `open({ platform: 'linux' })` or add a Linux config target; Linux init is intentionally unavailable. Both operating systems are early access and not yet available in Revyl production. They work only on Revyl staging for organizations enabled for the requested OS, using the optional `REVYL_BACKEND_URL` override and matching credentials. Computers have a hard 60-minute lifetime from create; close explicitly even after expiry. See [computers](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#availability-and-errors) and the [shared Linux contract](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/linux-computers-contract.md).
 
 ## Docs
 
 - [Getting started](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/getting-started.md) and [API](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/api.md)
 - [Configuration and CLI](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/configuration.md)
 - [Web](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/web.md) and [iOS and Android](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/mobile.md)
-- [Mac computers](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md) and the [deferred Linux contract](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/linux-computers-contract.md)
+- [Mac and Linux computers](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md) and the [shared Linux contract](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/linux-computers-contract.md)
 - [CI and test runners](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/ci.md) and [error codes](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/errors.md)
 - [For coding agents](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/agents.md)
 

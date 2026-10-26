@@ -50,6 +50,10 @@ describe('starting a session', () => {
     });
     expect(fake.calls('POST', /launch/)).toHaveLength(0);
     expect(lines).toEqual([`android: starting android session ${session.viewerUrl}`, 'android: ready']);
+    expect(session.expiresAt).toBeUndefined();
+    const requestCount = fake.requests.length;
+    await expect(session.recording()).rejects.toMatchObject({ code: 'NOT_AVAILABLE_ON_PLATFORM' });
+    expect(fake.requests).toHaveLength(requestCount);
   });
 
   it('launches an app already on the device when the target names only a bundle id', async () => {

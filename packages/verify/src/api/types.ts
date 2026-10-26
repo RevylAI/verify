@@ -159,6 +159,13 @@ export interface ComputerReport {
   state: ComputerState;
   release: 'pending' | 'confirmed' | 'unknown';
   failure_reason?: string | null;
+  expires_at?: string | null;
+}
+
+export interface ComputerRecordingResponse {
+  url: string;
+  duration_seconds?: number | null;
+  started_at?: string | null;
 }
 
 export interface ComputerProcessHandle {

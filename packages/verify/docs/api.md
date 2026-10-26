@@ -6,14 +6,15 @@ import { open, defineConfig, VerifyError, isVerifyError } from '@revyl/verify';
 
 ## open(target, options?)
 
-Starts a Revyl cloud browser, device, or Mac computer and resolves with a `Session` once it is ready. Starting usually takes from a few seconds to a couple of minutes. Linux targets are accepted in config/types but opening them throws `NOT_AVAILABLE_ON_PLATFORM` before credentials or network access.
+Starts a Revyl cloud browser, device, or Mac or Linux computer and resolves with a `Session` once it is ready. Computer starts retain a 10-minute default timeout; an unclaimed start may fail after 120 seconds with no-host context.
 
-Mac computers are early access on staging only for enabled organizations, not yet available in Revyl production. Use the optional `REVYL_BACKEND_URL` override and staging credentials described in [computer availability](computers.md#availability-and-errors).
+Both computer operating systems are early access on staging only for organizations enabled for the requested OS, not yet available in Revyl production. Use the optional `REVYL_BACKEND_URL` override and staging credentials described in [computer availability](computers.md#availability-and-errors).
 
 ```ts
 const web = await open('web');                                       // a target named in verify.config.ts
 const ios = await open({ platform: 'ios', app: { appId: '…' } });    // or a target object, no config needed
 const mac = await open({ platform: 'mac' });                        // computer, no app needed
+const linux = await open({ platform: 'linux' });                    // same computer surface
 ```
 
 - `target`: a target name from `verify.config.ts`, or a target object with the same shape as a config entry (see [configuration.md](configuration.md)). Verify reads the nearest `verify.config.ts` at or above the current folder.
@@ -70,7 +71,11 @@ For computers, cleanup must be confirmed; a terminal state alone does not prove 
 
 ## Computer commands, files, and processes
 
-Mac sessions provide `exec(argv: string[], options?)`, `readFile(path, options?)` returning `Buffer`, `writeFile(path, string | Uint8Array, options?)`, `stat(path, options?)` returning `{ kind, size }`, `processes(options?)` returning `{ id, state, exitCode? }[]`, and `terminate(id, options?)`. They throw `NOT_AVAILABLE_ON_PLATFORM` on web/iOS/Android. See [computers.md](computers.md) for complete signatures, limits, timeouts, and examples. Mac also supports `screenshot()`; instruction/validation do not run on computers.
+Mac and Linux sessions provide `exec(argv: string[], options?)`, `readFile(path, options?)` returning `Buffer`, `writeFile(path, string | Uint8Array, options?)`, `stat(path, options?)` returning `{ kind, size }`, `processes(options?)` returning `{ id, state, exitCode? }[]`, and `terminate(id, options?)`. They throw `NOT_AVAILABLE_ON_PLATFORM` on web/iOS/Android. See [computers.md](computers.md) for complete signatures, limits, timeouts, and examples. Both support `screenshot()`; instruction/validation do not run on computers.
+
+### `session.recording(): Promise<ComputerRecording | null>`
+
+Computers only. First reads the report and requires terminal state plus confirmed release, otherwise throws `SESSION_BUSY`. Returns `{ url: string, durationSeconds?: number, startedAt?: Date }` or null for an unavailable recording. Nullable optional wire fields are omitted. This method works after `close()`, does not wait for upload, and does not download or fetch the URL. Keep the signed HTTPS URL and its query private. Request fresh metadata when the URL expires. The normal report has no recording URL. Devices reject this call locally with `NOT_AVAILABLE_ON_PLATFORM`.
 
 ## Other session properties
 
@@ -78,7 +83,8 @@ Mac sessions provide `exec(argv: string[], options?)`, `readFile(path, options?)
 | --- | --- |
 | `viewerUrl` | The session in Revyl: a live view while it runs, its recording/report after. Use `revyl device report --session-id <id>` for web/mobile, or `revyl computer report <id>` for computers. |
 | `id` | Revyl's session id |
-| `platform` | `'web'`, `'ios'`, `'android'`, `'mac'`, or the reserved `'linux'` type (opening Linux is unavailable) |
+| `platform` | `'web'`, `'ios'`, `'android'`, `'mac'`, or `'linux'` |
+| `expiresAt` | Validated API expiry as a `Date`, or undefined for devices and older APIs. Computers have a hard 60-minute lifetime from create. Operations/screenshot observation are bounded by expiry; close and recording remain possible. |
 | `target` | The target name, or the platform for a target object |
 | `closed` | Whether `close()` was called |
 
