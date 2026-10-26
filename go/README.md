@@ -19,14 +19,26 @@ There is no Go release tag yet. `@main` resolves to a pseudo-version; commit the
 Inside a function returning `error`, with `verify "github.com/RevylAI/verify/go"`, `context`, and `time` imported:
 
 ```go
-s, err := verify.Open(ctx, verify.Target{Platform: verify.Android, BundleID: "com.example.app"}); if err != nil { return err }
-defer func() { cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second); defer cancel(); _ = s.Close(cleanup) }()
-if _, err := s.Instruction(ctx, "Open the cart"); err != nil { return err }
-if _, err := s.Validation(ctx, "The cart shows one item"); err != nil { return err }
-_, err = s.Screenshot(ctx, "artifacts/cart.png"); return err
+s, err := verify.Open(ctx, verify.Target{Platform: verify.Android, BundleID: "com.example.app"})
+if err != nil {
+	return err
+}
+defer func() {
+	cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = s.Close(cleanup)
+}()
+if _, err := s.Instruction(ctx, "Open the cart"); err != nil {
+	return err
+}
+if _, err := s.Validation(ctx, "The cart shows one item"); err != nil {
+	return err
+}
+_, err = s.Screenshot(ctx, "artifacts/cart.png")
+return err
 ```
 
-This five-line sketch ignores cleanup errors for brevity; the complete example below reports them. Go has no automatic process-exit cleanup: explicitly close every successful session, including on error. Use a fresh, bounded cleanup context so canceling the work context does not prevent cleanup. `Close` is idempotent. An abrupt process termination cannot run deferred functions.
+This sketch ignores cleanup errors for brevity; the complete example below reports them. Go has no automatic process-exit cleanup: explicitly close every successful session, including on error. Use a fresh, bounded cleanup context so canceling the work context does not prevent cleanup. `Close` is idempotent. An abrupt process termination cannot run deferred functions.
 
 `Close` requests a device stop (or cancels startup when no session ID was returned); success acknowledges the request, not confirmed physical release. Concurrent/repeated calls share the first close result, including an error. It does not retry a failed close as a new operation.
 
