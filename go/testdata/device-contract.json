@@ -1,0 +1,56 @@
+{
+  "androidStart": {
+    "status": "starting",
+    "platform": "android",
+    "session_id": "11111111-2222-4333-8444-555555555555",
+    "workflow_run_id": "run-1"
+  },
+  "webStart": {
+    "status": "starting",
+    "platform": "web",
+    "session_id": "11111111-2222-4333-8444-555555555555",
+    "workflow_run_id": null
+  },
+  "webReady": { "id": "x", "status": "running", "workflow_run_id": "run-1" },
+  "workerConnection": { "status": "ready", "workflow_run_id": "run-1", "worker_ws_url": "wss://worker.test" },
+  "health": { "status": "ok", "device_connected": true, "screen_width": 1080, "screen_height": 2400 },
+  "stop": {
+    "success": true,
+    "request_accepted": true,
+    "session_id": "11111111-2222-4333-8444-555555555555",
+    "status": "stopping",
+    "message": "ok"
+  },
+  "stepResult": {
+    "success": true,
+    "step_type": "instruction",
+    "step_id": "step-1",
+    "workflow_run_id": "run-1",
+    "session_id": "11111111-2222-4333-8444-555555555555",
+    "execution_id": null,
+    "report_id": null,
+    "step_output": { "status": "success", "status_reason": "Done" }
+  },
+  "validationPassed": {
+    "success": true,
+    "step_type": "validation",
+    "step_id": "step-1",
+    "workflow_run_id": "run-1",
+    "session_id": "11111111-2222-4333-8444-555555555555",
+    "execution_id": null,
+    "report_id": null,
+    "step_output": { "action_type": "validation", "status": "success", "status_reason": "Visible", "validation_result": true }
+  },
+  "validationFailed": {
+    "success": true,
+    "step_type": "validation",
+    "step_id": "step-1",
+    "workflow_run_id": "run-1",
+    "session_id": "11111111-2222-4333-8444-555555555555",
+    "execution_id": null,
+    "report_id": null,
+    "step_output": { "action_type": "validation", "status": "success", "status_reason": "Not visible", "validation_result": false }
+  },
+  "stepAccepted": { "step_id": "step-1", "status": "accepted" },
+  "stepRunning": { "step_id": "step-1", "status": "running", "result": null }
+}

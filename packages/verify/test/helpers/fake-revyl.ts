@@ -1,6 +1,11 @@
 import { createServer } from 'node:http';
+import { readFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { RevylClient } from '../../src/api/client.js';
+
+const contract: Record<string, Record<string, unknown>> = JSON.parse(
+  readFileSync(new URL('../../../../go/testdata/device-contract.json', import.meta.url), 'utf8'),
+);
 
 export interface RecordedRequest {
   method: string;
@@ -102,15 +107,15 @@ const STOP = /^\/api\/v1\/execution\/device\/sessions\/[^/]+\/stop$/;
 export function fakeAndroid(fake: FakeRevyl): FakeRevyl {
   return fake
     .on('POST', /^\/api\/v1\/execution\/start_device$/, () =>
-      json({ status: 'starting', platform: 'android', session_id: SESSION_ID, workflow_run_id: RUN_ID }),
+      json(contract.androidStart),
     )
     .on('GET', /^\/api\/v1\/execution\/streaming\/worker-connection\/run-1$/, () =>
-      json({ status: 'ready', workflow_run_id: RUN_ID, worker_ws_url: 'wss://worker.test' }),
+      json(contract.workerConnection),
     )
-    .on('GET', /device-proxy\/run-1\/health$/, () => json({ status: 'ok', device_connected: true, screen_width: 1080, screen_height: 2400 }))
+    .on('GET', /device-proxy\/run-1\/health$/, () => json(contract.health))
     .on('GET', /device-proxy\/run-1\/screenshot$/, () => new Response(png(1080, 2400), { headers: { 'content-type': 'image/png' } }))
     .on('POST', /device-proxy\/run-1\/launch$/, () => json({ success: true, action: 'launch', latency_ms: 1 }))
-    .on('POST', STOP, () => json({ success: true, request_accepted: true, session_id: SESSION_ID, status: 'stopping', message: 'ok' }));
+    .on('POST', STOP, () => json(contract.stop));
 }
 
 /** A web session that becomes ready on its second status poll. */
@@ -119,10 +124,10 @@ export function fakeWeb(fake: FakeRevyl): FakeRevyl {
   return fake
     .on('POST', /\/apps\/[^/]+\/builds\/external$/, () => json({ id: BUILD_ID }))
     .on('POST', /^\/api\/v1\/execution\/start_device$/, (request) =>
-      json({ status: 'starting', platform: 'web', session_id: request.body.session_id, workflow_run_id: null }),
+      json({ ...contract.webStart, session_id: request.body.session_id }),
     )
     .on('GET', /^\/api\/v1\/execution\/device-sessions\/[^/]+$/, () =>
-      json(++polls < 2 ? { id: 'x', status: 'starting' } : { id: 'x', status: 'running', workflow_run_id: RUN_ID }),
+      json(++polls < 2 ? { id: 'x', status: 'starting' } : contract.webReady),
     )
     .on('GET', /device-proxy\/run-1\/screenshot$/, () => new Response(png(1280, 800)))
     .on('POST', STOP, () => json({ success: true, request_accepted: true, session_id: 'x', status: 'stopping', message: '' }));
@@ -131,20 +136,17 @@ export function fakeWeb(fake: FakeRevyl): FakeRevyl {
 /** A LiveStepResponse as Revyl returns it. step_output is the agent's StepExecutionResult. */
 export function stepResult(output: Record<string, unknown>, success = true, stepType = 'instruction'): Record<string, unknown> {
   return {
+    ...contract.stepResult,
     success,
     step_type: stepType,
-    step_id: 'step-1',
-    workflow_run_id: RUN_ID,
-    session_id: SESSION_ID,
-    execution_id: null,
-    report_id: null,
     step_output: output,
   };
 }
 
 /** A validation that ran: Revyl reports status 'success' and puts the verdict in validation_result. */
 export function verdict(holds: boolean, reason: string): Record<string, unknown> {
-  return stepResult({ action_type: 'validation', status: 'success', status_reason: reason, validation_result: holds }, true, 'validation');
+  const result = contract[holds ? 'validationPassed' : 'validationFailed']!;
+  return { ...result, step_output: { ...(result.step_output as Record<string, unknown>), status_reason: reason } };
 }
 
 /** The busy refusal mobile workers and the web live-step adapter both send while a step is queued or running. */
@@ -154,8 +156,8 @@ export const STEP_BUSY = { detail: 'A step is already executing. Wait for it to 
 export function fakeStep(fake: FakeRevyl, terminal: { status: 'completed' | 'failed' | 'cancelled'; result: Record<string, unknown> }): FakeRevyl {
   let polls = 0;
   return fake
-    .on('POST', /execute_step$/, () => json({ step_id: 'step-1', status: 'accepted' }, 202))
+    .on('POST', /execute_step$/, () => json(contract.stepAccepted, 202))
     .on('GET', /step_status\/step-1$/, () =>
-      json(++polls < 2 ? { step_id: 'step-1', status: 'running', result: null } : { step_id: 'step-1', ...terminal }),
+      json(++polls < 2 ? contract.stepRunning : { step_id: 'step-1', ...terminal }),
     );
 }

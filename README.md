@@ -23,6 +23,8 @@ Verify is a small TypeScript library on top of [Revyl](https://revyl.com). Open 
 - **CI.** Run the script in a job. The browsers and devices run in Revyl's cloud, so the runner needs nothing but Node and an API key.
 - **Your test runner.** Call it inside node:test, Vitest, Jest, or Playwright Test, next to the tests you already have.
 
+Using Go? The [Go SDK](https://github.com/RevylAI/verify/tree/main/go) supports web, iOS, Android, and early-access Mac/Linux computers (not yet available in production), with contexts, typed errors, and no external dependencies.
+
 ## Quick start
 
 You need Node.js 22.18 or later and a Revyl account.
@@ -54,6 +56,8 @@ Revyl failures are `VerifyError`s with a stable code, a safe reason, and the ses
 
 ## Platforms
 
+This table describes the TypeScript API. The [Go SDK](https://github.com/RevylAI/verify/tree/main/go) also supports early-access Linux computers.
+
 | | Web | iOS | Android | Mac | Linux |
 | --- | --- | --- | --- | --- | --- |
 | Runs on | Revyl cloud browser | Revyl iOS simulator | Revyl Android emulator | Revyl macOS computer | Contract only; open unavailable |
@@ -66,7 +70,7 @@ Steps on web go through the same Revyl API as on mobile. Production is the defau
 
 Each step runs Revyl's agent on the live session every time. Verify does not cache or replay steps, and Revyl does not carry values from one step to the next.
 
-For a Mac workspace, run `npx @revyl/verify init --platform mac`; it generates a command and file-round-trip script with no app id or agent steps. Mac computers are early access and not yet available in Revyl production. They work only on Revyl staging for enabled organizations using the optional `REVYL_BACKEND_URL` override and matching credentials. Linux targets are typed but `open()` rejects them with `NOT_AVAILABLE_ON_PLATFORM` before credentials or network access. See [computers](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#availability-and-errors) and the [Linux contract](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/linux-computers-contract.md).
+For a Mac workspace, run `npx @revyl/verify init --platform mac`; it generates a command and file-round-trip script with no app id or agent steps. Mac computers are early access and not yet available in Revyl production. They work only on Revyl staging for enabled organizations using the optional `REVYL_BACKEND_URL` override and matching credentials. TypeScript Linux targets are typed but `open()` rejects them with `NOT_AVAILABLE_ON_PLATFORM` before credentials or network access. See [computers](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#availability-and-errors) and the [Linux contract](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/linux-computers-contract.md).
 
 ## Docs
 

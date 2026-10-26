@@ -1,0 +1,12 @@
+{
+  "active": { "computer_session_id": "11111111-2222-4333-8444-555555555555", "state": "active" },
+  "stopped": { "computer_session_id": "11111111-2222-4333-8444-555555555555", "state": "stopped", "release": "confirmed" },
+  "operation": { "computer_session_id": "11111111-2222-4333-8444-555555555555", "operation_id": "0b3be4ad-9a8e-530b-82d0-99b3a8a57787", "execution": { "outcome": "succeeded", "result": { "kind": "exec", "exit_code": 0 } }, "evidence": "recorded" },
+  "exec": { "outcome": "succeeded", "result": { "kind": "exec", "exit_code": 0, "stdout": "b2sK", "stderr": "" } },
+  "nonzero": { "outcome": "failed", "error_code": "exec_nonzero", "result": { "kind": "exec", "exit_code": 7, "stdout": "", "stderr": "bm8=" } },
+  "uuidV5": { "session_id": "11111111-2222-4333-8444-555555555555", "request_id": "0b6a8c3e-1111-4222-8333-944455556666", "operation_id": "0b3be4ad-9a8e-530b-82d0-99b3a8a57787" },
+  "noHost": { "computer_session_id": "11111111-2222-4333-8444-555555555555", "state": "failed", "failure_reason": "no_host", "release": "confirmed" },
+  "recording": { "url": "https://media.example.test/recording.mp4?signature=fixture-only", "duration_seconds": 12.5, "started_at": "2026-10-26T12:00:00Z" },
+  "recordingUnavailable": { "error": "recording_unavailable" },
+  "activeWithExpiry": { "computer_session_id": "11111111-2222-4333-8444-555555555555", "state": "active", "expires_at": "2099-01-01T01:00:00Z" }
+}

@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -9,6 +10,14 @@ import type { Session } from '../src/index.js';
 import { FakeRevyl, json, png } from './helpers/fake-revyl.js';
 
 const sessions: Session[] = [];
+const contract: {
+  active: Record<string, unknown>;
+  stopped: Record<string, unknown>;
+  operation: Record<string, unknown>;
+  exec: Record<string, unknown>;
+  nonzero: Record<string, unknown>;
+  uuidV5: { session_id: string; request_id: string; operation_id: string };
+} = JSON.parse(readFileSync(new URL('../../../go/testdata/computer-contract.json', import.meta.url), 'utf8'));
 afterEach(async () => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -19,8 +28,8 @@ afterEach(async () => {
 
 function fakeMac(): FakeRevyl {
   return new FakeRevyl()
-    .on('POST', /^\/api\/v1\/computer-runs$/, (request) => json({ computer_session_id: request.body.computer_session_id, state: 'active' }))
-    .on('POST', /\/computer-runs\/([^/]+)\/stop$/, (_request, match) => json({ computer_session_id: match[1], state: 'stopped', release: 'confirmed' }));
+    .on('POST', /^\/api\/v1\/computer-runs$/, (request) => json({ ...contract.active, computer_session_id: request.body.computer_session_id }))
+    .on('POST', /\/computer-runs\/([^/]+)\/stop$/, (_request, match) => json({ ...contract.stopped, computer_session_id: match[1] }));
 }
 
 async function start(fake: FakeRevyl, lines: string[] = []): Promise<Session> {
@@ -30,7 +39,7 @@ async function start(fake: FakeRevyl, lines: string[] = []): Promise<Session> {
 }
 
 function result(fake: FakeRevyl, execution: unknown): FakeRevyl {
-  return fake.on('POST', /\/operations$/, ({ body }) => json({ computer_session_id: body.computer_session_id, operation_id: computerOperationId(body.computer_session_id, body.request_id), execution, evidence: 'recorded' }));
+  return fake.on('POST', /\/operations$/, ({ body }) => json({ ...contract.operation, computer_session_id: body.computer_session_id, operation_id: computerOperationId(body.computer_session_id, body.request_id), execution }));
 }
 
 describe('computer lifecycle', () => {
@@ -139,11 +148,11 @@ describe('computer lifecycle', () => {
 
 describe('computer operations', () => {
   it('matches Python UUIDv5 for the operation identity', () => {
-    expect(computerOperationId('11111111-2222-4333-8444-555555555555', '0b6a8c3e-1111-4222-8333-944455556666')).toBe('0b3be4ad-9a8e-530b-82d0-99b3a8a57787');
+    expect(computerOperationId(contract.uuidV5!.session_id, contract.uuidV5!.request_id)).toBe(contract.uuidV5!.operation_id);
   });
 
   it('executes argv without a shell, sends stdin as base64 and decodes output', async () => {
-    const fake = result(fakeMac(), { outcome: 'succeeded', result: { kind: 'exec', exit_code: 0, stdout: Buffer.from('ok\n').toString('base64'), stderr: '' } });
+    const fake = result(fakeMac(), contract.exec);
     const session = await start(fake);
     expect(await session.exec(['printf', '%s', 'a b'], { stdin: 'input', timeout: 300_000 })).toEqual({ exitCode: 0, stdout: 'ok\n', stderr: '' });
     const request = fake.calls('POST', /\/operations$/)[0]!;
@@ -152,7 +161,7 @@ describe('computer operations', () => {
   });
 
   it('throws on nonzero exit unless check is false', async () => {
-    const fake = result(fakeMac(), { outcome: 'failed', error_code: 'exec_nonzero', result: { kind: 'exec', exit_code: 7, stdout: '', stderr: 'bm8=' } });
+    const fake = result(fakeMac(), contract.nonzero);
     const session = await start(fake);
     await expect(session.exec(['false'])).rejects.toMatchObject({ code: 'COMMAND_FAILED' });
     expect(await session.exec(['false'], { check: false })).toEqual({ exitCode: 7, stdout: '', stderr: 'no' });
