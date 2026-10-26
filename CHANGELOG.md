@@ -4,6 +4,19 @@
 
 - Add a standard-library-only Go SDK for web, iOS, Android, and early-access Mac and Linux computers. Computer commands, binary files, process handles, screenshots, recording metadata, and confirmed-release cleanup require an enabled staging organization and are not yet available in production. Capacity refusals have a distinct `COMPUTER_LIMIT` code; no start or operation is automatically replayed.
 
+## 0.2.0
+
+Release preparation only; no publication is implied.
+
+- Enable Linux named and inline computer targets with the shared Mac command, file, process, screenshot, and confirmed-release cleanup surface. Both operating systems remain early access on staging for enabled organizations/OSes, not yet available in production.
+- Add `COMPUTER_LIMIT` for queued work (including iOS) or concurrency admission refusals, without retrying or stopping a definitely refused start. Preserve `SESSION_BUSY` for operation limits.
+- Explain the 120-second unclaimed-start failure without shortening the default 10-minute start timeout.
+- Expose optional `expiresAt` and bound operation/screenshot observation by the hard 60-minute lifetime from create, while keeping explicit close possible.
+- Add computer `recording()` metadata retrieval after terminal state and confirmed release, including after close. Missing recordings return null; signed URLs remain private, with no automatic waiting or download.
+- Keep Linux CLI init intentionally unavailable; use inline targets or config entries. Computer instruction/validation remain locally unavailable.
+
+Validation uses fake API responses, not live computer sessions.
+
 ## 0.1.0
 
 Initial release preparation; this entry does not mean the package has been published.

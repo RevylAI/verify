@@ -2,44 +2,52 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { RevylClient, responseDetail, sessionViewerUrl, type RawResponse } from './api/client.js';
-import type { ComputerCommand, ComputerCommandResponse, ComputerReport, ComputerResult, ComputerScreenshot } from './api/types.js';
+import { RevylClient, responseDetail, responseErrorCode, sessionViewerUrl, type RawResponse } from './api/client.js';
+import type { ComputerCommand, ComputerCommandResponse, ComputerPlatform, ComputerRecordingResponse, ComputerReport, ComputerResult, ComputerScreenshot } from './api/types.js';
 import { trackSession, untrackSession } from './cleanup.js';
 import type { ResolvedComputerTarget } from './config.js';
 import { VerifyError, isVerifyError, type VerifyErrorCode } from './errors.js';
-import { pngSize, type ComputerProcess, type ExecOptions, type ExecResult, type FileStat, type OperationOptions, type Session, type SessionOptions, type StepResult } from './session.js';
+import { pngSize, type ComputerProcess, type ComputerRecording, type ExecOptions, type ExecResult, type FileStat, type OperationOptions, type Session, type SessionOptions, type StepResult } from './session.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATES = new Set(['starting', 'active', 'closing', 'stopped', 'failed', 'owner_lost']);
 const MAX_OUTPUT_BYTES = 1_048_576;
-const MAC_AVAILABILITY = 'Mac computers are not yet available in Revyl production. Early access works only on Revyl staging for enabled organizations. See https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#availability-and-errors';
+const COMPUTER_AVAILABILITY = 'Computers are not yet available in Revyl production. Early access works only on Revyl staging for enabled organizations and operating systems. See https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#availability-and-errors';
+const COMPUTER_CAPACITY = 'Computer admission was refused because of queued work (including iOS) or the concurrency limit. Verify will not retry the start.';
 const ERROR_CODES = new Set(['computer_not_enabled', 'run_closed', 'inaccessible', 'invalid_handle', 'operation_not_found', 'owner_unavailable', 'invalid_request', 'unauthenticated', 'forbidden', 'runtime_unavailable', 'start_failed', 'computer_limit', 'request_conflict', 'run_conflict', 'evidence_conflict', 'evidence_unavailable', 'authentication_unavailable', 'operation_limit', 'screen_starting', 'screen_unavailable']);
 
 export class ComputerSession implements Session {
-  readonly platform = 'mac' as const;
+  readonly platform: ComputerPlatform;
   readonly target: string;
   readonly id = randomUUID();
   readonly viewerUrl: string;
   readonly steps: StepResult[] = [];
   private readonly lifetime = new AbortController();
   private closePromise: Promise<void> | undefined;
+  private expiresAtMs: number | undefined;
 
   private constructor(private readonly client: RevylClient, target: ResolvedComputerTarget, private readonly options: SessionOptions) {
     this.target = target.name;
+    this.platform = target.platform;
     this.viewerUrl = sessionViewerUrl(this.id, 'computer');
   }
 
   static async start(client: RevylClient, target: ResolvedComputerTarget, options: SessionOptions): Promise<ComputerSession> {
-    if (target.platform !== 'mac') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'Linux computers are planned, but are not available in Verify yet.');
     const session = new ComputerSession(client, target, options);
     const signal = AbortSignal.any([AbortSignal.timeout(target.startTimeout), session.lifetime.signal]);
+    let createAcknowledged = false;
     trackSession(session);
     try {
-      session.log(`starting mac computer ${session.viewerUrl}. ${MAC_AVAILABILITY}`);
-      let report = session.report(await session.request('POST', '', { computer_session_id: session.id, os: 'macos' }, signal));
+      session.log(`starting computer ${session.viewerUrl}. ${COMPUTER_AVAILABILITY}`);
+      const response = await session.request('POST', '', { computer_session_id: session.id, os: target.platform === 'mac' ? 'macos' : 'linux' }, signal);
+      createAcknowledged = true;
+      let report = session.report(response);
       for (;;) {
         if (report.state === 'active') break;
-        if (report.state !== 'starting') throw new VerifyError('SESSION_START_FAILED', `The ${session.target} computer ended before it was ready (${report.state}). See ${session.viewerUrl}`);
+        if (report.state !== 'starting') {
+          const reason = report.failure_reason === 'no_host' ? ' No host claimed the start within the 120-second unclaimed-start window.' : report.failure_reason === 'device_limit' ? ` ${COMPUTER_CAPACITY}` : '';
+          throw new VerifyError('SESSION_START_FAILED', `The ${session.target} computer ended before it was ready (${report.state}).${reason} See ${session.viewerUrl}`);
+        }
         await delay(2_000, undefined, { signal });
         report = session.report(await session.request('GET', '/report', undefined, signal));
       }
@@ -47,19 +55,44 @@ export class ComputerSession implements Session {
       return session;
     } catch (error) {
       const timedOut = signal.aborted;
-      if (isVerifyError(error) && ['AUTH_REJECTED', 'NOT_AVAILABLE_ON_PLATFORM', 'INVALID_ARGUMENT'].includes(error.code)) {
+      if (!createAcknowledged && isVerifyError(error) && ['AUTH_REJECTED', 'NOT_AVAILABLE_ON_PLATFORM', 'INVALID_ARGUMENT', 'COMPUTER_LIMIT'].includes(error.code)) {
         session.lifetime.abort();
         untrackSession(session);
       } else {
         await session.close().catch(() => undefined);
       }
-      if (timedOut) throw new VerifyError('TIMEOUT', `The ${session.target} computer was not ready within ${target.startTimeout} ms. A possible cause is that no Mac computer could be assigned. ${MAC_AVAILABILITY}. Inspect ${session.viewerUrl}`);
+      if (timedOut) throw new VerifyError('TIMEOUT', `The ${session.target} computer was not ready within ${target.startTimeout} ms. A possible cause is that no computer could be assigned. ${COMPUTER_AVAILABILITY}. Inspect ${session.viewerUrl}`);
       throw error;
     }
   }
 
   get closed(): boolean {
     return this.closePromise !== undefined;
+  }
+
+  get expiresAt(): Date | undefined {
+    return this.expiresAtMs === undefined ? undefined : new Date(this.expiresAtMs);
+  }
+
+  async recording(): Promise<ComputerRecording | null> {
+    const signal = AbortSignal.timeout(30_000);
+    const report = this.report(await this.request('GET', '/report', undefined, signal));
+    if (!['stopped', 'failed', 'owner_lost'].includes(report.state) || report.release !== 'confirmed') {
+      throw new VerifyError('SESSION_BUSY', `The computer recording can be requested only after terminal state and confirmed release. See ${this.viewerUrl}`);
+    }
+    const response = await this.request('GET', '/recording', undefined, signal);
+    if (response.status === 404 && responseErrorCode(response) === 'recording_unavailable') return null;
+    const raw = parseComputerJson<ComputerRecordingResponse>(response);
+    if (!raw || typeof raw.url !== 'string' || !/^https:\/\//i.test(raw.url) || /[\x00-\x20\x7f]/.test(raw.url)) throw invalidResponse();
+    let url: URL;
+    try {
+      url = new URL(raw.url);
+    } catch {
+      throw invalidResponse();
+    }
+    if (url.protocol !== 'https:' || url.username || url.password || url.hash || (raw.duration_seconds != null && (typeof raw.duration_seconds !== 'number' || !Number.isFinite(raw.duration_seconds) || raw.duration_seconds < 0))) throw invalidResponse();
+    const startedAt = raw.started_at == null ? undefined : parseTimestamp(raw.started_at);
+    return { url: raw.url, ...(raw.duration_seconds != null ? { durationSeconds: raw.duration_seconds } : {}), ...(startedAt ? { startedAt } : {}) };
   }
 
   instruction(): Promise<never> {
@@ -72,7 +105,9 @@ export class ComputerSession implements Session {
 
   async screenshot(options: { path?: string } = {}): Promise<Uint8Array> {
     this.assertOpen();
-    const response = await this.request('GET', '/screen/screenshot', undefined, this.lifetime.signal);
+    const signal = this.observationSignal(30_000);
+    const response = await this.request('GET', '/screen/screenshot', undefined, signal);
+    this.assertOpen();
     const raw = parseComputerJson<ComputerScreenshot>(response);
     const bytes = decodeBytes(raw?.png, 128 * MAX_OUTPUT_BYTES);
     const size = pngSize(bytes);
@@ -146,7 +181,7 @@ export class ComputerSession implements Session {
         this.log('closed');
       } catch (error) {
         if (isVerifyError(error) && error.code === 'ACTION_UNCERTAIN') {
-          const message = `${error.message} A possible cause is that no Mac computer could be assigned. ${MAC_AVAILABILITY}`;
+          const message = `${error.message} A possible cause is that no computer could be assigned. ${COMPUTER_AVAILABILITY}`;
           this.log(`close failed (ACTION_UNCERTAIN); ${message}`);
           throw new VerifyError('ACTION_UNCERTAIN', message, { cause: error });
         }
@@ -167,10 +202,11 @@ export class ComputerSession implements Session {
     this.assertOpen();
     const requestId = randomUUID();
     const operationId = computerOperationId(this.id, requestId);
-    const signal = AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(310_000)]);
+    const signal = this.observationSignal(310_000);
     try {
       let response = await this.request('POST', '/operations', { computer_session_id: this.id, request_id: requestId, command }, signal);
       for (;;) {
+        if (signal.aborted) throw signal.reason;
         if (response.status !== 202) {
           const body = parseComputerJson<ComputerCommandResponse>(response);
           if (body?.computer_session_id !== this.id || body.operation_id !== operationId || !['recorded', 'pending', 'failed'].includes(body.evidence) || !body.execution) throw invalidResponse();
@@ -216,17 +252,19 @@ export class ComputerSession implements Session {
       throw error;
     }
     if (response.status >= 200 && response.status < 300) return response;
+    if (suffix === '/recording' && response.status === 404 && responseErrorCode(response) === 'recording_unavailable') return response;
     const detail = responseDetail(response);
-    if (detail === 'computer_not_enabled' || (method === 'POST' && suffix === '' && response.status === 503 && detail === 'runtime_unavailable')) {
-      throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `Revyl refused the computer request (${detail}). ${MAC_AVAILABILITY}. Ask support@revyl.ai about staging organization enablement. See ${this.viewerUrl}`);
+    if (detail === 'computer_not_enabled' || (response.status === 503 && detail === 'runtime_unavailable')) {
+      throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `Revyl refused the computer request (${detail}). ${COMPUTER_AVAILABILITY}. Ask support@revyl.ai about staging organization enablement. See ${this.viewerUrl}`);
     }
+    if (response.status === 429 && detail === 'computer_limit') throw new VerifyError('COMPUTER_LIMIT', `${COMPUTER_CAPACITY} See ${this.viewerUrl}`);
     let code: VerifyErrorCode = 'API_ERROR';
     if (detail === 'run_closed') code = 'SESSION_ENDED';
     else if (detail === 'inaccessible' || detail === 'invalid_handle') code = 'NOT_FOUND';
     else if (detail === 'operation_not_found' || detail === 'owner_unavailable') code = 'ACTION_UNCERTAIN';
     else if (detail === 'invalid_request' || response.status === 422) code = 'INVALID_ARGUMENT';
     else if (response.status === 401 || response.status === 403) code = 'AUTH_REJECTED';
-    else if (detail === 'runtime_unavailable' || detail === 'start_failed' || detail === 'computer_limit') code = 'SESSION_START_FAILED';
+    else if (detail === 'start_failed') code = 'SESSION_START_FAILED';
     else if (response.status === 409 || detail === 'operation_limit') code = 'SESSION_BUSY';
     else if (suffix.startsWith('/operations/') && response.status >= 500) code = 'ACTION_UNCERTAIN';
     else if (method === 'POST' && (response.status >= 500 || response.status < 400)) code = 'ACTION_UNCERTAIN';
@@ -237,15 +275,21 @@ export class ComputerSession implements Session {
   private report(response: RawResponse): ComputerReport {
     const report = parseComputerJson<ComputerReport>(response);
     if (!report || report.computer_session_id !== this.id || !STATES.has(report.state)) throw invalidResponse();
+    if (report.expires_at != null) this.expiresAtMs = parseTimestamp(report.expires_at).getTime();
     return report;
   }
 
   private assertOpen(): void {
-    if (this.closed) throw new VerifyError('SESSION_ENDED', `The ${this.target} computer was closed.`);
+    if (this.closed || (this.expiresAtMs !== undefined && Date.now() >= this.expiresAtMs)) throw new VerifyError('SESSION_ENDED', `The ${this.target} computer was closed or expired.`);
+  }
+
+  private observationSignal(timeoutMs: number): AbortSignal {
+    const remainingMs = this.expiresAtMs === undefined ? timeoutMs : Math.min(timeoutMs, this.expiresAtMs - Date.now());
+    return AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(Math.max(0, remainingMs))]);
   }
 
   private unavailable(method: string): Promise<never> {
-    return Promise.reject(new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `${method}() is not available on mac computers; use exec() and file operations. See ${this.viewerUrl}`));
+    return Promise.reject(new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `${method}() is not available on computers; use exec() and file operations. See ${this.viewerUrl}`));
   }
 
   private log(line: string): void {
@@ -286,6 +330,13 @@ function decodeBytes(value: unknown, maxBytes: number): Buffer {
 
 function invalidResponse(): VerifyError {
   return new VerifyError('API_ERROR', 'Revyl returned an invalid computer response.');
+}
+
+function parseTimestamp(value: unknown): Date {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) || !Number.isFinite(Date.parse(value))) throw invalidResponse();
+  const calendarTime = new Date(`${value.slice(0, 19)}Z`);
+  if (!Number.isFinite(calendarTime.getTime()) || calendarTime.toISOString().slice(0, 19) !== value.slice(0, 19)) throw invalidResponse();
+  return new Date(value);
 }
 
 function parseComputerJson<T>(response: RawResponse): T {

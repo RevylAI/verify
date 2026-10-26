@@ -89,6 +89,12 @@ export interface ComputerProcess {
   exitCode?: number;
 }
 
+export interface ComputerRecording {
+  url: string;
+  durationSeconds?: number;
+  startedAt?: Date;
+}
+
 /**
  * One live Revyl session: a cloud browser, an iOS or Android device, or a computer.
  * A call the session's platform does not offer throws NOT_AVAILABLE_ON_PLATFORM.
@@ -104,6 +110,8 @@ export interface Session {
   /** Every instruction and validation run on this session, in order. */
   readonly steps: StepResult[];
   readonly closed: boolean;
+  readonly expiresAt?: Date;
+  recording(): Promise<ComputerRecording | null>;
   /** Asks Revyl's agent to do something on the app. Browsers and devices only. */
   instruction(text: string, options?: StepOptions): Promise<StepResult>;
   /** Asks Revyl's agent whether something holds on screen. Browsers and devices only. */
@@ -264,6 +272,10 @@ export class DeviceSession implements Session {
 
   exec(): Promise<ExecResult> {
     return this.computerOnly('exec');
+  }
+
+  recording(): Promise<never> {
+    return this.computerOnly('recording');
   }
 
   readFile(): Promise<Buffer> {

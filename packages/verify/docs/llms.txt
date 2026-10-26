@@ -1,18 +1,18 @@
 # Verify
 
-> Verify (@revyl/verify) is an open-source TypeScript library for Revyl. It opens cloud browsers and iOS/Android devices for agent instruction/validation steps, or Mac computers for commands, files, processes, and screenshots. Linux is typed but cannot be opened yet. Call it from a plain script, coding agent, CI, or any test runner. It has no test runner of its own.
+> Verify (@revyl/verify) is an open-source TypeScript library for Revyl. It opens cloud browsers and iOS/Android devices for agent instruction/validation steps, or Mac and Linux computers for commands, files, processes, screenshots, and optional private recording metadata after release. Call it from a plain script, coding agent, CI, or any test runner. It has no test runner of its own.
 
 ## Docs
 
-Mac computers are early access and not yet available in Revyl production. They work only on Revyl staging for enabled organizations using the optional REVYL_BACKEND_URL override and matching staging credentials. See computers.md#availability-and-errors.
+Both computer operating systems are early access and not yet available in Revyl production. They work only on Revyl staging for organizations enabled for the requested OS using the optional REVYL_BACKEND_URL override and matching staging credentials. Linux init remains intentionally unavailable; use an inline target or config entry. See computers.md#availability-and-errors.
 
 - [Getting started](getting-started.md): install, authenticate, init, run a script
 - [API](api.md): open(), agent steps, screenshot(), exec(), file/process methods, close()
 - [Configuration](configuration.md): verify.config.ts targets, environment variables, the init and whoami commands
 - [Web](web.md): Revyl web sessions, URLs and builds, sign-in, steps, and optional staging access
 - [Mobile](mobile.md): iOS and Android devices and installing apps
-- [Computers](computers.md#availability-and-errors): staging-only Mac early access for enabled organizations; not yet available in Revyl production
-- [Linux contract](linux-computers-contract.md): deferred implementation, requests/responses, readiness, errors, and assumptions to confirm
+- [Computers](computers.md#availability-and-errors): staging-only Mac/Linux early access, expiry, capacity errors, recording metadata, and confirmed release
+- [Linux contract](linux-computers-contract.md): implemented shared requests/responses, readiness, errors, and uncertainty
 - [CI and test runners](ci.md): GitHub Actions, node:test, Vitest, Jest, Playwright Test
 - [Errors](errors.md): every error code and what to do about it
 - [For coding agents](agents.md): the workflow and rules for agents using Verify

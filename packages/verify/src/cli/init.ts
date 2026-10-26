@@ -22,7 +22,7 @@ const EXAMPLE_SCRIPT = join('verify', 'example.ts');
 
 export function validateInitAnswers(answers: InitAnswers): InitAnswers {
   if (!['web', 'ios', 'android', 'mac'].includes(answers.platform)) {
-    throw new VerifyError('INVALID_ARGUMENT', "--platform must be 'web', 'ios', 'android', or 'mac'. Linux computers are not available yet.");
+    throw new VerifyError('INVALID_ARGUMENT', "--platform must be 'web', 'ios', 'android', or 'mac'. Linux init is unavailable; use open({ platform: 'linux' }) or a Linux config target.");
   }
   if (answers.platform === 'mac' && answers.appId !== undefined) {
     throw new VerifyError('INVALID_ARGUMENT', '--app-id does not apply to Mac computers.');
