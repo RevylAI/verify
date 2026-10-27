@@ -58,10 +58,12 @@
     "prepack": "npm run build && cp ../../LICENSE LICENSE && cp ../../README.md README.md && cp ../../CHANGELOG.md CHANGELOG.md && cp ../../SECURITY.md SECURITY.md"
   },
   "dependencies": {
-    "jiti": "^2.6.0"
+    "jiti": "^2.6.0",
+    "pngjs": "^7.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/pngjs": "^6.0.5",
     "typescript": "^5.9.0",
     "vitest": "^5.0.5"
   },

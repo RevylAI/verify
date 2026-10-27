@@ -47,7 +47,7 @@ Full walkthrough: [getting started](https://github.com/RevylAI/verify/blob/v0.2.
 
 | Call | What it does |
 | --- | --- |
-| `open(target)` | Starts a Revyl cloud browser, device, or computer, from a target name in `verify.config.ts` or a target object, and waits until it is ready |
+| `open(target)` | Starts a Revyl cloud browser, device, or computer, from a target name in `verify.config.ts` or a target object; mobile first-screen readiness is best-effort |
 | `session.exec(argv, options?)` | Runs structured argv on a computer; returns `{ exitCode, stdout, stderr }` |
 | `session.readFile(path)`, `writeFile(path, data)`, `stat(path)` | Reads a `Buffer`, writes a string or bytes, or returns `{ kind, size }` on a computer |
 | `session.processes()`, `terminate(id)` | Lists run-owned process handles or terminates one on a computer |
@@ -95,7 +95,7 @@ Examples: [web store](https://github.com/RevylAI/verify/tree/v0.2.0/examples/web
 
 ## How it works
 
-Verify is a client for [Revyl's public API](https://docs.revyl.com). `open()` starts a device session (registering a web URL as a build first when needed) and waits until it is ready. Each instruction or validation runs as a live step on the session: Verify submits it, polls its status until Revyl reports a result, and cancels it on Revyl if it runs past its timeout. `close()` requests stop; web/mobile success does not prove physical release. Requests identify themselves with `X-Revyl-Client: verify` and a `revyl-verify/<version>` user agent.
+Verify is a client for [Revyl's public API](https://docs.revyl.com). `open()` starts a device session (registering a web URL as a build first when needed). Mobile startup includes a bounded, best-effort blank-frame observation, not a foreground/rendered-readiness guarantee; begin with an instruction that waits for your intended screen. Each instruction or validation runs as a live step on the session: Verify submits it, polls its status until Revyl reports a result, and cancels it on Revyl if it runs past its timeout. `close()` requests stop; web/mobile success does not prove physical release. Requests identify themselves with `X-Revyl-Client: verify` and a `revyl-verify/<version>` user agent.
 
 For computers, `open()` creates a computer run and waits for its report to become active. Commands use request UUIDs and async operation polling without resubmitting mutations; `close()` stops the run. See [the computer transport](https://github.com/RevylAI/verify/blob/v0.2.0/packages/verify/docs/computers.md#lifecycle-and-transport).
 

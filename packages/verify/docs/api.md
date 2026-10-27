@@ -8,7 +8,7 @@ import { open, defineConfig, VerifyError, isVerifyError } from '@revyl/verify';
 
 Linux targets are supported **since 0.2.0**; 0.1.0 includes the target type but rejects Linux locally.
 
-Starts a Revyl cloud browser, device, or Mac or Linux computer and resolves with a `Session` once it is ready. Computer starts retain a 10-minute default timeout; an unclaimed start may fail after 120 seconds with no-host context.
+Starts a Revyl cloud browser, device, or Mac or Linux computer. Mobile first-screen readiness is [best-effort](mobile.md#steps), not a foreground/rendered-readiness guarantee. Computer starts retain a 10-minute default timeout; an unclaimed start may fail after 120 seconds with no-host context.
 
 Both computer operating systems are early access on staging only for organizations enabled for the requested OS, not yet available in Revyl production. Use the optional `REVYL_BACKEND_URL` override and staging credentials described in [computer availability](computers.md#availability-and-errors).
 

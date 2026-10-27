@@ -49,7 +49,7 @@ describe('starting a session', () => {
       device_model: 'Pixel 8',
     });
     expect(fake.calls('POST', /launch/)).toHaveLength(0);
-    expect(lines).toEqual([`android: starting android session ${session.viewerUrl}`, 'android: ready']);
+    expect(lines).toEqual([`android: starting android session ${session.viewerUrl}`, 'android: debug: best-effort first-screen wait ended without non-blank content; the runtime has no rendered-readiness signal', 'android: ready']);
     expect(session.expiresAt).toBeUndefined();
     const requestCount = fake.requests.length;
     await expect(session.recording()).rejects.toMatchObject({ code: 'NOT_AVAILABLE_ON_PLATFORM' });

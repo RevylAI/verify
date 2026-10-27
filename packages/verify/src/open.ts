@@ -13,7 +13,7 @@ export interface OpenOptions {
 }
 
 /**
- * Starts a Revyl cloud browser, device, or computer and resolves once it is ready.
+ * Starts a Revyl cloud browser, device, or computer. Mobile first-screen readiness is best-effort.
  * Pass a target name from verify.config.ts, such as open('web'), or a target object.
  */
 export async function open(target: string | TargetConfig, options: OpenOptions = {}): Promise<Session> {
