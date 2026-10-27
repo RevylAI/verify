@@ -56,14 +56,19 @@ node verify/example.ts
 
 If Node warns that the module type is not specified, add `"type": "module"` to your `package.json` or rename the script to `example.mts`.
 
+Illustrative output (durations vary):
+
 ```text
 [verify] ios: starting ios session https://app.revyl.ai/sessions/…
 [verify] ios: ready
+[verify] ios: ✓ instruction "Wait for the app to finish opening and show its first screen" (12.0s)
 [verify] ios: ✓ validation "The app has opened and shows its first screen without an error" (9.8s)
 [verify] ios: closed
 ```
 
 Open the link to watch the session live. After the session ends, the link keeps its report and any available recording. The Revyl CLI prints the stored report with `revyl device report --session-id <id>` for web/mobile, or `revyl computer report <id>` for computers. Computer recordings can be absent or still processing after release; `recording()` retrieves optional private metadata without waiting or downloading.
+
+For validation verdicts in device reports, inspect each step's `effective_status` and `validation_result`, and compare `validations_passed` with `total_validations`. `passed_steps`, `failed_steps`, and transport `status: success` can describe successful execution of a validation whose verdict is false. See the [live example](end-to-end.md#reading-the-verdict).
 
 ## The whole API
 

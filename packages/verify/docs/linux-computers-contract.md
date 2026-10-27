@@ -9,7 +9,7 @@ Use `open({ platform: 'linux', startTimeout: 600_000 })`, or add `linux: { platf
 - `exec(argv, { timeout?, stdin?, check? }?)` returns `{ exitCode, stdout, stderr }`. There is no implicit shell. Nonzero exit throws `COMMAND_FAILED` unless `check: false`.
 - `readFile`, `writeFile`, and `stat` use workspace-relative paths and preserve binary bytes.
 - `processes` and `terminate` use run-owned handles, never OS PIDs.
-- `screenshot({ path? }?)` returns PNG bytes with dimensions from the response; screenshot readiness is independent of command readiness.
+- `screenshot({ path? }?)` returns PNG bytes with dimensions from the response; screenshot readiness is independent of command readiness. The SDK retries only structured startup screen-not-ready responses within its fixed 30-second window after active readiness; [computer docs](computers.md) describe the bounds and typed exhaustion error.
 - `close()` succeeds only on terminal state and confirmed physical release.
 - `recording()` returns private recording metadata or null after terminal state and confirmed release, and works after close. It does not wait or download.
 - `expiresAt` exposes a validated API timestamp as a `Date`, or is undefined on older APIs. The hard lifetime is 60 minutes from create, not readiness or activity. Expired operations are rejected, pending observations are bounded by expiry, and close remains possible.
