@@ -76,7 +76,7 @@ Computers do not accept `idleTimeoutSeconds`, image, provider, cwd, or lifetime 
 
 ## Command line
 
-Use the explicitly scoped package command below. The `verify` and `revyl-verify` bins work only after installing `@revyl/verify`; their names are not standalone npm package installation instructions. Scripts run with `node`, not through the CLI.
+Use the explicitly scoped package command below. Installing `@revyl/verify` provides the `verify` and `revyl-verify` bins. The separate `revyl-verify` npm alias also provides `npx revyl-verify` with the same behavior; bare `npx verify` can fetch an unrelated package. Scripts run with `node`, not through the CLI.
 
 ```text
 npx @revyl/verify init [--platform web|ios|android|mac] [--app-id <id>] [--url <https-url>] [--force]

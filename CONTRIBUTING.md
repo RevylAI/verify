@@ -19,3 +19,5 @@ For the Python SDK, use Python ≥3.10 and `uv`. From `python/`, run `uv sync --
 Keep changes focused and update the package docs and changelog when behavior changes. Add regression coverage using existing test conventions. The library lives in `packages/verify/`; examples live in `examples/`. During `prepack`, the root README becomes the npm README with version-pinned repository links and image URLs; license, changelog, and security files are copied from the root. Edit the root sources, not generated copies.
 
 Open a pull request with the behavior change, checks run, and any integration limitations. Do not publish packages or push release tags as part of a contribution. Maintainers follow [RELEASING.md](RELEASING.md).
+
+`packages/revyl-verify/` is a source-free alias: keep its version and exact `@revyl/verify` dependency aligned with `packages/verify/package.json`, and regenerate the root lockfile with npm. `npm run check:package` inspects both tarballs and checks a clean consumer installation, API/type re-exports, and CLI delegation without a live session.

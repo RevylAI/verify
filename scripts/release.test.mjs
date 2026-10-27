@@ -1,11 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { checkReleaseTag } from './check-release.mjs';
-import { publishedVersionExists, requireCiPublishing } from './check-published.mjs';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { publishedVersionExists, publishedPackageVersions, requireCiPublishing } from './check-published.mjs';
+import { checkPackageVersions, readReleasePackages } from './release-packages.mjs';
+import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 
 test('release tags must match the package version exactly', () => {
@@ -34,31 +32,46 @@ test('unpublished versions require explicit administrator opt-in to CI publicati
   requireCiPublishing(false, 'true');
 });
 
-test('release workflow skips publication dry-run and publish for an already-published tag', () => {
+test('release workflow guards each package independently and publishes scoped first', () => {
   const workflow = readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8');
-  const dryRun = workflow.match(/      - name: Dry-run publication\n        if: (.+)\n        run: (.+)/);
-  assert.ok(dryRun);
-  assert.equal(dryRun[2], 'npm publish ./release-artifacts/*.tgz --dry-run --access public');
-  assert.ok(workflow.indexOf('id: registry') < dryRun.index);
-  assert.ok(workflow.indexOf('- run: npm run check:package') < dryRun.index);
+  const dryRuns = [...workflow.matchAll(/      - name: Dry-run (scoped|alias) publication\n        if: (.+)\n        run: (.+)/g)];
+  const publications = [...workflow.matchAll(/      - name: Publish (scoped package|alias) with provenance\n        if: (.+)\n        run: (.+)/g)];
+  assert.equal(dryRuns.length, 2);
+  assert.equal(publications.length, 2);
+  assert.ok(workflow.indexOf('id: registry') < dryRuns[0].index);
+  assert.ok(workflow.indexOf('- run: npm run check:package') < dryRuns[0].index);
+  assert.equal(publications[0][1], 'scoped package');
+  assert.equal(publications[1][1], 'alias');
+  for (const [index, id] of ['scoped', 'alias'].entries()) {
+    assert.equal(dryRuns[index][3], `npm publish ./release-artifacts/${id}/*.tgz --dry-run --access public`);
+    assert.equal(publications[index][3], `npm publish ./release-artifacts/${id}/*.tgz --provenance --access public`);
+  }
   const publish = workflow.match(/  publish:\n    if: (.+)/);
   assert.ok(publish);
-  for (const [event, published, enabled, expectedDryRun, expectedPublish] of [
-    ['push', 'true', undefined, false, false],
-    ['push', 'true', 'true', false, false],
-    ['push', 'false', 'true', true, true],
-    ['push', '', 'true', false, false],
-    ['workflow_dispatch', '', undefined, true, false],
+  for (const [event, scoped, alias, enabled, expectedJob] of [
+    ['push', 'true', 'true', undefined, false],
+    ['push', 'true', 'true', 'true', false],
+    ['push', 'false', 'false', 'true', true],
+    ['push', 'true', 'false', 'true', true],
+    ['push', 'false', 'true', 'true', true],
+    ['push', 'true', 'false', undefined, false],
+    ['push', '', '', 'true', false],
+    ['workflow_dispatch', 'false', 'false', undefined, false],
+    ['workflow_dispatch', 'true', 'true', 'true', false],
   ]) {
+    const outputs = { scoped_published: scoped, alias_published: alias };
     const context = {
       github: { event_name: event, ref: 'refs/tags/v0.2.0' },
-      steps: { registry: { outputs: { published } } },
-      needs: { validate: { outputs: { published } } },
+      steps: { registry: { outputs } },
+      needs: { validate: { outputs } },
       vars: { VERIFY_CI_PUBLISH_ENABLED: enabled },
       startsWith: (value, prefix) => value.startsWith(prefix),
     };
-    assert.equal(runInNewContext(dryRun[1], context), expectedDryRun, `${event}/${published}: dry-run`);
-    assert.equal(runInNewContext(publish[1], context), expectedPublish, `${event}/${published}: publish`);
+    for (const [index, published] of [scoped, alias].entries()) {
+      assert.equal(runInNewContext(dryRuns[index][2], context), published === 'false');
+      assert.equal(runInNewContext(publications[index][2], context), published === 'false');
+    }
+    assert.equal(runInNewContext(publish[1], context), expectedJob);
   }
 });
 
@@ -73,25 +86,37 @@ test('publication lookup fails closed on registry and transport errors', async (
   await assert.rejects(publishedVersionExists('@revyl/verify', '0.2.0', async () => { throw new Error('network unavailable'); }), /network unavailable/);
 });
 
-test('one fallback command updates manifests, docs, and the generated npm lockfile', () => {
-  const root = mkdtempSync(join(tmpdir(), 'verify-rename-'));
-  try {
-    for (const dir of ['scripts', 'packages/verify', 'examples/example']) mkdirSync(join(root, dir), { recursive: true });
-    writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'workspace', private: true, workspaces: ['packages/*', 'examples/*'] }));
-    writeFileSync(join(root, 'packages/verify/package.json'), JSON.stringify({ name: '@revyl/verify', version: '0.2.0' }));
-    writeFileSync(join(root, 'examples/example/package.json'), JSON.stringify({ name: 'example', private: true, dependencies: { '@revyl/verify': '0.2.0' } }));
-    writeFileSync(join(root, 'README.md'), 'npm install @revyl/verify');
-    copyFileSync(new URL('./rename-package.mjs', import.meta.url), join(root, 'scripts/rename-package.mjs'));
-    execFileSync('git', ['init', '--quiet'], { cwd: root });
-    execFileSync('git', ['add', 'package.json', 'packages/verify/package.json', 'examples/example/package.json', 'README.md', 'scripts/rename-package.mjs'], { cwd: root });
-    execFileSync(process.execPath, ['scripts/rename-package.mjs', 'revyl-verify'], { cwd: root, stdio: 'pipe' });
-    assert.equal(JSON.parse(readFileSync(join(root, 'packages/verify/package.json'))).name, 'revyl-verify');
-    assert.equal(readFileSync(join(root, 'README.md'), 'utf8'), 'npm install revyl-verify');
-    assert.equal(JSON.parse(readFileSync(join(root, 'examples/example/package.json'))).dependencies['revyl-verify'], '0.2.0');
-    const lock = JSON.parse(readFileSync(join(root, 'package-lock.json')));
-    assert.equal(lock.packages['packages/verify'].name, 'revyl-verify');
-    assert.equal(lock.packages['node_modules/revyl-verify'].link, true);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
+test('both packages and the alias dependency stay in exact version lockstep', () => {
+  const [scoped, alias] = readReleasePackages();
+  assert.equal(scoped.version, alias.version);
+  const source = { name: '@revyl/verify', version: '0.2.0' };
+  const target = { name: 'revyl-verify', version: '0.2.0', dependencies: { '@revyl/verify': '0.2.0' } };
+  checkPackageVersions(source, target);
+  assert.throws(() => checkPackageVersions(source, { ...target, version: '0.2.1' }), /same version/);
+  for (const version of ['^0.2.0', '~0.2.0', '*', '0.2.1']) {
+    assert.throws(() => checkPackageVersions(source, { ...target, dependencies: { '@revyl/verify': version } }), /exact scoped version/);
   }
+});
+
+test('registry checks each package for both-published and partial-release states', async () => {
+  const packages = readReleasePackages();
+  for (const scoped of [true, false]) {
+    for (const alias of [true, false]) {
+      const state = { scoped, alias };
+      const requests = [];
+      const result = await publishedPackageVersions(packages, async (url) => {
+        requests.push(url);
+        const pkg = packages.find(({ name, version }) => url.endsWith(`/${encodeURIComponent(name)}/${version}`));
+        assert.ok(pkg);
+        return state[pkg.id] ? Response.json({ name: pkg.name, version: pkg.version }) : new Response(null, { status: 404 });
+      });
+      assert.deepEqual(result, state);
+      assert.equal(requests.length, 2);
+      if (scoped && alias) requireCiPublishing(true, undefined);
+      else assert.throws(() => requireCiPublishing(Object.values(result).every(Boolean), undefined), /disabled/);
+    }
+  }
+  await assert.rejects(publishedPackageVersions(packages, async (url) => url.includes('%40revyl')
+    ? Response.json({ name: '@revyl/verify', version: packages[0].version })
+    : new Response(null, { status: 503 })), /HTTP 503/);
 });
