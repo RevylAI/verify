@@ -6,7 +6,7 @@
   "scripts": {
     "demo": "node demo.ts",
     "mock": "node demo.ts --mock",
-    "smoke": "node smoke.mjs",
+    "smoke": "node --test evidence.test.mjs && node smoke.mjs",
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {

@@ -42,6 +42,7 @@ The default plan adds a task to Playwright's public TodoMVC app on web and check
 - The terminal prints viewer links as sessions start and an outcome per step.
 - The page shows each target independently, including failures, screenshots, an inline recording, a Revyl report link, and the JSON report download.
 - `evidence.ts` calls `revyl device report --session-id <id> --json`. Recordings finalize asynchronously after stop, so the example polls for up to two minutes. A missing recording is reported as missing evidence, never as a passed check or a reason to start another session.
+- A failed recording download preserves the collected report and JSON download, displays an evidence warning, and removes any partial video. It does not change a step's validation result or start another session.
 - Evidence lives under this example's ignored `.verify/agent-platform/` directory. The recording is downloaded without forwarding API credentials; signed storage URLs stay out of terminal output and the page's links. Raw reports can contain short-lived signed URLs: treat the directory as private, don't commit it, and don't publicly expose the local server.
 
 The page stays open until **Ctrl+C**. Rerun the command for another take; each live rerun starts fresh sessions. Delete the local `.verify/agent-platform/` folder when its evidence is no longer needed. The dedicated web app remains in Revyl for reuse.
