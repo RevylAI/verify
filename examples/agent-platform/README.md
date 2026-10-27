@@ -6,7 +6,7 @@ One task fans out to a cloud browser and an iOS simulator through `@revyl/verify
 
 You need Node.js **22.18+**, the [Revyl CLI](https://docs.revyl.com/cli), and a Revyl account with web and mobile session access. No Xcode, Android SDK, extra app IDs, or mobile builds are needed.
 
-From the repository root, install and build once:
+This checkout uses the local workspace SDK, currently **0.2.0**, rather than the published 0.1.0 package. From the repository root, install and build once, before loading any API credentials:
 
 ```sh
 npm ci
@@ -14,20 +14,24 @@ npm run build
 cd examples/agent-platform
 ```
 
-With `REVYL_API_KEY` already set securely, run:
+For an interactive terminal or screen recording, use the CLI's stored login and launch Node directly:
 
 ```sh
-npm run demo
+unset REVYL_API_KEY
+revyl auth login
+node demo.ts
 ```
 
-Alternatively, sign in once with `revyl auth login` before running. Don't mix an environment key with a browser login that overrides a different account. Authentication is server-side; the browser never receives your API key.
+Finish login before recording and verify the selected organization with `revyl auth status`. Never type an API key into a command, paste it into a terminal, or display credential files. Unsetting `REVYL_API_KEY` selects the stored login instead of leaving a second account in the environment. Authentication is server-side; the results page never receives your API key.
+
+Avoid `npm run demo` when the process inherits secrets: npm rewrites its process title, and macOS Terminal's argument display can expose inherited environment text after that rewrite. Direct Node launch avoids this observed trigger; it is not a guarantee that a secret-bearing process environment is safe to record. Keep credentials out of dependency installation and build processes too. For unattended use, Verify also accepts a securely injected `REVYL_API_KEY`; don't record that environment or dump process metadata.
 
 **This starts two billable cloud sessions.** The first run also creates a reusable web app named `Verify Agent Platform Demo` in your selected organization; later runs reuse it. Verify registers the public TodoMVC URL as a build. There is no automatic retry that starts another session. The built-in iOS Settings app needs no upload. Both targets close in `finally`; inspect any reported stop failure before starting again.
 
 ```sh
-npm run demo -- --android             # three sessions: web + iOS + Android
-npm run mock                         # synthetic UI rehearsal, no account or sessions
-npm run demo -- --no-open             # print the results URL without opening a browser
+node demo.ts --android               # three sessions: web + iOS + Android
+node demo.ts --mock                  # synthetic UI rehearsal, no account or sessions
+node demo.ts --no-open               # print the results URL without opening a browser
 node quick-check.ts                  # one separate iOS session, the minimal SDK example
 ```
 
@@ -46,10 +50,12 @@ This is a loopback-only, single-task example, not a multi-tenant service. Before
 
 ## Check it
 
+Run these checks before loading credentials:
+
 ```sh
 npm run typecheck
 npm run smoke
-npm run mock -- --no-open
+node demo.ts --mock --no-open
 ```
 
 The root CI's workspace typecheck includes this example. No published SDK code is changed.
