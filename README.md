@@ -39,8 +39,6 @@ Use Node.js ≥22.18:
 npm install --save-dev @revyl/verify
 ```
 
-This source prepares TypeScript 0.2.0; it does not announce publication. The npm badge shows the published version. Linux targets, computer `recording()` and `expiresAt` are new in 0.2.0 and absent from 0.1.0; use an older installation's bundled `docs/` for its API.
-
 ### Go
 
 Use Go ≥1.26.9 in an existing Go module:
