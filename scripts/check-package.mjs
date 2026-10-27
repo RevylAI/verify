@@ -29,6 +29,10 @@ try {
   [pack] = JSON.parse(execFileSync('npm', ['pack', '--json', '--workspace', './packages/verify', '--pack-destination', directory], { encoding: 'utf8' }));
   const archive = join(directory, pack.filename);
   const manifest = JSON.parse(execFileSync('tar', ['-xOf', archive, 'package/package.json'], { encoding: 'utf8' }));
+  const readme = execFileSync('tar', ['-xOf', archive, 'package/README.md'], { encoding: 'utf8' });
+  assert.ok(readme.includes(`https://raw.githubusercontent.com/RevylAI/verify/v${manifest.version}/docs/assets/verify-web-proof.png`));
+  assert.ok(readme.includes(`https://github.com/RevylAI/verify/tree/v${manifest.version}/packages/verify/docs/`));
+  assert.ok(!readme.includes('](packages/') && !readme.includes('](docs/') && !readme.includes('href="packages/'));
   assert.deepEqual(manifest.bin, { verify: './dist/cli/main.js', 'revyl-verify': './dist/cli/main.js' });
   assert.ok(execFileSync('tar', ['-xOf', archive, 'package/dist/cli/main.js'], { encoding: 'utf8' }).startsWith('#!/usr/bin/env node\n'));
   assert.ok(pack.files.find((file) => file.path === 'dist/cli/main.js').mode & 0o111);

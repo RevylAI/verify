@@ -8,6 +8,8 @@ Publishing, pushing tags, and configuring npm or GitHub are human-maintainer act
 
 The TypeScript package version is 0.2.0. The Go module has an independent version and uses `go/v*` tags. Neither merging code nor updating this guide publishes either SDK.
 
+The root README is the maintained landing page. `prepack` generates the npm README with version-pinned repository links and hero-image URLs; do not edit `packages/verify/README.md` directly. After the public Verify guide is deployed and `https://docs.revyl.com/verify` resolves successfully, replace the header's repository-documentation link with that page and regenerate the package README. After the agent-platform example merges into the release tree, add its example link too; do not link an absent directory.
+
 ## Prepare the exact revision
 
 Use a clean checkout of the approved `main` revision, Node 24 and npm 11. Do not tag an unapproved branch. Review [the end-to-end evidence](packages/verify/docs/end-to-end.md), including failures and unverified platforms; fake-server tests are not live proof. Mac and Linux remain staging-only early access for enabled organizations, not yet available in production.
