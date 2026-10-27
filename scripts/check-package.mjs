@@ -30,7 +30,7 @@ try {
   const archive = join(directory, pack.filename);
   const manifest = JSON.parse(execFileSync('tar', ['-xOf', archive, 'package/package.json'], { encoding: 'utf8' }));
   const readme = execFileSync('tar', ['-xOf', archive, 'package/README.md'], { encoding: 'utf8' });
-  assert.ok(readme.includes(`https://raw.githubusercontent.com/RevylAI/verify/v${manifest.version}/docs/assets/verify-web-proof.png`));
+  assert.ok(!readme.includes('verify-web-proof.png') && !readme.includes('Cropped from a passing TypeScript run'));
   assert.ok(readme.includes(`https://github.com/RevylAI/verify/tree/v${manifest.version}/packages/verify/docs/`));
   assert.ok(!readme.includes('](packages/') && !readme.includes('](docs/') && !readme.includes('href="packages/'));
   assert.ok(readme.includes(`](https://github.com/RevylAI/verify/blob/v${manifest.version}/LICENSE)`));
