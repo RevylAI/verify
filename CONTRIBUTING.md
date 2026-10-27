@@ -14,6 +14,6 @@ Tests use a fake Revyl API and need no account. Do not start live sessions merel
 
 For the Go SDK, use Go 1.26.9 or later and run `test -z "$(gofmt -l .)"`, `go vet ./...`, and `go test -race ./...` from `go/`. See [the Go SDK guide](go/README.md). Both SDKs consume `go/testdata/device-contract.json` and `go/testdata/computer-contract.json`; keep those fixtures aligned with the public API.
 
-Keep changes focused and update the package docs and changelog when behavior changes. Add regression coverage using existing test conventions. The library lives in `packages/verify/`; examples live in `examples/`. Package README, license, changelog, and security files are copied from the root during `prepack`; edit the root sources, not generated copies.
+Keep changes focused and update the package docs and changelog when behavior changes. Add regression coverage using existing test conventions. The library lives in `packages/verify/`; examples live in `examples/`. During `prepack`, the root README becomes the npm README with version-pinned repository links and image URLs; license, changelog, and security files are copied from the root. Edit the root sources, not generated copies.
 
 Open a pull request with the behavior change, checks run, and any integration limitations. Do not publish packages or push release tags as part of a contribution. Maintainers follow [RELEASING.md](RELEASING.md).

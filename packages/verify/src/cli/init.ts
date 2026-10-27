@@ -119,8 +119,7 @@ try {
     platform === 'web'
       ? `await session.instruction('Follow the link on the page');
 await session.validation('A page about domains reserved for documentation is shown');`
-      : `// Describe what a person would do and see, for example:
-// await session.instruction('Sign in as the demo user and open Settings');
+      : `await session.instruction('Wait for the app to finish opening and show its first screen');
 await session.validation('The app has opened and shows its first screen without an error');`;
   return `import { open } from '${PACKAGE_NAME}';
 

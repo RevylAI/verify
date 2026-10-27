@@ -25,6 +25,7 @@ export class ComputerSession implements Session {
   private readonly lifetime = new AbortController();
   private closePromise: Promise<void> | undefined;
   private expiresAtMs: number | undefined;
+  private screenReadyUntilMs = 0;
 
   private constructor(private readonly client: RevylClient, target: ResolvedComputerTarget, private readonly options: SessionOptions) {
     this.target = target.name;
@@ -51,6 +52,7 @@ export class ComputerSession implements Session {
         await delay(2_000, undefined, { signal });
         report = session.report(await session.request('GET', '/report', undefined, signal));
       }
+      session.screenReadyUntilMs = Date.now() + 30_000;
       session.log('ready');
       return session;
     } catch (error) {
@@ -106,7 +108,29 @@ export class ComputerSession implements Session {
   async screenshot(options: { path?: string } = {}): Promise<Uint8Array> {
     this.assertOpen();
     const signal = this.observationSignal(30_000);
-    const response = await this.request('GET', '/screen/screenshot', undefined, signal);
+    let retrySignal = signal;
+    let response: RawResponse;
+    let transient = false;
+    let backoffMs = 500;
+    const notReady = () => new VerifyError('SESSION_BUSY', `The computer desktop is not ready for screenshots after its 30-second startup window. Try again later. See ${this.viewerUrl}`);
+    try {
+      for (;;) {
+        this.assertOpen();
+        response = await this.request('GET', '/screen/screenshot', undefined, retrySignal);
+        if (response.status >= 200 && response.status < 300) break;
+        const remainingMs = this.screenReadyUntilMs - Date.now();
+        if (remainingMs <= 0) throw notReady();
+        if (!transient) retrySignal = AbortSignal.any([signal, AbortSignal.timeout(remainingMs)]);
+        transient = true;
+        await delay(Math.min(backoffMs, remainingMs), undefined, { signal: retrySignal });
+        if (Date.now() >= this.screenReadyUntilMs) throw notReady();
+        backoffMs = Math.min(backoffMs * 2, 2_000);
+      }
+    } catch (error) {
+      if (transient && !this.lifetime.signal.aborted && (this.expiresAtMs === undefined || Date.now() < this.expiresAtMs) && retrySignal.aborted && Date.now() >= this.screenReadyUntilMs) throw notReady();
+      if (retrySignal.aborted) throw new VerifyError('TIMEOUT', `Computer screenshot observation was cancelled or exceeded its deadline. See ${this.viewerUrl}`);
+      throw error;
+    }
     this.assertOpen();
     const raw = parseComputerJson<ComputerScreenshot>(response);
     const bytes = decodeBytes(raw?.png, 128 * MAX_OUTPUT_BYTES);
@@ -245,7 +269,7 @@ export class ComputerSession implements Session {
     const path = `/api/v1/computer-runs${suffix === '' ? '' : `/${this.id}${suffix}`}`;
     let response: RawResponse;
     try {
-      response = await this.client.send(method, path, { body, signal, timeoutMs: suffix === '/stop' || suffix.startsWith('/operations') ? 310_000 : 30_000, retry: method === 'GET', headers: suffix === '/operations' ? { Prefer: 'respond-async' } : undefined });
+      response = await this.client.send(method, path, { body, signal, timeoutMs: suffix === '/stop' || suffix.startsWith('/operations') ? 310_000 : 30_000, retry: method === 'GET' && suffix !== '/screen/screenshot', headers: suffix === '/operations' ? { Prefer: 'respond-async' } : undefined });
     } catch (error) {
       if (method === 'POST' || suffix.startsWith('/operations/')) throw new VerifyError('ACTION_UNCERTAIN', `Computer request outcome is unconfirmed. Verify will not repeat it. See ${this.viewerUrl}`);
       if (isVerifyError(error)) throw new VerifyError(error.code, `Could not read the computer state. See ${this.viewerUrl}`);
@@ -254,6 +278,12 @@ export class ComputerSession implements Session {
     if (response.status >= 200 && response.status < 300) return response;
     if (suffix === '/recording' && response.status === 404 && responseErrorCode(response) === 'recording_unavailable') return response;
     const detail = responseDetail(response);
+    if (suffix === '/screen/screenshot') {
+      let raw: { detail?: unknown; message?: unknown; error?: unknown } | null = null;
+      try { raw = JSON.parse(new TextDecoder().decode(response.body)); } catch {}
+      const code = raw?.detail ?? raw?.message ?? raw?.error;
+      if ((code === 'screen_unavailable' && (response.status === 409 || response.status === 503)) || (code === 'screen_starting' && response.status === 409)) return response;
+    }
     if (detail === 'computer_not_enabled' || (response.status === 503 && detail === 'runtime_unavailable')) {
       throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `Revyl refused the computer request (${detail}). ${COMPUTER_AVAILABILITY}. Ask support@revyl.ai about staging organization enablement. See ${this.viewerUrl}`);
     }

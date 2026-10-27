@@ -12,6 +12,7 @@ Both computer operating systems are early access and not yet available in Revyl 
 - [Web](web.md): Revyl web sessions, URLs and builds, sign-in, steps, and optional staging access
 - [Mobile](mobile.md): iOS and Android devices and installing apps
 - [Computers](computers.md#availability-and-errors): staging-only Mac/Linux early access, expiry, capacity errors, recording metadata, and confirmed release
+- [Verify working end to end](end-to-end.md): live verification scope, observed outcomes, and limits of the evidence
 - [Linux contract](linux-computers-contract.md): implemented shared requests/responses, readiness, errors, and uncertainty
 - [CI and test runners](ci.md): GitHub Actions, node:test, Vitest, Jest, Playwright Test
 - [Errors](errors.md): every error code and what to do about it

@@ -6,7 +6,9 @@ import { open, defineConfig, VerifyError, isVerifyError } from '@revyl/verify';
 
 ## open(target, options?)
 
-Starts a Revyl cloud browser, device, or Mac or Linux computer and resolves with a `Session` once it is ready. Computer starts retain a 10-minute default timeout; an unclaimed start may fail after 120 seconds with no-host context.
+Linux targets are supported **since 0.2.0**; 0.1.0 includes the target type but rejects Linux locally.
+
+Starts a Revyl cloud browser, device, or Mac or Linux computer. Mobile first-screen readiness is [best-effort](mobile.md#steps), not a foreground/rendered-readiness guarantee. Computer starts retain a 10-minute default timeout; an unclaimed start may fail after 120 seconds with no-host context.
 
 Both computer operating systems are early access on staging only for organizations enabled for the requested OS, not yet available in Revyl production. Use the optional `REVYL_BACKEND_URL` override and staging credentials described in [computer availability](computers.md#availability-and-errors).
 
@@ -59,13 +61,15 @@ interface StepResult {
 
 `session.steps` lists every step run on the session, in order.
 
+When inspecting `revyl device report --session-id <id>`, read validation verdicts from the step's `effective_status` and `validation_result`, with `validations_passed` / `total_validations` for the validation summary. `passed_steps` / `failed_steps` and transport `status` are not enough: a successfully executed validation can have a false verdict. The SDK's `StepResult.passed` reflects that verdict, not just transport success.
+
 ## session.screenshot(options?)
 
 Resolves with a PNG of the screen as a `Uint8Array`. With `options.path`, also writes it there, creating folders as needed.
 
 ## session.close()
 
-Stops the session on Revyl. It is safe to call more than once, and steps after it throw `SESSION_ENDED`. A `Session` also works with `await using`, which closes it at the end of the block.
+Requests that Revyl stop the session. For web/mobile, success acknowledges the stop request rather than proving physical release. It is safe to call more than once, and steps after it throw `SESSION_ENDED`. A `Session` also works with `await using`, which closes it at the end of the block.
 
 For computers, cleanup must be confirmed; a terminal state alone does not prove physical release. Uncertain release throws `ACTION_UNCERTAIN`.
 
@@ -74,6 +78,8 @@ For computers, cleanup must be confirmed; a terminal state alone does not prove 
 Mac and Linux sessions provide `exec(argv: string[], options?)`, `readFile(path, options?)` returning `Buffer`, `writeFile(path, string | Uint8Array, options?)`, `stat(path, options?)` returning `{ kind, size }`, `processes(options?)` returning `{ id, state, exitCode? }[]`, and `terminate(id, options?)`. They throw `NOT_AVAILABLE_ON_PLATFORM` on web/iOS/Android. See [computers.md](computers.md) for complete signatures, limits, timeouts, and examples. Both support `screenshot()`; instruction/validation do not run on computers.
 
 ### `session.recording(): Promise<ComputerRecording | null>`
+
+**Since 0.2.0.** This method is not available in 0.1.0.
 
 Computers only. First reads the report and requires terminal state plus confirmed release, otherwise throws `SESSION_BUSY`. Returns `{ url: string, durationSeconds?: number, startedAt?: Date }` or null for an unavailable recording. Nullable optional wire fields are omitted. This method works after `close()`, does not wait for upload, and does not download or fetch the URL. Keep the signed HTTPS URL and its query private. Request fresh metadata when the URL expires. The normal report has no recording URL. Devices reject this call locally with `NOT_AVAILABLE_ON_PLATFORM`.
 
@@ -84,7 +90,7 @@ Computers only. First reads the report and requires terminal state plus confirme
 | `viewerUrl` | The session in Revyl: a live view while it runs, its recording/report after. Use `revyl device report --session-id <id>` for web/mobile, or `revyl computer report <id>` for computers. |
 | `id` | Revyl's session id |
 | `platform` | `'web'`, `'ios'`, `'android'`, `'mac'`, or `'linux'` |
-| `expiresAt` | Validated API expiry as a `Date`, or undefined for devices and older APIs. Computers have a hard 60-minute lifetime from create. Operations/screenshot observation are bounded by expiry; close and recording remain possible. |
+| `expiresAt` | **Since 0.2.0.** Validated API expiry as a `Date`, or undefined for devices and older APIs. Computers have a hard 60-minute lifetime from create. Operations/screenshot observation are bounded by expiry; close and recording remain possible. |
 | `target` | The target name, or the platform for a target object |
 | `closed` | Whether `close()` was called |
 
@@ -97,13 +103,13 @@ Computers only. First reads the report and requires terminal state plus confirme
 
 ## Cleanup
 
-While a session is open, Verify closes it before the process ends:
+While a session is open, Verify attempts best-effort cleanup with a 15-second budget:
 
-- on Ctrl+C or SIGTERM: it closes open sessions, then exits with 130 or 143 (a second Ctrl+C exits at once);
-- on an uncaught error, such as a failed validation that nothing catches: it prints the error, closes open sessions, then exits with 1;
-- when the script finishes without calling `close()`: it closes the sessions and prints a reminder.
+- on Ctrl+C or SIGTERM: it attempts to close open sessions, then exits with 130 or 143 (a second Ctrl+C exits at once);
+- on an uncaught error, such as a failed validation that nothing catches: it prints the error, attempts cleanup, then exits with 1;
+- when the script finishes without calling `close()`: it attempts cleanup and prints a reminder.
 
-Verify only takes over a signal or error event that nothing else in the process listens to, so test runners and apps that manage their own shutdown keep control of it; there, close sessions in `finally` or an `after` hook. A process that is killed outright, or calls `process.exit()` with sessions open, leaves browser/mobile sessions running until their idle timeout (10 minutes by default). Computers have a server-bounded one-hour lifetime instead; no idle timeout is configurable.
+Verify skips installing a signal or error handler when that event already has listeners, so test runners and apps that manage their own shutdown keep control of it. Always close in `try/finally` or an `after` hook; automatic cleanup cannot guarantee success. A process that is killed outright, or calls `process.exit()` with sessions open, leaves browser/mobile sessions running until their idle timeout (10 minutes by default). Computers have a server-bounded one-hour lifetime instead; no idle timeout is configurable.
 
 ## defineConfig(config)
 

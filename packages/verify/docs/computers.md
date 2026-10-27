@@ -2,9 +2,9 @@
 
 Verify opens a Revyl cloud macOS or Linux computer for commands, files, processes, and screenshots. It does not open an assigned physical computer. Both operating systems are in **early access and not yet available in Revyl production**. They work only on Revyl staging for organizations enabled for the requested OS, which also need compute credits and available capacity. Ask [support@revyl.ai](mailto:support@revyl.ai) about staging access. No production availability date is promised.
 
+Get the backend and matching app endpoints from Revyl, then set `REVYL_BACKEND_URL` and `REVYL_APP_URL` for your approved early-access environment before running:
+
 ```bash
-export REVYL_BACKEND_URL=https://backend-staging.revyl.ai
-export REVYL_APP_URL=https://staging.revyl.ai
 export REVYL_API_KEY=...    # staging credentials for your enabled organization
 npx @revyl/verify init --platform mac
 npm install --save-dev @revyl/verify
@@ -65,6 +65,8 @@ Mac and Linux computers are early access on Revyl staging only, not yet availabl
 The default `startTimeout` remains 600000 ms; override it explicitly if needed. An unclaimed start can transition to `failed` with `failure_reason: 'no_host'` after 120 seconds from create. Verify stops readiness polling and throws `SESSION_START_FAILED` with that context, then attempts bounded cleanup. This is not a 120-second timeout for every start: claimed guests may take longer. `device_limit` also yields `SESSION_START_FAILED`, with queued-work/concurrency context. A start timeout or unconfirmed close does not prove resources were released. Inspect the session and contact support rather than blindly repeating a start or stop.
 
 `instruction()` and `validation()` throw `NOT_AVAILABLE_ON_PLATFORM` on both computer operating systems without sending agent requests. Screenshots are supported, but screenshot readiness is separate from command readiness. Agent control of the screen is not part of this release. On web, iOS, and Android, shell/file/process methods throw `NOT_AVAILABLE_ON_PLATFORM`.
+
+For the first 30 seconds after a computer becomes active, `screenshot()` retries exact structured `screen_unavailable` responses (HTTP 409 or 503) and `screen_starting` (HTTP 409). Backoff starts at 500 ms and doubles up to 2 seconds; the fixed window does not restart on each call. Cancellation, close, expiry, and the observation deadline still bound the wait. Exhausting that window yields `SESSION_BUSY` with a desktop-not-ready message, rather than requiring a caller sleep. Authentication failures, unrelated errors, malformed responses, and transport failures are not replayed. Commands and other mutations are never retried by this screenshot behavior.
 
 Linux named and inline targets use the same computer surface as Mac. `init --platform linux` is intentionally unavailable; use an inline target or write its config entry. See [linux-computers-contract.md](linux-computers-contract.md) for the implemented shared contract.
 

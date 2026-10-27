@@ -113,6 +113,7 @@ func startComputer(ctx context.Context, c *client, viewer string, target Target,
 				return err
 			}
 			if report.State == "active" {
+				s.computerScreenReadyUntil = time.Now().Add(30 * time.Second)
 				if report.ExpiresAt != nil {
 					s.expiresAt = *report.ExpiresAt
 				}
@@ -200,7 +201,7 @@ func (s *Session) computerRequest(ctx context.Context, method, suffix string, bo
 	if suffix == "/stop" || strings.HasPrefix(suffix, "/operations") {
 		timeout = computerObservationTimeout
 	}
-	r, err := s.client.send(ctx, method, path, body, method == "GET", timeout, false)
+	r, err := s.client.send(ctx, method, path, body, method == "GET" && suffix != "/screen/screenshot", timeout, false)
 	if err != nil {
 		var typed *Error
 		cause := err
@@ -227,6 +228,9 @@ func (s *Session) computerRequest(ctx context.Context, method, suffix string, bo
 		}
 		_ = json.Unmarshal(raw[key], &detail)
 		break
+	}
+	if suffix == "/screen/screenshot" && ((detail == "screen_unavailable" && (r.status == 409 || r.status == 503)) || (detail == "screen_starting" && r.status == 409)) {
+		return r, nil
 	}
 	if detail == "computer_not_enabled" || (r.status == 503 && detail == "runtime_unavailable") {
 		return r, failure(ErrNotAvailableOnPlatform, fmt.Sprintf("Revyl refused the computer request (%s). %s. Ask support@revyl.ai about staging organization enablement. See %s", detail, computerAvailability, s.viewer))
@@ -656,9 +660,45 @@ func (s *Session) computerScreenshot(ctx context.Context, paths ...string) ([]by
 	}
 	ctx, cancel := s.observationContext(ctx)
 	defer cancel()
-	r, err := s.computerRequest(ctx, "GET", "/screen/screenshot", nil)
-	if err != nil {
-		return nil, err
+	observationCtx := ctx
+	notReady := func() error {
+		return failure(ErrSessionBusy, "The computer desktop is not ready for screenshots after its 30-second startup window. Try again later. See "+s.viewer)
+	}
+	var r response
+	var err error
+	transient := false
+	for backoff := 500 * time.Millisecond; ; backoff = min(backoff*2, 2*time.Second) {
+		if err = s.assertComputerOpen(); err != nil {
+			return nil, err
+		}
+		r, err = s.computerRequest(ctx, "GET", "/screen/screenshot", nil)
+		if err != nil {
+			if transient && observationCtx.Err() == nil && ctx.Err() != nil && !time.Now().Before(s.computerScreenReadyUntil) {
+				return nil, notReady()
+			}
+			return nil, err
+		}
+		if r.status >= 200 && r.status < 300 {
+			break
+		}
+		remaining := time.Until(s.computerScreenReadyUntil)
+		if remaining <= 0 {
+			return nil, notReady()
+		}
+		if !transient {
+			ctx, cancel = context.WithDeadline(ctx, s.computerScreenReadyUntil)
+			defer cancel()
+		}
+		transient = true
+		if err := pause(ctx, min(backoff, remaining)); err != nil {
+			if observationCtx.Err() == nil && !time.Now().Before(s.computerScreenReadyUntil) {
+				return nil, notReady()
+			}
+			return nil, err
+		}
+		if !time.Now().Before(s.computerScreenReadyUntil) {
+			return nil, notReady()
+		}
 	}
 	var screenshot struct {
 		Width  int     `json:"width"`
