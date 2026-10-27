@@ -39,20 +39,21 @@ type StepResult struct {
 }
 
 type Session struct {
-	client       *client
-	id           string
-	runID        string
-	viewer       string
-	platform     Platform
-	stepTimeout  time.Duration
-	mu           sync.Mutex
-	stepRunning  bool
-	closeDone    chan struct{}
-	closeErr     error
-	lifetime     context.Context
-	stopLifetime context.CancelFunc
-	log          func(string)
-	expiresAt    time.Time
+	client                   *client
+	id                       string
+	runID                    string
+	viewer                   string
+	platform                 Platform
+	stepTimeout              time.Duration
+	mu                       sync.Mutex
+	stepRunning              bool
+	closeDone                chan struct{}
+	closeErr                 error
+	lifetime                 context.Context
+	stopLifetime             context.CancelFunc
+	log                      func(string)
+	expiresAt                time.Time
+	computerScreenReadyUntil time.Time
 }
 
 func (s *Session) ID() string           { return s.id }
@@ -76,7 +77,8 @@ func Open(ctx context.Context, target Target, options ...OpenOptions) (*Session,
 	if opt.StepTimeout < time.Second {
 		return nil, failure(ErrInvalidArgument, "StepTimeout must be at least one second.")
 	}
-	ctx, cancel := context.WithTimeout(ctx, target.StartTimeout)
+	callerCtx := ctx
+	ctx, cancel := context.WithTimeout(callerCtx, target.StartTimeout)
 	defer cancel()
 	if ctx.Err() != nil {
 		return nil, contextError(ctx)
@@ -126,9 +128,13 @@ func Open(ctx context.Context, target Target, options ...OpenOptions) (*Session,
 	if (target.Platform == Web && start.SessionID != id) || (target.Platform != Web && start.RunID == "") {
 		return nil, failure(ErrSessionStartFailed, "Revyl did not acknowledge the new session.")
 	}
-	s := &Session{client: c, id: start.SessionID, runID: start.RunID, platform: target.Platform, stepTimeout: opt.StepTimeout}
+	s := &Session{client: c, id: start.SessionID, runID: start.RunID, platform: target.Platform, stepTimeout: opt.StepTimeout, log: opt.Log}
 	s.viewer = viewer + "/sessions/" + url.PathEscape(s.id)
-	if err := s.ready(ctx, target); err != nil {
+	err = s.ready(ctx, target)
+	if err == nil && target.Platform != Web {
+		err = s.waitFirstScreen(ctx, callerCtx)
+	}
+	if err != nil {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cleanupCancel()
 		_ = s.Close(cleanupCtx)

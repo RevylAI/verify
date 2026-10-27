@@ -4,6 +4,7 @@ These files ship inside the npm package at `node_modules/@revyl/verify/docs/`, s
 
 | File | Read it when you want to |
 | --- | --- |
+| [end-to-end.md](end-to-end.md) | Review live verification scope, observed outcomes, and evidence limits |
 | [getting-started.md](getting-started.md) | Install Verify, authenticate, and run a first script |
 | [api.md](api.md) | Look up session lifecycle, agent steps, screenshots, commands, files, and processes |
 | [configuration.md](configuration.md) | Look up every option in `verify.config.ts`, the environment variables, and the CLI |

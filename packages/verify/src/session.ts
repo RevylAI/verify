@@ -24,6 +24,7 @@ import type {
 import { trackSession, untrackSession } from './cleanup.js';
 import type { ResolvedDeviceTarget } from './config.js';
 import { VerifyError, errorMessage, isVerifyError } from './errors.js';
+import { screenHasContent } from './screen-readiness.js';
 
 const POLL_INTERVAL_MS = 2_000;
 const DEVICE_CONNECT_TIMEOUT_MS = 90_000;
@@ -229,6 +230,7 @@ export class DeviceSession implements Session {
     await session.untilReady(async () => {
       await session.waitForDeviceReady(deadline);
       if (app.bundleId) await session.launch(app.bundleId);
+      await session.waitForScreenContent(deadline);
     });
     return session;
   }
@@ -407,6 +409,29 @@ export class DeviceSession implements Session {
     if (result.success !== true) {
       throw new VerifyError('SESSION_START_FAILED', `Could not launch ${bundleId} on the ${this.target} device: ${result.error ?? 'no reason given'}`);
     }
+  }
+
+  private async waitForScreenContent(startDeadline: number): Promise<void> {
+    const deadline = Math.min(startDeadline, Date.now() + 10_000);
+    while (Date.now() < deadline) {
+      try {
+        const response = await this.client.worker(this.workflowRunId, 'screenshot', {
+          method: 'GET', retry: false, signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+        });
+        if (response.status === 200) {
+          const content = screenHasContent(response.body);
+          if (content === true) return;
+          if (content === undefined) break;
+        } else if (response.status !== 409 && response.status !== 503) {
+          break;
+        }
+      } catch {
+        break;
+      }
+      const remaining = deadline - Date.now();
+      if (remaining > 0) await delay(Math.min(500, remaining));
+    }
+    this.log('debug: best-effort first-screen wait ended without non-blank content; the runtime has no rendered-readiness signal');
   }
 
   private log(line: string): void {

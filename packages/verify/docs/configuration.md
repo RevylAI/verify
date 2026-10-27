@@ -70,22 +70,23 @@ Computers do not accept `idleTimeoutSeconds`, image, provider, cwd, or lifetime 
 
 | Variable | Meaning |
 | --- | --- |
-| `REVYL_API_KEY` | API key. Takes precedence over a Revyl CLI login. |
-| `REVYL_BACKEND_URL` | Optional API origin override. Defaults to production `https://backend.revyl.ai`. Optional staging access uses `https://backend-staging.revyl.ai` with staging credentials. |
-| `REVYL_APP_URL` | Optional session-link origin override. Defaults to production `https://app.revyl.ai`. Optional staging access uses `https://staging.revyl.ai`. |
+| `REVYL_API_KEY` | API key. Wins over a stored CLI login unless that login is usable and marked `local_auth_override`. Without an environment key, a usable stored login is used; expired access tokens fall back to a stored API key. |
+| `REVYL_BACKEND_URL` | Optional API origin override; production is the default. Get the endpoint for your approved early-access environment from Revyl and use matching credentials. |
+| `REVYL_APP_URL` | Optional session-link origin override; production is the default. Get the matching app endpoint from Revyl. |
 
 ## Command line
 
-The `verify` command (also installed as `revyl-verify`) has two commands. Scripts run with `node`, not through the CLI.
+Use the explicitly scoped package command below. The `verify` and `revyl-verify` bins work only after installing `@revyl/verify`; their names are not standalone npm package installation instructions. Scripts run with `node`, not through the CLI.
 
 ```text
-verify init [--platform web|ios|android|mac] [--app-id <id>] [--url <https-url>] [--force]
-verify whoami
-verify --help | --version
+npx @revyl/verify init [--platform web|ios|android|mac] [--app-id <id>] [--url <https-url>] [--force]
+npx @revyl/verify whoami
+npx @revyl/verify --help
+npx @revyl/verify --version
 ```
 
 - `init` writes `verify.config.ts` and `verify/example.ts`, and adds `.verify/` to `.gitignore`. Without `--platform` it asks its questions interactively. It never overwrites files unless you pass `--force`.
-- `init --platform mac` needs no app id and generates a command/file script. `--app-id` is rejected for Mac, `--url` applies only to web, and Linux init is intentionally unavailable. Use `open({ platform: 'linux' })` or a Linux config target instead.
+- `npx @revyl/verify init --platform mac` needs no app id and generates a command/file script. `--app-id` is rejected for Mac, `--url` applies only to web, and Linux init is intentionally unavailable. Use `open({ platform: 'linux' })` or a Linux config target instead.
 - `whoami` prints the Revyl account and organization your credentials belong to.
 
 Exit codes: `0` success, `1` a Revyl or file error, `2` a usage or authentication problem.

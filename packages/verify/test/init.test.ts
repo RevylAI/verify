@@ -3,14 +3,25 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { initProject } from '../src/cli/init.js';
-import { validateConfig } from '../src/config.js';
-import { APP_ID } from './helpers/fake-revyl.js';
-import { PACKAGE_NAME } from '../src/version.js';
+import { validateConfig, validateTarget, type ResolvedDeviceTarget } from '../src/config.js';
+import { DeviceSession } from '../src/session.js';
+import { APP_ID, FakeRevyl, fakeAndroid, json, stepResult, verdict } from './helpers/fake-revyl.js';
+import { PACKAGE_NAME, VERSION } from '../src/version.js';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 describe('initProject', () => {
+  it('prints scoped help commands and documentation for the installed version', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'verify-help-cli-'));
+    const jiti = pathToFileURL(createRequire(import.meta.url).resolve('jiti')).href;
+    const entry = fileURLToPath(new URL('../src/cli/main.ts', import.meta.url));
+    const output = execFileSync(process.execPath, ['--input-type=module', '-e', `import { createJiti } from ${JSON.stringify(jiti)}; process.argv = ['node', 'verify', '--help']; await createJiti(import.meta.url).import(${JSON.stringify(entry)});`], { cwd: dir, encoding: 'utf8' });
+    expect(output).toContain(`npx ${PACKAGE_NAME} init`);
+    expect(output).toContain(`npx ${PACKAGE_NAME} whoami`);
+    expect(output).toContain(`/tree/v${VERSION}/packages/verify/docs`);
+    expect(output).not.toContain('/tree/main/');
+  });
   it('prints the staging-only Mac availability note exactly once', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'verify-init-cli-'));
     const jiti = pathToFileURL(createRequire(import.meta.url).resolve('jiti')).href;
@@ -55,6 +66,37 @@ describe('initProject', () => {
     const dir = await mkdtemp(join(tmpdir(), 'verify-init-'));
     await initProject(dir, { platform: 'android' });
     await expect(initProject(dir, { platform: 'android' })).rejects.toMatchObject({ message: expect.stringContaining('--force') });
+  });
+
+  it('runs the generated iOS example against a fake server with instruction before validation', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'verify-init-ios-run-'));
+    await initProject(dir, { platform: 'ios', appId: APP_ID });
+    let firstScreenVisible = false;
+    const fake = fakeAndroid(new FakeRevyl()).on('POST', /execute_step$/, request => {
+      if (request.body.step_type === 'instruction') {
+        expect(request.body.step_description).toBe('Wait for the app to finish opening and show its first screen');
+        firstScreenVisible = true;
+        return json(stepResult({ status: 'success' }));
+      }
+      return json(verdict(firstScreenVisible, firstScreenVisible ? 'First screen visible' : 'Blank screen'));
+    });
+    const script = (await readFile(join(dir, 'verify/example.ts'), 'utf8'))
+      .replace(/^import .*;\n/m, '')
+      .replace("'.verify/example.png'", JSON.stringify(join(dir, 'example.png')));
+    const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+    let session: DeviceSession | undefined;
+    try {
+      await new AsyncFunction('open', script)(async (target: string) => {
+        expect(target).toBe('ios');
+        session = await DeviceSession.start(fake.client(), validateTarget({ platform: 'ios', app: { bundleId: 'com.apple.Preferences' } }) as ResolvedDeviceTarget, { stepTimeout: 5_000, log: undefined });
+        return session;
+      });
+      expect(fake.calls('POST', /execute_step$/).map(request => request.body.step_type)).toEqual(['instruction', 'validation']);
+      expect(session?.closed).toBe(true);
+      expect((await readFile(join(dir, 'example.png'))).length).toBeGreaterThan(0);
+    } finally {
+      await session?.close();
+    }
   });
 
   it('writes a Mac config without an app and a shell/file script without agent steps', async () => {

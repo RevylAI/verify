@@ -6,7 +6,7 @@ One task fans out to a cloud browser and an iOS simulator through `@revyl/verify
 
 You need Node.js **22.18+**, the [Revyl CLI](https://docs.revyl.com/cli), and a Revyl account with web and mobile session access. No Xcode, Android SDK, extra app IDs, or mobile builds are needed.
 
-This checkout uses the local workspace SDK, currently **0.2.0**, rather than the published 0.1.0 package. From the repository root, install and build once, before loading any API credentials:
+This checkout uses the local workspace SDK (**0.2.0**). From the repository root, install and build once, before loading any API credentials:
 
 ```sh
 npm ci

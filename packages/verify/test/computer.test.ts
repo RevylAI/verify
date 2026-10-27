@@ -2,12 +2,18 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ComputerSession, computerOperationId } from '../src/computer-session.js';
 import { validateTarget, type ResolvedComputerTarget } from '../src/config.js';
 import { open } from '../src/open.js';
 import type { Session } from '../src/index.js';
 import { FakeRevyl, json, png } from './helpers/fake-revyl.js';
+
+vi.mock('node:timers/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:timers/promises')>();
+  return { ...actual, setTimeout: vi.fn(actual.setTimeout) };
+});
 
 const sessions: Session[] = [];
 const contract: {
@@ -23,6 +29,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
+  vi.mocked(delay).mockReset();
   await Promise.allSettled(sessions.splice(0).map((session) => session.close()));
 });
 
@@ -184,6 +191,173 @@ describe('computer lifecycle', () => {
     const path = join(dir, 'nested', 'screen.png');
     expect(Buffer.from(await session.screenshot({ path }))).toEqual(Buffer.from(bytes));
     expect(await readFile(path)).toEqual(Buffer.from(bytes));
+  });
+});
+
+describe('computer startup screenshots', () => {
+  function useScreenshotTimers(): void {
+    vi.useFakeTimers();
+    vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(new DOMException('Timed out', 'TimeoutError')), ms);
+      return controller.signal;
+    });
+    vi.mocked(delay).mockImplementation((ms, value, { signal } = {}) => new Promise((resolve, reject) => {
+      const abort = () => { clearTimeout(timer); reject(signal?.reason); };
+      const timer = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve(value); }, ms);
+      if (signal?.aborted) abort();
+      else signal?.addEventListener('abort', abort, { once: true });
+    }));
+  }
+
+  it.each([
+    [409, 'screen_starting', 'detail'],
+    [409, 'screen_unavailable', 'detail'],
+    [503, 'screen_unavailable', 'detail'],
+    [503, 'screen_unavailable', 'message'],
+    [503, 'screen_unavailable', 'error'],
+  ] as const)('retries HTTP %s %s in %s with bounded exponential delays', async (status, code, field) => {
+    useScreenshotTimers();
+    const times: number[] = [];
+    const bytes = png(800, 600);
+    const fake = fakeMac().on('GET', /\/screen\/screenshot$/, () => {
+      times.push(Date.now());
+      return times.length < 5 ? json({ [field]: code }, status) : json({ width: 800, height: 600, png: Buffer.from(bytes).toString('base64') });
+    });
+    const session = await start(fake);
+    const began = Date.now();
+    const pending = session.screenshot();
+    await vi.advanceTimersByTimeAsync(5_500);
+    expect(Buffer.from(await pending)).toEqual(Buffer.from(bytes));
+    expect(times.map((time) => time - began)).toEqual([0, 500, 1_500, 3_500, 5_500]);
+    expect(fake.calls('POST', /\/computer-runs$/)).toHaveLength(1);
+    expect(fake.calls('POST', /\/operations$/)).toHaveLength(0);
+  });
+
+  it('exhausts the fixed window from active readiness and never resets it', async () => {
+    useScreenshotTimers();
+    const times: number[] = [];
+    const bytes = png(800, 600);
+    const fake = fakeMac().on('GET', /\/screen\/screenshot$/, () => {
+      times.push(Date.now());
+      return times.length === 1 ? json({ width: 800, height: 600, png: Buffer.from(bytes).toString('base64') }) : json({ detail: 'screen_unavailable' }, 503);
+    });
+    const session = await start(fake);
+    const ready = Date.now();
+    await vi.advanceTimersByTimeAsync(20_000);
+    await session.screenshot();
+    await vi.advanceTimersByTimeAsync(9_000);
+    const pending = expect(session.screenshot()).rejects.toMatchObject({ code: 'SESSION_BUSY', message: expect.stringContaining('desktop is not ready') });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await pending;
+    expect(Date.now() - ready).toBe(30_000);
+    expect(times.map((time) => time - ready)).toEqual([20_000, 29_000, 29_500]);
+    await expect(session.screenshot()).rejects.toMatchObject({ code: 'SESSION_BUSY' });
+    expect(times).toHaveLength(4);
+    fake.on('GET', /\/screen\/screenshot$/, () => json({ width: 800, height: 600, png: Buffer.from(bytes).toString('base64') }));
+    expect(Buffer.from(await session.screenshot())).toEqual(Buffer.from(bytes));
+  });
+
+  it('does not clip a healthy first screenshot to the startup window', async () => {
+    useScreenshotTimers();
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    const bytes = png(800, 600);
+    const fake = fakeMac().on('GET', /\/screen\/screenshot$/, async () => {
+      await delay(500);
+      return json({ width: 800, height: 600, png: Buffer.from(bytes).toString('base64') });
+    });
+    const session = await start(fake);
+    await vi.advanceTimersByTimeAsync(29_999);
+    timeout.mockClear();
+    const pending = session.screenshot();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(Buffer.from(await pending)).toEqual(Buffer.from(bytes));
+    expect(timeout.mock.calls.flat()).toEqual([30_000, 30_000]);
+    expect(fake.calls('GET', /\/screen\/screenshot$/)).toHaveLength(1);
+  });
+
+  it('exhausts the startup window at 30 seconds during a pending retry request', async () => {
+    useScreenshotTimers();
+    const fake = fakeMac().on('GET', /\/screen\/screenshot$/, () => json({ detail: 'screen_unavailable' }, 503));
+    const client = fake.client();
+    const send = client.send.bind(client);
+    let attempts = 0;
+    vi.spyOn(client, 'send').mockImplementation((method, path, options) => {
+      if (path.endsWith('/screen/screenshot') && ++attempts === 2) {
+        return new Promise((_resolve, reject) => options?.signal?.addEventListener('abort', () => reject(options.signal?.reason), { once: true }));
+      }
+      return send(method, path, options);
+    });
+    const session = await ComputerSession.start(client, validateTarget({ platform: 'linux' }) as ResolvedComputerTarget, { stepTimeout: 1000, log: undefined });
+    sessions.push(session);
+    const pending = expect(session.screenshot()).rejects.toMatchObject({ code: 'SESSION_BUSY', message: expect.stringContaining('desktop is not ready') });
+    await vi.advanceTimersByTimeAsync(30_000);
+    await pending;
+    expect(attempts).toBe(2);
+  });
+
+  it('uses the full retry budget from active readiness, not creation', async () => {
+    useScreenshotTimers();
+    const fake: FakeRevyl = fakeMac().on('POST', /^\/api\/v1\/computer-runs$/, ({ body }) => json({ computer_session_id: body.computer_session_id, state: 'starting' }))
+      .on('GET', /\/report$/, () => json({ computer_session_id: fake.requests[0]?.body.computer_session_id, state: 'active' }))
+      .on('GET', /\/screen\/screenshot$/, () => json({ detail: 'screen_unavailable' }, 503));
+    const opening = start(fake);
+    await vi.advanceTimersByTimeAsync(2_000);
+    const session = await opening;
+    const readyAt = Date.now();
+    const pending = expect(session.screenshot()).rejects.toMatchObject({ code: 'SESSION_BUSY' });
+    await vi.advanceTimersByTimeAsync(30_000);
+    await pending;
+    expect(Date.now() - readyAt).toBe(30_000);
+    expect(fake.calls('GET', /\/screen\/screenshot$/)).toHaveLength(17);
+  });
+
+  it.each([
+    [503, { detail: 'screen_starting' }],
+    [502, { detail: 'screen_unavailable' }],
+    [500, { detail: 'screen_unavailable' }],
+    [503, { detail: 'unrelated' }],
+    [409, { detail: 'screen_unavailable later' }],
+    [409, { detail: ['screen_unavailable'] }],
+    [409, { detail: { code: 'screen_unavailable' } }],
+    [503, { code: 'screen_unavailable' }],
+    [401, { detail: 'screen_unavailable' }],
+    [404, { detail: 'run_closed' }],
+  ])('does not retry unrelated HTTP %s structured responses %j', async (status, body) => {
+    const fake = fakeMac().on('GET', /\/screen\/screenshot$/, () => json(body, status));
+    await expect((await start(fake)).screenshot()).rejects.toMatchObject({ name: 'VerifyError' });
+    expect(fake.calls('GET', /\/screen\/screenshot$/)).toHaveLength(1);
+  });
+
+  it('does not retry screenshot transport failures', async () => {
+    const fake = fakeMac().on('GET', /\/screen\/screenshot$/, () => { throw new Error('private transport error'); });
+    await expect((await start(fake)).screenshot()).rejects.toMatchObject({ code: 'API_ERROR', message: expect.not.stringContaining('private transport error') });
+    expect(fake.calls('GET', /\/screen\/screenshot$/)).toHaveLength(1);
+  });
+
+  it('cancels the retry delay on close without replaying any mutation', async () => {
+    useScreenshotTimers();
+    const fake = fakeMac().on('GET', /\/screen\/screenshot$/, () => json({ detail: 'screen_starting' }, 409));
+    const session = await start(fake);
+    const pending = expect(session.screenshot()).rejects.toMatchObject({ code: 'TIMEOUT' });
+    await vi.advanceTimersByTimeAsync(100);
+    await session.close();
+    await pending;
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fake.calls('GET', /\/screen\/screenshot$/)).toHaveLength(1);
+    expect(fake.calls('POST', /\/stop$/)).toHaveLength(1);
+  });
+
+  it('stops retrying at expiry instead of waiting out the startup window', async () => {
+    useScreenshotTimers();
+    const fake = fakeMac().on('POST', /^\/api\/v1\/computer-runs$/, ({ body }) => json({ ...contract.active, computer_session_id: body.computer_session_id, expires_at: new Date(Date.now() + 750).toISOString() }))
+      .on('GET', /\/screen\/screenshot$/, () => json({ detail: 'screen_unavailable' }, 503));
+    const session = await start(fake);
+    const pending = expect(session.screenshot()).rejects.toMatchObject({ code: 'TIMEOUT' });
+    await vi.advanceTimersByTimeAsync(750);
+    await pending;
+    expect(fake.calls('GET', /\/screen\/screenshot$/)).toHaveLength(2);
+    await expect(session.screenshot()).rejects.toMatchObject({ code: 'SESSION_ENDED' });
   });
 });
 
