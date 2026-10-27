@@ -5,16 +5,19 @@ This page is for AI coding agents (Claude Code, Cursor, Codex, and others) that 
 ## Workflow
 
 1. Read `verify.config.ts` to learn the target names and their platforms. If there is none, run `npx @revyl/verify init --platform <web|ios|android> --app-id <id>`, or `npx @revyl/verify init --platform mac` without an app id. You can also pass a target object to `open()`.
-2. Check the credentials once with `npx verify whoami`. It starts no session.
+2. Check the credentials once with `npx @revyl/verify whoami`. It starts no session.
 3. Write a short script, or extend an existing one, that opens one target, runs the steps you need, and closes:
    ```ts
    import { open } from '@revyl/verify';
 
    const session = await open('ios');
-   await session.instruction('Sign in as the demo user');
-   await session.validation('The dashboard shows at least one project card');
-   await session.screenshot({ path: '.verify/dashboard.png' });
-   await session.close();
+   try {
+     await session.instruction('Sign in as the demo user');
+     await session.validation('The dashboard shows at least one project card');
+     await session.screenshot({ path: '.verify/dashboard.png' });
+   } finally {
+     await session.close();
+   }
    ```
 4. Run it with `node path/to/script.ts`. Share the session link from the first `[verify]` line with the user, so they can watch.
 5. Read the outcome from the exit code and stderr. Each step prints `✓` or `✗` with its text; a failure prints `CODE: message`, ending with the session link. Look at any screenshot you saved before changing the script or the app.
@@ -35,6 +38,6 @@ Computers have a hard 60-minute lifetime from create, not from readiness or acti
 - Await each step. Two steps at once on one session throw `INVALID_ARGUMENT`.
 - Do not catch `VerifyError` to make a check pass. A `NOT_AVAILABLE_ON_PLATFORM` error means the call is not offered on that platform; see [web.md](web.md) and [computers.md](computers.md). A `STEP_FAILED` error means the step did not run to an outcome, not that the app is wrong.
 - Never automatically repeat a computer mutation after `ACTION_UNCERTAIN` or a timeout: the command may have run, and timeout does not prove termination or rollback. Do not log argv, stdin, file contents, or credentials.
-- Always close what you open. Each open session is a paid cloud browser, device, or computer.
+- Always close what you open in `try/finally`. Each open session is paid. Automatic cleanup is best effort with a 15-second bound and skips signal/error events that already have listeners. Device close acknowledges stop, while computer close requires confirmed terminal release.
 - Never put secrets in scripts or config. Credentials come from `REVYL_API_KEY` or a Revyl CLI login; web sign-in uses the **name** of a Revyl organization secret.
 - Step descriptions are sent to Revyl and logged to stderr by default. Do not include private credentials or customer data in instruction or validation text; use test-only sign-in and synthetic data instead. `log: false` suppresses local progress, not remote processing or reports.

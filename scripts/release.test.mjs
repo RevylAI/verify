@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { checkReleaseTag } from './check-release.mjs';
-import { publishedVersionExists } from './check-published.mjs';
+import { publishedVersionExists, requireCiPublishing } from './check-published.mjs';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -23,6 +23,14 @@ test('publication lookup skips only the exact published package version', async 
   });
   assert.equal(published, true);
   assert.equal(await publishedVersionExists('@revyl/verify', '0.2.0', async () => new Response(null, { status: 404 })), false);
+});
+
+test('unpublished versions require explicit administrator opt-in to CI publication', () => {
+  for (const enabled of [undefined, '', 'false', 'TRUE', '1']) {
+    assert.throws(() => requireCiPublishing(false, enabled), /CI publication is disabled/);
+    requireCiPublishing(true, enabled);
+  }
+  requireCiPublishing(false, 'true');
 });
 
 test('publication lookup fails closed on registry and transport errors', async () => {

@@ -13,9 +13,14 @@ export async function publishedVersionExists(name, version, fetchImpl = fetch) {
   return true;
 }
 
+export function requireCiPublishing(published, enabled) {
+  assert.ok(published || enabled === 'true', 'CI publication is disabled. A repository administrator must protect the npm environment and enable VERIFY_CI_PUBLISH_ENABLED, or publish the reviewed archive manually.');
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const { name, version } = JSON.parse(readFileSync(new URL('../packages/verify/package.json', import.meta.url), 'utf8'));
   const published = await publishedVersionExists(name, version);
+  requireCiPublishing(published, process.env.VERIFY_CI_PUBLISH_ENABLED);
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `published=${published}\n`);
   console.log(`${name}@${version}: ${published ? 'already published; skipping publication' : 'not published'}.`);
 }

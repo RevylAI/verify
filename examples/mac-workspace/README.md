@@ -4,9 +4,9 @@ Opens a Revyl Mac computer, checks `uname`, writes and reads a file, checks its 
 
 Mac computers are **early access and not yet available in Revyl production**. They work only on Revyl staging for enabled organizations through the optional `REVYL_BACKEND_URL` override. Ask support@revyl.ai about access; no availability date is promised. Use credentials for that staging organization:
 
+Get your early-access endpoints from Revyl and set `REVYL_BACKEND_URL` and the matching `REVYL_APP_URL` before running:
+
 ```bash
-export REVYL_BACKEND_URL=https://backend-staging.revyl.ai
-export REVYL_APP_URL=https://staging.revyl.ai
 export REVYL_API_KEY=...            # or a Revyl CLI login for that environment
 npm install
 node verify/workspace.ts

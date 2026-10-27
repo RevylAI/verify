@@ -2,9 +2,9 @@
 
 Verify opens a Revyl cloud macOS or Linux computer for commands, files, processes, and screenshots. It does not open an assigned physical computer. Both operating systems are in **early access and not yet available in Revyl production**. They work only on Revyl staging for organizations enabled for the requested OS, which also need compute credits and available capacity. Ask [support@revyl.ai](mailto:support@revyl.ai) about staging access. No production availability date is promised.
 
+Get the backend and matching app endpoints from Revyl, then set `REVYL_BACKEND_URL` and `REVYL_APP_URL` for your approved early-access environment before running:
+
 ```bash
-export REVYL_BACKEND_URL=https://backend-staging.revyl.ai
-export REVYL_APP_URL=https://staging.revyl.ai
 export REVYL_API_KEY=...    # staging credentials for your enabled organization
 npx @revyl/verify init --platform mac
 npm install --save-dev @revyl/verify

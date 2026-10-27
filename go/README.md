@@ -4,9 +4,9 @@ Open a Revyl cloud browser or mobile device for instruction and validation steps
 
 ## Install
 
-Use Go 1.26.9 or later and a Revyl account. Set `REVYL_API_KEY` through your shell or CI secret manager, or sign in with `revyl auth login`.
+Use Go 1.26.9 or later and a Revyl account. Set `REVYL_API_KEY` through your shell or CI secret manager, or sign in with `revyl auth login`. A usable stored login marked `local_auth_override` takes precedence over the environment key; otherwise the environment key wins.
 
-The module lives in the repository's `go/` subdirectory. After the Go SDK merges into `main`, install it with:
+The module is merged into `main` in the repository's `go/` subdirectory. Install it with:
 
 ```sh
 go get github.com/RevylAI/verify/go@main

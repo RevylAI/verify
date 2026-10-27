@@ -5,12 +5,22 @@ import { describe, expect, it } from 'vitest';
 import { initProject } from '../src/cli/init.js';
 import { validateConfig } from '../src/config.js';
 import { APP_ID } from './helpers/fake-revyl.js';
-import { PACKAGE_NAME } from '../src/version.js';
+import { PACKAGE_NAME, VERSION } from '../src/version.js';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 describe('initProject', () => {
+  it('prints scoped help commands and documentation for the installed version', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'verify-help-cli-'));
+    const jiti = pathToFileURL(createRequire(import.meta.url).resolve('jiti')).href;
+    const entry = fileURLToPath(new URL('../src/cli/main.ts', import.meta.url));
+    const output = execFileSync(process.execPath, ['--input-type=module', '-e', `import { createJiti } from ${JSON.stringify(jiti)}; process.argv = ['node', 'verify', '--help']; await createJiti(import.meta.url).import(${JSON.stringify(entry)});`], { cwd: dir, encoding: 'utf8' });
+    expect(output).toContain(`npx ${PACKAGE_NAME} init`);
+    expect(output).toContain(`npx ${PACKAGE_NAME} whoami`);
+    expect(output).toContain(`/tree/v${VERSION}/packages/verify/docs`);
+    expect(output).not.toContain('/tree/main/');
+  });
   it('prints the staging-only Mac availability note exactly once', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'verify-init-cli-'));
     const jiti = pathToFileURL(createRequire(import.meta.url).resolve('jiti')).href;

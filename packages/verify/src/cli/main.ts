@@ -11,15 +11,15 @@ import { initProject, validateInitAnswers, type InitAnswers } from './init.js';
 const HELP = `verify ${VERSION}: open Revyl cloud browsers, devices, and computers from your code
 
 Usage
-  verify init [--platform web|ios|android|mac] [--app-id <id>] [--url <https-url>] [--force]
+  npx ${PACKAGE_NAME} init [--platform web|ios|android|mac] [--app-id <id>] [--url <https-url>] [--force]
       Write verify.config.ts and an example script, verify/example.ts
-  verify whoami
+  npx ${PACKAGE_NAME} whoami
       Check which Revyl account your credentials belong to
 
 Authentication
   REVYL_API_KEY, or a login from the Revyl CLI ('revyl auth login').
 
-Docs: https://github.com/RevylAI/verify/tree/main/packages/verify/docs
+Docs: https://github.com/RevylAI/verify/tree/v${VERSION}/packages/verify/docs
 `;
 
 const USAGE_CODES = new Set(['INVALID_ARGUMENT', 'AUTH_MISSING', 'AUTH_REJECTED']);
@@ -73,7 +73,7 @@ async function initCommand(args: string[]): Promise<number> {
   const steps = [
     `npm install --save-dev ${PACKAGE_NAME}`,
     "Authenticate: export REVYL_API_KEY=<key from Revyl settings>, or run 'revyl auth login'",
-    ...(answers.platform === 'mac' ? ['Mac computers are not yet available in Revyl production. Early access works only on Revyl staging for enabled organizations; use the optional REVYL_BACKEND_URL override with staging credentials. Ask support@revyl.ai for access. See https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#availability-and-errors'] : []),
+    ...(answers.platform === 'mac' ? [`Mac computers are not yet available in Revyl production. Early access works only on Revyl staging for enabled organizations; use the optional REVYL_BACKEND_URL override with staging credentials. Ask support@revyl.ai for access. See https://github.com/RevylAI/verify/blob/v${VERSION}/packages/verify/docs/computers.md#availability-and-errors`] : []),
     ...(answers.platform === 'mac' || answers.appId ? [] : ['Put your Revyl app id in verify.config.ts (or set REVYL_APP_ID)']),
     'node verify/example.ts',
   ];

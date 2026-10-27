@@ -14,7 +14,7 @@ Prepared for release; see npm for publication status.
 - Expose optional `expiresAt` and bound operation/screenshot observation by the hard 60-minute lifetime from create, while keeping explicit close possible.
 - Add computer `recording()` metadata retrieval after terminal state and confirmed release, including after close. Missing recordings return null; signed URLs remain private, with no automatic waiting or download.
 - Keep Linux CLI init intentionally unavailable; use inline targets or config entries. Computer instruction/validation remain locally unavailable.
-- Skip CI publication when the exact version is already on npm, fail closed on registry lookup errors, and document manual Mac publication, optional trusted publishing, and independent Go module tags.
+- Skip CI publication when the exact version is already on npm, require explicit administrator opt-in for new CI publications, fail closed on registry lookup errors, and document manual Mac publication, optional trusted publishing, and independent Go module tags.
 
 Validation uses fake API responses, not live computer sessions.
 

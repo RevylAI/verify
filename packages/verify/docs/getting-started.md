@@ -29,14 +29,15 @@ npm install --save-dev @revyl/verify
 
 ## 3. Authenticate
 
-Verify uses the same credentials as the Revyl CLI, in the same order:
+Verify uses the same credential precedence as the Revyl CLI:
 
-1. `REVYL_API_KEY`, an API key you create in Revyl's settings.
-2. A login stored by the Revyl CLI in `~/.revyl/credentials.json` (`revyl auth login`).
+1. A usable login in `~/.revyl/credentials.json` marked `local_auth_override` takes precedence, even when `REVYL_API_KEY` is set.
+2. Otherwise, `REVYL_API_KEY`, an API key you create in Revyl's settings.
+3. Otherwise, a usable login stored by the Revyl CLI (`revyl auth login`). Expired access tokens fall back to a stored API key when present.
 
 ```bash
 export REVYL_API_KEY=...        # or: revyl auth login
-npx verify whoami               # checks the credentials without starting a session
+npx @revyl/verify whoami         # checks the credentials without starting a session
 ```
 
 ## 4. Point the config at your app
@@ -70,10 +71,13 @@ Open the link to watch the session live. After the session ends, the link keeps 
 import { open } from '@revyl/verify';
 
 const session = await open('ios');                                   // a target from verify.config.ts
-await session.instruction('Add the first product to the cart');      // Revyl's agent does it
-await session.validation('The cart badge shows 1');                  // throws if it does not hold
-await session.screenshot({ path: '.verify/cart.png' });
-await session.close();
+try {
+  await session.instruction('Add the first product to the cart');    // Revyl's agent does it
+  await session.validation('The cart badge shows 1');                // throws if it does not hold
+  await session.screenshot({ path: '.verify/cart.png' });
+} finally {
+  await session.close();
+}
 ```
 
-A failed instruction or validation throws a `VerifyError`. In a plain script, that ends the script with exit code 1, and Verify closes the session before the process exits. See [api.md](api.md) for every option, and [ci.md](ci.md) for calling Verify from a test runner.
+A failed instruction or validation throws a `VerifyError`. An uncaught error in a plain script exits non-zero. Automatic cleanup is best effort, bounded to 15 seconds, and skips signal/error handlers that already have listeners. Always close in `try/finally`; a successful web/mobile close acknowledges the stop request, not confirmed physical release. Computer close requires confirmed terminal release. See [api.md](api.md) for cleanup details and every option, and [ci.md](ci.md) for calling Verify from a test runner.
