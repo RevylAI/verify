@@ -25,7 +25,7 @@ Drive cloud browsers, iOS simulators and Android emulators from code,<br>with pl
 
 ## Start in TypeScript
 
-You need **Node.js ≥22.18**, a Revyl account, and an uploaded app or an app already installed on the device.
+You need **Node.js ≥22.18**, a Revyl account, and an uploaded app or an app already installed on the device. `revyl auth login` requires the Revyl CLI; alternatively, supply `REVYL_API_KEY` through your secret manager.
 
 ```bash
 npm install --save-dev @revyl/verify
@@ -33,7 +33,7 @@ npx @revyl/verify init --platform ios
 revyl auth login
 ```
 
-Set `app.appId` in the generated `verify.config.ts`, or use `app: { bundleId: 'com.apple.Preferences' }` to open iOS Settings. Then put this in `verify/example.ts` and run `node verify/example.ts`:
+For this iOS Settings example, replace the generated `app` block in `verify.config.ts` with `app: { bundleId: 'com.apple.Preferences' }`. Put this in `verify/example.ts` and run `node verify/example.ts`. For your own app, set `app.appId` and adapt the steps:
 
 ```ts
 import { open } from '@revyl/verify';
