@@ -48,6 +48,8 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm run typecheck
+      - name: Agent platform example (no cloud sessions)
+        run: npm run smoke --workspace ./examples/agent-platform
       - run: npm test
       - name: init writes a project that type-checks and runs
         run: |

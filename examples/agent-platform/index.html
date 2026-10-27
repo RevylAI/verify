@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Agent platform · Revyl Verify</title>
+<style>
+  :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#f3f1fa;background:#0b0b10;font-size:18px;line-height:1.5;font-synthesis:none}
+  *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 75% 0%,#21153066,transparent 52%);min-height:100vh}button,a,summary{-webkit-tap-highlight-color:transparent}a{color:#c6adff;text-underline-offset:4px}a:hover{color:#e3d6ff}a:focus-visible,summary:focus-visible{outline:2px solid #b895ff;outline-offset:5px}
+  header,main{width:min(1640px,calc(100% - 96px));margin:auto}header{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:30px 0;border-bottom:1px solid #292632}header h1{font-size:24px;letter-spacing:-.7px;margin:0}.brand{display:flex;align-items:center;gap:13px}.mark{display:grid;place-items:center;width:36px;height:36px;background:#aa7bff;color:#180c2c;border-radius:8px;font-size:25px;font-weight:800}.powered{color:#aaa3b7;font-size:18px}.powered strong{color:#ddd2ef;font-weight:500}
+  main{padding:34px 0 40px}.intro{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;margin:0 0 26px}.eyebrow{color:#b6a4d1;letter-spacing:2px;font-size:18px;font-weight:600;margin:0 0 10px}.task{font-size:clamp(28px,2.4vw,42px);line-height:1.22;letter-spacing:-1.2px;font-weight:600;margin:0;max-width:1100px;overflow-wrap:anywhere}.overall{flex:none;margin-top:6px}
+  .badge{display:inline-flex;align-items:center;gap:9px;border:1px solid #494052;border-radius:30px;padding:5px 12px;font-size:18px;white-space:nowrap;color:#cec5db;background:#24202d}.badge:before{content:"";width:7px;height:7px;background:currentColor;border-radius:50%}.passed,.completed{color:#9be4bc;background:#16291f;border-color:#2b4a38}.failed{color:#ffacb4;background:#311c25;border-color:#59303c}.running,.opening,.starting{color:#cfb4ff;background:#2c1e40;border-color:#533779}
+  .notice{padding:13px 18px;margin:0 0 24px;border:1px solid #503770;border-left:3px solid #b88aff;border-radius:8px;background:#251b34;color:#cbbadd}.notice strong{color:#dbc4ff;letter-spacing:1px;margin-right:12px}.error{border-color:#78414b;background:#301c23;color:#ffc0c7}.empty{padding:64px 24px;text-align:center;border:1px dashed #40374c;border-radius:12px;color:#b6adbf}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px;align-items:start}.grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .card{min-width:0;background:#14131c;border:1px solid #34303e;border-radius:12px;overflow:hidden;box-shadow:0 12px 40px #0002}.card-head{padding:19px 22px 15px;display:flex;justify-content:space-between;gap:12px;align-items:center}.target{margin:0;color:#ab9abb;text-transform:uppercase;letter-spacing:1.6px;font-size:18px}.card h2{font-size:24px;line-height:1.3;letter-spacing:-.6px;margin:3px 0 0;overflow-wrap:anywhere}.phase{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:0 22px 16px;color:#b8afc4;min-height:43px}.phase p{margin:0;overflow-wrap:anywhere}.viewer{white-space:nowrap;font-weight:500;text-decoration:none}.viewer:after{content:" ↗"}
+  figure{margin:0 14px;background:#0c0b10;border:1px solid #302938;border-radius:7px;overflow:hidden}figure img{display:block;width:100%;height:210px;object-fit:contain}figcaption{font-size:18px;color:#a89bb8;padding:7px 12px;border-top:1px solid #302938}.steps{list-style:none;margin:0;padding:7px 22px}.step{display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid #2a2633}.step:last-child{border-bottom:0}.outcome{display:grid;place-items:center;flex:none;width:25px;height:25px;border-radius:50%;font-size:18px;background:#203a2b;color:#a6e7bf;margin-top:3px}.outcome.fail{background:#41232d;color:#ffb7bf}.step-copy{min-width:0;flex:1}.step-meta{display:flex;justify-content:space-between;gap:12px;color:#a99bb9;font-size:18px}.step-text,.reason{margin:3px 0 0;overflow-wrap:anywhere}.reason{color:#ffb7bf}.pending{color:#a99bb9;padding:14px 0;margin:0}
+  details{border-top:1px solid #302a3b;background:#18151f}summary{cursor:pointer;color:#c8b6df;padding:13px 22px}summary:hover{background:#211b2c}.evidence{padding:0 22px 20px}.evidence h3{font-size:18px;font-weight:500;margin:14px 0 10px}.evidence video{display:block;width:100%;max-height:360px;background:#08080c;border:1px solid #3e344b;border-radius:6px}.evidence p{margin:12px 0 0;color:#b6acc2;overflow-wrap:anywhere}.evidence .failure{color:#ffb7bf}.downloads{display:flex;flex-wrap:wrap;gap:12px 24px;margin-top:16px}footer{color:#8f839e;font-size:18px;margin-top:25px;display:flex;justify-content:space-between;gap:16px}[hidden]{display:none!important}
+  @media(min-width:1700px){.grid.three figure img{height:210px}}@media(max-width:1200px){.grid.three{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:800px){header,main{width:calc(100% - 36px)}header{padding:22px 0;align-items:flex-start}.powered{max-width:155px;text-align:right}.intro{display:block}.overall{margin-top:18px}.grid,.grid.three{grid-template-columns:1fr}.task{letter-spacing:-.6px}.card-head{padding:18px 18px 14px}.phase{padding-left:18px;padding-right:18px}.phase{flex-wrap:wrap}footer{flex-wrap:wrap}}
+</style>
+</head>
+<body>
+<header><div class="brand"><span class="mark" aria-hidden="true">↗</span><h1>Agent platform</h1></div><div class="powered">Powered by <strong>@revyl/verify</strong></div></header>
+<main>
+  <section class="intro" aria-labelledby="task"><div><p class="eyebrow">ONE TASK. PARALLEL SESSIONS.</p><h2 id="task" class="task">Connecting to your agent run…</h2></div><span id="status" class="badge overall starting" role="status">Connecting</span></section>
+  <p id="mock" class="notice" hidden><strong>MOCK MODE</strong> Synthetic results and evidence. No live sessions are running.</p>
+  <p id="error" class="notice error" role="alert" hidden></p>
+  <p id="empty" class="empty" role="status">Loading platform results…</p>
+  <section id="runs" class="grid" aria-label="Platform results"></section>
+  <footer><span>Instructions → validations → evidence</span><span id="sync">Waiting for results</span></footer>
+</main>
+<script>
+  const $ = id => document.getElementById(id);
+  const cards = new Map();
+  let previous = '', completed = false;
+  function node(tag, className = '', text = '') {
+    const element = document.createElement(tag);
+    element.className = className; element.textContent = text; return element;
+  }
+  function safeUrl(value) {
+    if (typeof value !== 'string' || /[\s\\\u0000-\u001f\u007f]/.test(value)) return '';
+    if (!value.startsWith('https://') && !/^\/(?!\/)/.test(value)) return '';
+    try { const url = new URL(value, location.origin); return url.username || url.password ? '' : url.href; } catch { return ''; }
+  }
+  function link(element, value) {
+    const url = safeUrl(value); element.hidden = !url;
+    if (url) { if (element.href !== url) element.href = url; } else element.removeAttribute('href');
+  }
+  function anchor(text, className = '') {
+    const element = node('a', className, text); element.target = '_blank'; element.rel = 'noopener noreferrer'; return element;
+  }
+  function badge(element, value, extra = '') { element.className = `badge ${extra} ${value}`; element.textContent = value.charAt(0).toUpperCase() + value.slice(1); }
+  function createCard() {
+    const card = node('article', 'card'), head = node('div', 'card-head'), names = node('div');
+    const target = node('p', 'target'), title = node('h2'), status = node('span', 'badge'); names.append(target, title); head.append(names, status);
+    const phaseRow = node('div', 'phase'), phase = node('p'), viewer = anchor('Live viewer', 'viewer'); phaseRow.append(phase, viewer);
+    const figure = node('figure'), image = node('img'), caption = node('figcaption'); image.alt = 'Latest screenshot'; image.addEventListener('error', () => { image.hidden = true; caption.textContent = 'Screenshot could not be loaded'; }); figure.append(image, caption);
+    const steps = node('ol', 'steps'), pending = node('li', 'pending', 'Waiting for the first step…');
+    const details = node('details'), summary = node('summary', '', 'Recording & report'), evidence = node('div', 'evidence');
+    const recording = node('div'), recordingTitle = node('h3', '', 'Recording'), video = node('video'); video.controls = true; video.preload = 'none'; video.setAttribute('aria-label', 'Session recording'); recording.append(recordingTitle, video);
+    const downloads = node('div', 'downloads'), report = anchor('Open report ↗'), json = anchor('Download JSON ↓'), error = node('p', 'failure'), evidenceError = node('p', 'failure'), noEvidence = node('p', '', 'Evidence will appear here when it is available.'); json.setAttribute('download', 'report.json'); json.removeAttribute('target'); downloads.append(report, json); evidence.append(recording, downloads, error, evidenceError, noEvidence); details.append(summary, evidence);
+    card.append(head, phaseRow, figure, steps, details); $('runs').append(card);
+    return { card, target, title, status, phase, viewer, figure, image, caption, steps, pending, recording, video, report, json, error, evidenceError, noEvidence, stepNodes: [] };
+  }
+  function renderRun(run, mode) {
+    if (!cards.has(run.target)) cards.set(run.target, createCard());
+    const ui = cards.get(run.target); ui.target.textContent = run.target; ui.title.textContent = run.label; badge(ui.status, run.status); ui.phase.textContent = run.phase; link(ui.viewer, run.viewerUrl);
+    const screenshot = safeUrl(run.screenshotUrl) || [...run.steps].reverse().map(step => safeUrl(step.screenshotUrl)).find(Boolean);
+    ui.figure.hidden = !screenshot;
+    if (screenshot && ui.image.src !== screenshot) { ui.image.hidden = false; ui.image.src = screenshot; }
+    if (!ui.image.hidden) ui.caption.textContent = mode === 'mock' ? 'Synthetic screenshot · mock evidence' : 'Latest screenshot';
+    ui.pending.hidden = run.steps.length > 0; if (!ui.pending.parentNode) ui.steps.append(ui.pending);
+    run.steps.forEach((step, index) => {
+      if (!ui.stepNodes[index]) {
+        const row = node('li', 'step'), outcome = node('span', 'outcome'), copy = node('div', 'step-copy'), meta = node('div', 'step-meta'), type = node('span'), duration = node('span'), text = node('p', 'step-text'), reason = node('p', 'reason');
+        meta.append(type, duration); copy.append(meta, text, reason); row.append(outcome, copy); ui.steps.append(row); ui.stepNodes.push({row, outcome, type, duration, text, reason});
+      }
+      const item = ui.stepNodes[index]; item.outcome.textContent = step.passed ? '✓' : '×'; item.outcome.className = `outcome${step.passed ? '' : ' fail'}`; item.outcome.setAttribute('aria-label', step.passed ? 'Passed' : 'Failed');
+      item.type.textContent = `${index + 1} · ${step.type === 'instruction' ? 'Instruction' : 'Validation'} · ${step.passed ? 'Passed' : 'Failed'}`; item.duration.textContent = `${(step.durationMs / 1000).toFixed(1)}s`; item.text.textContent = step.text; item.reason.textContent = step.passed ? '' : step.reason || ''; item.reason.hidden = step.passed || !step.reason;
+    });
+    while (ui.stepNodes.length > run.steps.length) ui.stepNodes.pop().row.remove();
+    const recording = safeUrl(run.recordingUrl); ui.recording.hidden = !recording;
+    if (recording && ui.video.src !== recording) ui.video.src = recording;
+    if (!recording && ui.video.hasAttribute('src')) { ui.video.pause(); ui.video.removeAttribute('src'); ui.video.load(); }
+    link(ui.report, run.reportUrl); link(ui.json, run.reportJsonUrl); ui.error.textContent = run.error || ''; ui.error.hidden = !run.error; ui.evidenceError.textContent = run.evidenceError ? `Evidence unavailable: ${run.evidenceError}` : ''; ui.evidenceError.hidden = !run.evidenceError;
+    ui.noEvidence.hidden = Boolean(recording || safeUrl(run.reportUrl) || run.error || run.evidenceError);
+  }
+  function validState(data) {
+    return data && ['mock', 'live'].includes(data.mode) && typeof data.task === 'string' && ['starting', 'running', 'completed'].includes(data.status) && Array.isArray(data.runs) && new Set(data.runs.map(run => run?.target)).size === data.runs.length && data.runs.every(run => run && ['web', 'ios', 'android'].includes(run.target) && typeof run.label === 'string' && typeof run.phase === 'string' && ['queued', 'opening', 'running', 'passed', 'failed'].includes(run.status) && Array.isArray(run.steps) && run.steps.every(step => step && ['instruction', 'validation'].includes(step.type) && typeof step.text === 'string' && typeof step.passed === 'boolean' && Number.isFinite(step.durationMs) && step.durationMs >= 0));
+  }
+  function render(data) {
+    $('task').textContent = data.task || 'Waiting for a task'; badge($('status'), data.status, 'overall'); $('mock').hidden = data.mode !== 'mock';
+    $('empty').hidden = data.runs.length > 0; $('empty').textContent = data.status === 'completed' ? 'This run completed without platform results.' : 'No platform results yet. Waiting for the agent…';
+    $('runs').classList.toggle('three', data.runs.length === 3);
+    for (const [target, ui] of cards) if (!data.runs.some(run => run.target === target)) { ui.card.remove(); cards.delete(target); }
+    data.runs.forEach(run => renderRun(run, data.mode));
+  }
+  async function poll() {
+    try {
+      const response = await fetch('/api/run', { cache: 'no-store', signal: AbortSignal.timeout(8000) });
+      if (!response.ok) throw new Error('Request failed');
+      const data = await response.json(); if (!validState(data)) throw new Error('Invalid run data');
+      const serialized = JSON.stringify(data); if (serialized !== previous) { render(data); previous = serialized; }
+      $('error').hidden = true; completed = data.status === 'completed';
+      const syncText = completed ? 'Run complete · all results received' : 'Updating every second'; if ($('sync').textContent !== syncText) $('sync').textContent = syncText;
+    } catch {
+      $('error').textContent = 'Could not load run results. Retrying automatically…'; $('error').hidden = false; $('sync').textContent = previous ? 'Connection interrupted · showing last results' : 'Waiting for connection';
+      if (!previous) { $('task').textContent = 'Your results will appear here'; $('empty').textContent = 'No results received yet.'; $('status').textContent = 'Reconnecting'; }
+    }
+    if (!completed) setTimeout(poll, 1000);
+  }
+  poll();
+</script>
+</body>
+</html>

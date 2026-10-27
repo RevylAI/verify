@@ -1,0 +1,17 @@
+{
+  "name": "verify-example-agent-platform",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo": "node demo.ts",
+    "mock": "node demo.ts --mock",
+    "smoke": "node smoke.mjs",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@revyl/verify": "0.2.0",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.9.0"
+  }
+}
