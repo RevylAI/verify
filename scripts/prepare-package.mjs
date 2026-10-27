@@ -11,7 +11,7 @@ export function packageReadme(markdown, version) {
       : `${source}/${relative.endsWith('/') ? 'tree' : 'blob'}/v${version}/${relative}`;
   };
   return markdown
-    .replace(/(!?)\[([^\]]*)\]\(([^)]+)\)/g, (_, image, label, path) => `${image}[${label}](${destination(path, Boolean(image))})`)
+    .replace(/(!?)\[((?:!\[[^\]]*\]\([^)]+\)|[^\]])*)\]\(([^)]+)\)/g, (_, image, label, path) => `${image}[${label}](${destination(path, Boolean(image))})`)
     .replace(/(href|src)="([^"]+)"/g, (_, attribute, path) => `${attribute}="${destination(path, attribute === 'src')}"`);
 }
 
