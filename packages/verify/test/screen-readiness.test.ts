@@ -61,6 +61,13 @@ describe('best-effort mobile first screen', () => {
     expect(session?.closed).toBe(false);
   });
 
+  it.each([409, 503])('retries optional screenshot HTTP %i before a content frame', async status => {
+    let attempts = 0;
+    const fake = fakeAndroid(new FakeRevyl()).on('GET', /screenshot$/, () => ++attempts === 1 ? json({ error: 'not_ready' }, status) : new Response(frame(true)));
+    await open(fake);
+    expect(attempts).toBe(2);
+  });
+
   it.each([401, 500])('does not make optional observation HTTP %i fail open', async status => {
     const fake = fakeAndroid(new FakeRevyl()).on('GET', /screenshot$/, () => json({ error: 'unavailable' }, status));
     const lines: string[] = [];
