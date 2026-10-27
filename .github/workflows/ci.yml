@@ -13,6 +13,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  python:
+    name: Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.15']
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.13.4'
+      - run: uv sync --frozen
+      - run: uv run --frozen ruff check .
+      - run: uv run --frozen ruff format --check .
+      - run: uv run --frozen mypy
+      - run: uv run --frozen pytest
+      - run: uv build
+      - run: uv run --frozen python -m twine check --strict dist/*
+      - run: uv run --frozen python scripts/check_package.py
+
   go:
     name: Go
     runs-on: ubuntu-latest

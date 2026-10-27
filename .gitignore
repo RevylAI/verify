@@ -5,6 +5,12 @@ dist/
 coverage/
 *.tgz
 .DS_Store
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.py[cod]
 packages/verify/README.md
 packages/verify/LICENSE
 packages/verify/CHANGELOG.md

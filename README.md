@@ -1,7 +1,7 @@
 <h1 align="center">Verify</h1>
 
 <p align="center">
-  <em>Cloud browsers, mobile devices and computers from TypeScript and Go.</em>
+  <em>Cloud browsers, mobile devices and computers from TypeScript, Go and Python.</em>
 </p>
 
 <p align="center">
@@ -14,7 +14,7 @@
 
 ---
 
-Verify is a TypeScript and Go library for [Revyl](https://revyl.com). Open a cloud browser, iOS simulator or Android emulator for natural-language instructions and validations, or an early-access Mac/Linux computer for commands, files, processes and screenshots. Call it from a script, coding agent or your existing test runner.
+Verify is a TypeScript, Go and Python library for [Revyl](https://revyl.com). Open a cloud browser, iOS simulator or Android emulator for natural-language instructions and validations, or an early-access Mac/Linux computer for commands, files, processes and screenshots. Call it from a script, coding agent or your existing test runner.
 
 ## For coding agents
 
@@ -44,14 +44,24 @@ npm install --save-dev @revyl/verify
 Use Go ≥1.26.9 in an existing Go module:
 
 ```bash
-go get github.com/RevylAI/verify/go@main
+go get github.com/RevylAI/verify/go@v0.1.0
 ```
 
-There is no Go release tag yet. `@main` resolves to a pseudo-version; keep the generated `go.mod` and `go.sum` to pin it. Go tags are independent of npm versions. The SDK uses only the standard library.
+Go releases use independent `go/v*` tags; npm versions do not version the module. Keep the generated `go.mod` and `go.sum` to pin dependencies. The SDK uses only the standard library.
+
+### Python
+
+Use Python ≥3.10. Python 0.1.0 is prepared in source, not published to PyPI yet. From a reviewed repository checkout, install it into an active virtual environment:
+
+```bash
+uv pip install ./python
+```
+
+The distribution is `revyl-verify`; import `revyl_verify`. See the [Python SDK source guide](https://github.com/RevylAI/verify/tree/main/python) for sync/async APIs, computer examples, and package validation. Python behavior is covered by fake-server tests, not live Revyl verification.
 
 ## Authenticate
 
-Both SDKs use this credential order:
+All SDKs use this credential order:
 
 1. A usable stored CLI login marked `local_auth_override`.
 2. `REVYL_API_KEY` from the environment.
@@ -107,6 +117,19 @@ return err
 
 This sketch ignores cleanup errors; the [complete Go examples](go/README.md) handle them. Go has no process-exit handlers. TypeScript's automatic cleanup is best effort, bounded to 15 seconds, and skips signal/error handlers that already have listeners. Always close explicitly: device close acknowledges a stop request; computer close requires terminal state and confirmed release.
 
+### Python
+
+```python
+from revyl_verify import Target, open
+
+with open(Target(platform="ios", bundle_id="com.apple.Preferences", start_timeout=600)) as session:
+    session.instruction("Open General, then About", timeout=120)
+    session.validation("The screen shows the operating system version", timeout=120)
+    session.screenshot(path="settings.png")
+```
+
+All Python timeout values are seconds. For asyncio, use `async with await async_open(Target(...))` and await the session methods; see the [Python source guide](https://github.com/RevylAI/verify/tree/main/python). Context managers close sessions even when a step raises. The Python SDK has no bundled CLI or test runner.
+
 ### Platforms
 
 | Platform | Instructions / validations | Commands / files / processes | PNG screenshot | Availability |
@@ -123,7 +146,7 @@ Computers require enablement for your organization and requested OS, plus approv
 
 - [Documentation index](packages/verify/docs/) · [API](packages/verify/docs/api.md) · [CI](packages/verify/docs/ci.md) · [Coding agents](packages/verify/docs/agents.md)
 - [End-to-end results and limitations](packages/verify/docs/end-to-end.md)
-- [Examples](examples/): [Web store](examples/web-store/) · [Mobile Settings](examples/mobile-settings/) · [Mac workspace](examples/mac-workspace/) · [Go](go/README.md)
+- [Examples](examples/): [Web store](examples/web-store/) · [Mobile Settings](examples/mobile-settings/) · [Mac workspace](examples/mac-workspace/) · [Go](go/README.md) · [Python source](https://github.com/RevylAI/verify/tree/main/python)
 - [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Releasing](RELEASING.md)
 
 ## Troubleshooting
