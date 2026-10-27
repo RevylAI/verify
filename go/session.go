@@ -77,7 +77,8 @@ func Open(ctx context.Context, target Target, options ...OpenOptions) (*Session,
 	if opt.StepTimeout < time.Second {
 		return nil, failure(ErrInvalidArgument, "StepTimeout must be at least one second.")
 	}
-	ctx, cancel := context.WithTimeout(ctx, target.StartTimeout)
+	callerCtx := ctx
+	ctx, cancel := context.WithTimeout(callerCtx, target.StartTimeout)
 	defer cancel()
 	if ctx.Err() != nil {
 		return nil, contextError(ctx)
@@ -129,7 +130,11 @@ func Open(ctx context.Context, target Target, options ...OpenOptions) (*Session,
 	}
 	s := &Session{client: c, id: start.SessionID, runID: start.RunID, platform: target.Platform, stepTimeout: opt.StepTimeout, log: opt.Log}
 	s.viewer = viewer + "/sessions/" + url.PathEscape(s.id)
-	if err := s.ready(ctx, target); err != nil {
+	err = s.ready(ctx, target)
+	if err == nil && target.Platform != Web {
+		err = s.waitFirstScreen(ctx, callerCtx)
+	}
+	if err != nil {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cleanupCancel()
 		_ = s.Close(cleanupCtx)
@@ -288,7 +293,7 @@ func (s *Session) ready(ctx context.Context, target Target) error {
 			return failure(ErrSessionStartFailed, "Could not launch the installed app.")
 		}
 	}
-	return s.waitFirstScreen(ctx)
+	return nil
 }
 
 func (s *Session) workerPath(action string) string {

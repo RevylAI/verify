@@ -68,6 +68,19 @@ describe('best-effort mobile first screen', () => {
     expect(attempts).toBe(2);
   });
 
+  it('continues when the remaining startup budget ends during optional observation', async () => {
+    let now = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const fake = fakeAndroid(new FakeRevyl())
+      .on('GET', /health$/, () => { now += 9_500; return json({ device_connected: true }); })
+      .on('GET', /screenshot$/, () => { now += 500; return new Response(frame(false)); });
+    const lines: string[] = [];
+    session = await DeviceSession.start(fake.client(), validateTarget({ platform: 'ios', app: { bundleId: 'com.apple.Preferences' }, startTimeout: 10_000 }) as ResolvedDeviceTarget, { stepTimeout: 5_000, log: line => lines.push(line) });
+    expect(fake.calls('GET', /screenshot$/)).toHaveLength(1);
+    expect(lines.some(line => line.includes('debug: best-effort first-screen wait'))).toBe(true);
+    expect(session.closed).toBe(false);
+  });
+
   it.each([401, 500])('does not make optional observation HTTP %i fail open', async status => {
     const fake = fakeAndroid(new FakeRevyl()).on('GET', /screenshot$/, () => json({ error: 'unavailable' }, status));
     const lines: string[] = [];

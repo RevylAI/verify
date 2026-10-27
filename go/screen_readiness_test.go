@@ -259,6 +259,30 @@ func TestMobileFirstScreenBoundedExhaustion(t *testing.T) {
 	}
 }
 
+func TestMobileFirstScreenStartupBudgetExhaustion(t *testing.T) {
+	blank := readinessPNG(t, nil)
+	opt, calls := readinessServer(t, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(blank) })
+	var logs []string
+	opt.Log = func(line string) { logs = append(logs, line) }
+	start := time.Now()
+	s, err := Open(context.Background(), Target{Platform: IOS, BundleID: "com.example.app", StartTimeout: 10 * time.Second}, opt)
+	if err != nil {
+		t.Fatalf("optional wait exhausted startup budget: %v", err)
+	}
+	defer s.Close(context.Background())
+	if elapsed := time.Since(start); elapsed < 10*time.Second || elapsed > 12*time.Second {
+		t.Fatalf("startup duration = %s", elapsed)
+	}
+	if len(logs) != 1 || !strings.Contains(logs[0], "timed out") {
+		t.Fatalf("logs = %v", logs)
+	}
+	for _, call := range calls() {
+		if strings.HasSuffix(call, "/stop") {
+			t.Fatalf("successful startup unexpectedly cleaned up: %v", calls())
+		}
+	}
+}
+
 func TestMobileFirstScreenCancellationCleansUp(t *testing.T) {
 	blank := readinessPNG(t, nil)
 	for _, inFlight := range []bool{false, true} {

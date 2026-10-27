@@ -9,13 +9,13 @@ import (
 	"time"
 )
 
-func (s *Session) waitFirstScreen(ctx context.Context) error {
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+func (s *Session) waitFirstScreen(startupCtx, callerCtx context.Context) error {
+	waitCtx, cancel := context.WithTimeout(startupCtx, 10*time.Second)
 	defer cancel()
 	for {
 		r, err := s.client.send(waitCtx, "GET", s.workerPath("screenshot"), nil, false, 10*time.Second, true)
-		if ctx.Err() != nil {
-			return contextError(ctx)
+		if callerCtx.Err() != nil {
+			return contextError(callerCtx)
 		}
 		if waitCtx.Err() != nil {
 			break
@@ -28,8 +28,8 @@ func (s *Session) waitFirstScreen(ctx context.Context) error {
 		}
 		if r.status == 200 {
 			ready, err := nonBlankPNG(r.body)
-			if ctx.Err() != nil {
-				return contextError(ctx)
+			if callerCtx.Err() != nil {
+				return contextError(callerCtx)
 			}
 			if waitCtx.Err() != nil {
 				break
@@ -53,8 +53,8 @@ func (s *Session) waitFirstScreen(ctx context.Context) error {
 			break
 		}
 	}
-	if ctx.Err() != nil {
-		return contextError(ctx)
+	if callerCtx.Err() != nil {
+		return contextError(callerCtx)
 	}
 	if s.log != nil {
 		s.log("debug: Best-effort first-screen wait timed out; continuing without a non-blank screenshot.")
