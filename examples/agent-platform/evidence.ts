@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
-import { writeFile } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createWriteStream } from 'node:fs';
 import { Readable, Transform } from 'node:stream';
@@ -62,16 +62,21 @@ export async function collectEvidence(sessionId: string, directory: string): Pro
     await writeFile(join(directory, 'report.json'), JSON.stringify(report, null, 2), { mode: 0o600 });
     const videoUrl = httpsUrl(report.video_url);
     if (videoUrl) {
-      const response = await fetch(videoUrl, { signal: AbortSignal.timeout(120_000) });
-      if (!response.ok || !response.body) throw new Error('Could not download recording');
-      let bytes = 0;
-      await pipeline(Readable.fromWeb(response.body), new Transform({
-        transform(chunk: Buffer, _encoding, callback) {
-          bytes += chunk.length;
-          callback(bytes > 250 * 1024 * 1024 ? new Error('Recording exceeds 250 MiB') : null, chunk);
-        },
-      }), createWriteStream(join(directory, 'recording.mp4'), { mode: 0o600 }));
-      return { reportUrl, hasRecording: true };
+      try {
+        const response = await fetch(videoUrl, { signal: AbortSignal.timeout(120_000) });
+        if (!response.ok || !response.body) throw new Error('Could not download recording');
+        let bytes = 0;
+        await pipeline(Readable.fromWeb(response.body), new Transform({
+          transform(chunk: Buffer, _encoding, callback) {
+            bytes += chunk.length;
+            callback(bytes > 250 * 1024 * 1024 ? new Error('Recording exceeds 250 MiB') : null, chunk);
+          },
+        }), createWriteStream(join(directory, 'recording.mp4'), { mode: 0o600 }));
+        return { reportUrl, hasRecording: true };
+      } catch {
+        await rm(join(directory, 'recording.mp4'), { force: true });
+        return { reportUrl, evidenceError: 'Recording could not be downloaded. Open the report for the collected evidence; no session was restarted.' };
+      }
     }
     await delay(5_000);
   }

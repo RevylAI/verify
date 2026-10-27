@@ -80,7 +80,7 @@ function plans(target: Run['target']): [string, string][] {
   return target === 'web' ? [
     ['Add a task named Ship the demo to the todo list.', 'The todo list contains an active task named Ship the demo.'],
   ] : [
-    [target === 'ios' ? 'Open General, then About.' : 'Open the About phone or About device screen.', 'The screen shows the operating system version.'],
+    [target === 'ios' ? 'Open General, then About.' : 'Open About phone or About device, then scroll or open Android version until the operating system version is visible.', 'The screen shows the operating system version.'],
   ];
 }
 
