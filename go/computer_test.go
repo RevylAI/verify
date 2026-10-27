@@ -9,18 +9,273 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	verify "github.com/RevylAI/verify/go"
 )
 
 const computerPath = "/api/v1/computer-runs"
+
+type screenshotTransport func(*http.Request) (*http.Response, error)
+
+func (transport screenshotTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	return transport(request)
+}
+
+func openScreenshotComputer(t *testing.T, expiry time.Duration, screenshot func(*http.Request) (int, any, error)) (*verify.Session, *int) {
+	t.Helper()
+	t.Setenv("REVYL_API_KEY", "test-token")
+	t.Setenv("REVYL_BACKEND_URL", "")
+	t.Setenv("REVYL_APP_URL", "")
+	stops := 0
+	transport := screenshotTransport(func(r *http.Request) (*http.Response, error) {
+		status := 200
+		var body any
+		switch {
+		case r.URL.Path == computerPath && r.Method == "POST":
+			var request map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				return nil, err
+			}
+			report := map[string]any{"computer_session_id": request["computer_session_id"], "state": "active"}
+			if expiry > 0 {
+				report["expires_at"] = time.Now().Add(expiry).Format(time.RFC3339Nano)
+			}
+			body = report
+		case strings.HasSuffix(r.URL.Path, "/stop") && r.Method == "POST":
+			stops++
+			id := strings.Split(strings.TrimPrefix(r.URL.Path, computerPath+"/"), "/")[0]
+			body = map[string]any{"computer_session_id": id, "state": "stopped", "release": "confirmed"}
+		case strings.HasSuffix(r.URL.Path, "/screen/screenshot") && r.Method == "GET":
+			var err error
+			status, body, err = screenshot(r)
+			if err != nil {
+				return nil, err
+			}
+		default:
+			t.Fatalf("unexpected computer request: %s %s", r.Method, r.URL.Path)
+		}
+		data, err := json.Marshal(body)
+		if err != nil {
+			return nil, err
+		}
+		return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(data))}, nil
+	})
+	s, err := verify.Open(context.Background(), verify.Target{Platform: verify.Linux}, verify.OpenOptions{BackendURL: "https://revyl.test", HTTPClient: &http.Client{Transport: transport}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s, &stops
+}
+
+func TestComputerScreenshotStartupRetry(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		code   string
+		field  string
+	}{
+		{409, "screen_starting", "detail"},
+		{409, "screen_unavailable", "detail"},
+		{503, "screen_unavailable", "detail"},
+		{503, "screen_unavailable", "message"},
+		{503, "screen_unavailable", "error"},
+	} {
+		t.Run(fmt.Sprintf("%d/%s/%s", tc.status, tc.code, tc.field), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				var times []time.Time
+				s, _ := openScreenshotComputer(t, 0, func(*http.Request) (int, any, error) {
+					times = append(times, time.Now())
+					if len(times) < 5 {
+						return tc.status, map[string]string{tc.field: tc.code}, nil
+					}
+					return 200, map[string]any{"width": 1280, "height": 800, "png": base64.StdEncoding.EncodeToString(testPNG())}, nil
+				})
+				defer s.Close(context.Background())
+				data, err := s.Screenshot(context.Background())
+				if err != nil || !bytes.Equal(data, testPNG()) {
+					t.Fatalf("screenshot: %v", err)
+				}
+				want := []time.Duration{0, 500 * time.Millisecond, 1500 * time.Millisecond, 3500 * time.Millisecond, 5500 * time.Millisecond}
+				if len(times) != len(want) {
+					t.Fatalf("got %d attempts", len(times))
+				}
+				for i, when := range times {
+					if when.Sub(times[0]) != want[i] {
+						t.Fatalf("attempt %d delay = %s", i, when.Sub(times[0]))
+					}
+				}
+			})
+		})
+	}
+}
+
+func TestComputerScreenshotFixedStartupWindow(t *testing.T) {
+	for _, firstCallAfter := range []time.Duration{0, 29 * time.Second, 31 * time.Second} {
+		t.Run(firstCallAfter.String(), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				attempts := 0
+				ready := false
+				s, _ := openScreenshotComputer(t, 0, func(*http.Request) (int, any, error) {
+					attempts++
+					if ready {
+						return 200, map[string]any{"width": 1280, "height": 800, "png": base64.StdEncoding.EncodeToString(testPNG())}, nil
+					}
+					return 503, map[string]string{"detail": "screen_unavailable"}, nil
+				})
+				defer s.Close(context.Background())
+				activeAt := time.Now()
+				time.Sleep(firstCallAfter)
+				_, err := s.Screenshot(context.Background())
+				requireCode(t, err, verify.ErrSessionBusy)
+				if !strings.Contains(err.Error(), "desktop is not ready") || time.Since(activeAt) != max(30*time.Second, firstCallAfter) {
+					t.Fatalf("wrong readiness bound: %s, %v", time.Since(activeAt), err)
+				}
+				before := attempts
+				_, err = s.Screenshot(context.Background())
+				requireCode(t, err, verify.ErrSessionBusy)
+				if attempts != before+1 || time.Since(activeAt) != max(30*time.Second, firstCallAfter) {
+					t.Fatal("successive screenshot reset the startup window")
+				}
+				ready = true
+				if _, err := s.Screenshot(context.Background()); err != nil {
+					t.Fatalf("ready screenshot after window: %v", err)
+				}
+			})
+		})
+	}
+}
+
+func TestComputerScreenshotHealthyRequestNearStartupDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, _ := openScreenshotComputer(t, 0, func(r *http.Request) (int, any, error) {
+			time.Sleep(500 * time.Millisecond)
+			if r.Context().Err() != nil {
+				return 0, nil, r.Context().Err()
+			}
+			return 200, map[string]any{"width": 1280, "height": 800, "png": base64.StdEncoding.EncodeToString(testPNG())}, nil
+		})
+		defer s.Close(context.Background())
+		time.Sleep(29999 * time.Millisecond)
+		if _, err := s.Screenshot(context.Background()); err != nil {
+			t.Fatalf("healthy screenshot was clipped to startup window: %v", err)
+		}
+	})
+}
+
+func TestComputerScreenshotStartupDeadlineCancelsRetryRequest(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		attempts := 0
+		s, _ := openScreenshotComputer(t, 0, func(r *http.Request) (int, any, error) {
+			attempts++
+			if attempts == 1 {
+				return 503, map[string]string{"detail": "screen_unavailable"}, nil
+			}
+			<-r.Context().Done()
+			return 0, nil, r.Context().Err()
+		})
+		defer s.Close(context.Background())
+		began := time.Now()
+		_, err := s.Screenshot(context.Background())
+		requireCode(t, err, verify.ErrSessionBusy)
+		if attempts != 2 || time.Since(began) != 30*time.Second {
+			t.Fatalf("retry request exceeded window: attempts=%d, elapsed=%s", attempts, time.Since(began))
+		}
+	})
+}
+
+func TestComputerScreenshotDoesNotRetryOtherFailures(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		body   any
+	}{
+		{503, map[string]string{"detail": "screen_starting"}},
+		{502, map[string]string{"detail": "screen_unavailable"}},
+		{500, map[string]string{"detail": "screen_unavailable"}},
+		{503, map[string]string{"detail": "unrelated"}},
+		{409, map[string]string{"detail": "screen_unavailable later"}},
+		{409, map[string]any{"detail": []string{"screen_unavailable"}}},
+		{409, map[string]any{"detail": map[string]string{"code": "screen_unavailable"}}},
+		{503, map[string]string{"code": "screen_unavailable"}},
+		{401, map[string]string{"detail": "screen_unavailable"}},
+		{404, map[string]string{"detail": "run_closed"}},
+		{0, nil},
+	} {
+		t.Run(fmt.Sprintf("%d/%v", tc.status, tc.body), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				attempts := 0
+				s, _ := openScreenshotComputer(t, 0, func(*http.Request) (int, any, error) {
+					attempts++
+					if tc.status == 0 {
+						return 0, nil, errors.New("private transport failure")
+					}
+					return tc.status, tc.body, nil
+				})
+				defer s.Close(context.Background())
+				before := time.Now()
+				_, err := s.Screenshot(context.Background())
+				if err == nil || attempts != 1 || !time.Now().Equal(before) || strings.Contains(err.Error(), "private") {
+					t.Fatalf("unexpected retry or error: attempts=%d, err=%v", attempts, err)
+				}
+			})
+		})
+	}
+}
+
+func TestComputerScreenshotRetryCancellation(t *testing.T) {
+	for _, mode := range []string{"cancel", "deadline", "close", "expiry"} {
+		t.Run(mode, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				attempts := 0
+				expiry := time.Duration(0)
+				if mode == "expiry" {
+					expiry = 750 * time.Millisecond
+				}
+				s, stops := openScreenshotComputer(t, expiry, func(*http.Request) (int, any, error) {
+					attempts++
+					return 409, map[string]string{"detail": "screen_starting"}, nil
+				})
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				if mode == "deadline" {
+					var stop context.CancelFunc
+					ctx, stop = context.WithTimeout(ctx, 750*time.Millisecond)
+					defer stop()
+				}
+				done := make(chan error, 1)
+				go func() { _, err := s.Screenshot(ctx); done <- err }()
+				synctest.Wait()
+				time.Sleep(750 * time.Millisecond)
+				if mode == "close" {
+					if err := s.Close(context.Background()); err != nil {
+						t.Fatal(err)
+					}
+				} else if mode == "cancel" {
+					cancel()
+				}
+				err := <-done
+				requireCode(t, err, verify.ErrTimeout)
+				cause := context.Canceled
+				if mode == "deadline" || mode == "expiry" {
+					cause = context.DeadlineExceeded
+				}
+				if !errors.Is(err, cause) || attempts != 2 {
+					t.Fatalf("cancellation lost cause or retried: attempts=%d, err=%v", attempts, err)
+				}
+				if err := s.Close(context.Background()); err != nil || *stops != 1 {
+					t.Fatalf("close was replayed or failed: stops=%d, err=%v", *stops, err)
+				}
+			})
+		})
+	}
+}
 
 func newComputerFake(t *testing.T, handler func(*fakeRevyl, http.ResponseWriter, *http.Request, map[string]any) bool) *fakeRevyl {
 	t.Helper()
