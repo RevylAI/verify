@@ -52,7 +52,7 @@ Stop if the checkout is dirty, the manifest/example versions or generated lockfi
    git push origin v0.2.0
    ```
 
-   The tag triggers Release validation. If npm already has 0.2.0, the workflow reports that fact and skips its publish job, so this default path does not require CI publishing credentials. Do not move or delete an existing public tag to retry a release. If publication may have succeeded despite an error, inspect npm before retrying; published versions cannot be reused.
+   The tag triggers Release validation. If npm already has 0.2.0, the workflow reports that fact and skips the publication dry-run and publish job while retaining the build, tests and package checks, so this default path does not require CI publishing credentials. Do not move or delete an existing public tag to retry a release. If publication may have succeeded despite an error, inspect npm before retrying; published versions cannot be reused.
 
 ## Optional: configure GitHub Actions trusted publishing
 

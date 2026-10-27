@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { runInNewContext } from 'node:vm';
 
 test('release tags must match the package version exactly', () => {
   checkReleaseTag('0.2.0', 'v0.2.0');
@@ -31,6 +32,34 @@ test('unpublished versions require explicit administrator opt-in to CI publicati
     requireCiPublishing(true, enabled);
   }
   requireCiPublishing(false, 'true');
+});
+
+test('release workflow skips publication dry-run and publish for an already-published tag', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8');
+  const dryRun = workflow.match(/      - name: Dry-run publication\n        if: (.+)\n        run: (.+)/);
+  assert.ok(dryRun);
+  assert.equal(dryRun[2], 'npm publish ./release-artifacts/*.tgz --dry-run --access public');
+  assert.ok(workflow.indexOf('id: registry') < dryRun.index);
+  assert.ok(workflow.indexOf('- run: npm run check:package') < dryRun.index);
+  const publish = workflow.match(/  publish:\n    if: (.+)/);
+  assert.ok(publish);
+  for (const [event, published, enabled, expectedDryRun, expectedPublish] of [
+    ['push', 'true', undefined, false, false],
+    ['push', 'true', 'true', false, false],
+    ['push', 'false', 'true', true, true],
+    ['push', '', 'true', false, false],
+    ['workflow_dispatch', '', undefined, true, false],
+  ]) {
+    const context = {
+      github: { event_name: event, ref: 'refs/tags/v0.2.0' },
+      steps: { registry: { outputs: { published } } },
+      needs: { validate: { outputs: { published } } },
+      vars: { VERIFY_CI_PUBLISH_ENABLED: enabled },
+      startsWith: (value, prefix) => value.startsWith(prefix),
+    };
+    assert.equal(runInNewContext(dryRun[1], context), expectedDryRun, `${event}/${published}: dry-run`);
+    assert.equal(runInNewContext(publish[1], context), expectedPublish, `${event}/${published}: publish`);
+  }
 });
 
 test('publication lookup fails closed on registry and transport errors', async () => {

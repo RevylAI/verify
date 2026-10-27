@@ -43,11 +43,13 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run check:package
-      - name: Pack and dry-run the release artifact
+      - name: Pack the release artifact
         run: |
           mkdir release-artifacts
           npm pack --workspace ./packages/verify --pack-destination ./release-artifacts
-          npm publish ./release-artifacts/*.tgz --dry-run --access public
+      - name: Dry-run publication
+        if: github.event_name == 'workflow_dispatch' || steps.registry.outputs.published == 'false'
+        run: npm publish ./release-artifacts/*.tgz --dry-run --access public
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'push'
         with:
