@@ -13,7 +13,7 @@ export interface OpenOptions {
 }
 
 /**
- * Starts a Revyl cloud browser, device, or Mac computer and resolves once it is ready.
+ * Starts a Revyl cloud browser, device, or computer and resolves once it is ready.
  * Pass a target name from verify.config.ts, such as open('web'), or a target object.
  */
 export async function open(target: string | TargetConfig, options: OpenOptions = {}): Promise<Session> {
@@ -32,13 +32,10 @@ export async function open(target: string | TargetConfig, options: OpenOptions =
   } else {
     resolved = validateTarget(target);
   }
-  if (resolved.platform === 'linux') {
-    throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'Linux computers are planned, but are not available in Verify yet. See docs/computers.md.');
-  }
   const credentials = await resolveCredentials();
   if (!credentials) throw new VerifyError('AUTH_MISSING', missingCredentialsMessage());
   const log = options.log === false ? undefined : (options.log ?? ((line: string) => void process.stderr.write(`[verify] ${line}\n`)));
   const client = new RevylClient({ token: credentials.token });
-  if (resolved.platform === 'mac') return ComputerSession.start(client, resolved, { stepTimeout, log });
+  if (resolved.platform === 'mac' || resolved.platform === 'linux') return ComputerSession.start(client, resolved, { stepTimeout, log });
   return DeviceSession.start(client, resolved, { stepTimeout, log });
 }

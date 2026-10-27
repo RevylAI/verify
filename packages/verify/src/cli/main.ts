@@ -8,7 +8,7 @@ import { VerifyError, errorMessage, isVerifyError } from '../errors.js';
 import { PACKAGE_NAME, VERSION } from '../version.js';
 import { initProject, validateInitAnswers, type InitAnswers } from './init.js';
 
-const HELP = `verify ${VERSION}: open Revyl cloud browsers, devices, and Mac computers from your code
+const HELP = `verify ${VERSION}: open Revyl cloud browsers, devices, and computers from your code
 
 Usage
   verify init [--platform web|ios|android|mac] [--app-id <id>] [--url <https-url>] [--force]

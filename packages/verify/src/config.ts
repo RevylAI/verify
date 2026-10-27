@@ -45,7 +45,7 @@ export interface MobileTargetConfig {
   idleTimeoutSeconds?: number;
 }
 
-/** A Revyl computer: a cloud macOS machine that runs commands and files instead of agent steps. See docs/computers.md. */
+/** A Revyl computer that runs commands and files instead of agent steps. See docs/computers.md. */
 export interface ComputerTargetConfig {
   platform: ComputerPlatform;
   startTimeout?: number;

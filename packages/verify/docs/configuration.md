@@ -20,7 +20,7 @@ Unknown keys are rejected, so a typo fails loudly instead of being ignored.
 
 ## Top-level options
 
-Mac targets currently require staging early access for an enabled organization through the optional `REVYL_BACKEND_URL` override and matching credentials; they are not yet available in Revyl production. See [computer availability](computers.md#availability-and-errors).
+Mac and Linux targets currently require staging early access for an organization enabled for the requested OS through the optional `REVYL_BACKEND_URL` override and matching credentials; they are not yet available in Revyl production. See [computer availability](computers.md#availability-and-errors).
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -61,7 +61,7 @@ Give exactly one of `appId`, `buildId`, `artifactUrl`, or `bundleId`.
 | Option | Meaning |
 | --- | --- |
 | `platform: 'mac'` | A cloud macOS computer, without `app` or `device` configuration |
-| `platform: 'linux'` | Accepted contract value only; `open()` throws `NOT_AVAILABLE_ON_PLATFORM` before credentials/network |
+| `platform: 'linux'` | A cloud Linux computer with the same SDK methods as Mac, without `app` or `device` configuration |
 | `startTimeout` | Milliseconds to wait for an active owner route; default 600000, range 10000..1800000 |
 
 Computers do not accept `idleTimeoutSeconds`, image, provider, cwd, or lifetime selectors. The server bounds a run to one hour; per-operation timeout defaults to 30000 ms and accepts 1..300000 ms. See [computers.md](computers.md).
@@ -85,7 +85,7 @@ verify --help | --version
 ```
 
 - `init` writes `verify.config.ts` and `verify/example.ts`, and adds `.verify/` to `.gitignore`. Without `--platform` it asks its questions interactively. It never overwrites files unless you pass `--force`.
-- `init --platform mac` needs no app id and generates a command/file script. `--app-id` is rejected for Mac, `--url` applies only to web, and Linux init is unavailable.
+- `init --platform mac` needs no app id and generates a command/file script. `--app-id` is rejected for Mac, `--url` applies only to web, and Linux init is intentionally unavailable. Use `open({ platform: 'linux' })` or a Linux config target instead.
 - `whoami` prints the Revyl account and organization your credentials belong to.
 
 Exit codes: `0` success, `1` a Revyl or file error, `2` a usage or authentication problem.

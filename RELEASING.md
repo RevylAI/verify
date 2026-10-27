@@ -23,10 +23,10 @@ npm run package:rename -- revyl-verify
 
 It updates the maintained package references, examples and install/import docs, then regenerates the npm lockfile. Runtime init imports and install guidance read the package manifest. Review and commit the diff, rerun all checks, and configure the npm publisher/token for the selected name. The binaries remain `verify` and `revyl-verify`; never publish as the unrelated unscoped `verify` package. Do not change the name after publishing a version without a separate migration decision.
 
-## Cut 0.1.0
+## Cut 0.2.0
 
-1. Merge the reviewed library, Mac early-access, and release-preparation changes to `main`, in that order. Do not include unapproved features by tagging their branch. Review the approved production mobile/web smoke results before release approval; unit tests are not live proof. Mac remains staging-only early access for enabled organizations and is not yet available in Revyl production. A production start did not reach active; it proved no Mac operation or confirmed cleanup.
-2. In a clean checkout of the intended `main` commit, verify `packages/verify/package.json` is `0.1.0`, update the changelog, and run `npm ci`, `npm run build`, `npm run typecheck`, `npm test`, and `npm run check:package`. Pack and dry-run that exact archive:
+1. Merge only reviewed, approved changes to `main`; do not include unapproved features by tagging their branch. Review approved live verification before release approval; unit tests are not live proof. Mac and Linux remain staging-only early access for organizations enabled for the requested OS, not yet available in Revyl production. The 0.2.0 computer SDK change uses fake-server tests, not a live Linux run. A previous production Mac start did not reach active and proved no operation or confirmed cleanup.
+2. In a clean checkout of the intended `main` commit, verify `packages/verify/package.json` is `0.2.0`, update the changelog, and run `npm ci`, `npm run build`, `npm run typecheck`, `npm test`, and `npm run check:package`. Pack and dry-run that exact archive:
 
    ```bash
    mkdir release-artifacts
@@ -41,8 +41,8 @@ It updates the maintained package references, examples and install/import docs, 
    ```bash
    git switch main
    git pull --ff-only origin main
-   git tag -a v0.1.0 -m 'Verify 0.1.0'
-   git push origin v0.1.0
+   git tag -a v0.2.0 -m 'Verify 0.2.0'
+   git push origin v0.2.0
    ```
 
 5. Review and approve the protected **npm** environment deployment. The workflow checks exact tag/version equality, verifies the commit belongs to `main`, builds/types/tests/checks the tarball, then publishes that exact package artifact with `--provenance --access public`. The publish job does not reinstall project dependencies or rebuild the artifact. It never creates a tag itself. Verify the published version, README, file list, and provenance on npmjs.com afterward.
