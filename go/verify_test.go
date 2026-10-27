@@ -446,6 +446,7 @@ func TestCredentials(t *testing.T) {
 func TestReadRetriesButNoMutationReplay(t *testing.T) {
 	t.Run("read-retry", func(t *testing.T) {
 		f := newFake(t)
+		s := f.open(verify.Target{Platform: verify.Android, AppID: appID})
 		attempts := 0
 		f.handler = func(w http.ResponseWriter, r *http.Request, _ map[string]any) bool {
 			if r.URL.Path != proxyPath+"screenshot" {
@@ -458,7 +459,6 @@ func TestReadRetriesButNoMutationReplay(t *testing.T) {
 			}
 			return false
 		}
-		s := f.open(verify.Target{Platform: verify.Android, AppID: appID})
 		if _, err := s.Screenshot(context.Background()); err != nil {
 			t.Fatal(err)
 		}
