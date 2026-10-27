@@ -76,6 +76,7 @@ For a Mac workspace, run `npx @revyl/verify init --platform mac`; it generates a
 
 ## Docs
 
+- [Verify working end to end](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/end-to-end.md): live verification scope and evidence.
 - [Getting started](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/getting-started.md) and [API](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/api.md)
 - [Configuration and CLI](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/configuration.md)
 - [Web](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/web.md) and [iOS and Android](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/mobile.md)

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { checkReleaseTag } from './check-release.mjs';
+import { publishedVersionExists } from './check-published.mjs';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,6 +12,28 @@ test('release tags must match the package version exactly', () => {
   for (const tag of ['v0.3.0', '0.2.0', 'v0.2.0-extra', undefined]) {
     assert.throws(() => checkReleaseTag('0.2.0', tag));
   }
+});
+
+test('publication lookup skips only the exact published package version', async () => {
+  const published = await publishedVersionExists('@revyl/verify', '0.2.0', async (url, options) => {
+    assert.equal(url, 'https://registry.npmjs.org/%40revyl%2Fverify/0.2.0');
+    assert.equal(options.redirect, 'error');
+    assert.ok(options.signal instanceof AbortSignal);
+    return Response.json({ name: '@revyl/verify', version: '0.2.0' });
+  });
+  assert.equal(published, true);
+  assert.equal(await publishedVersionExists('@revyl/verify', '0.2.0', async () => new Response(null, { status: 404 })), false);
+});
+
+test('publication lookup fails closed on registry and transport errors', async () => {
+  for (const status of [401, 403, 429, 500, 503]) {
+    await assert.rejects(publishedVersionExists('@revyl/verify', '0.2.0', async () => new Response(null, { status })), /npm version lookup failed/);
+  }
+  for (const metadata of [{ name: 'another-package', version: '0.2.0' }, { name: '@revyl/verify', version: '0.1.0' }, {}]) {
+    await assert.rejects(publishedVersionExists('@revyl/verify', '0.2.0', async () => Response.json(metadata)), /unexpected/);
+  }
+  await assert.rejects(publishedVersionExists('@revyl/verify', '0.2.0', async () => new Response('invalid JSON')));
+  await assert.rejects(publishedVersionExists('@revyl/verify', '0.2.0', async () => { throw new Error('network unavailable'); }), /network unavailable/);
 });
 
 test('one fallback command updates manifests, docs, and the generated npm lockfile', () => {

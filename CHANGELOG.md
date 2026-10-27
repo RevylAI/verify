@@ -6,7 +6,7 @@
 
 ## 0.2.0
 
-Release preparation only; no publication is implied.
+Prepared for release; see npm for publication status.
 
 - Enable Linux named and inline computer targets with the shared Mac command, file, process, screenshot, and confirmed-release cleanup surface. Both operating systems remain early access on staging for enabled organizations/OSes, not yet available in production.
 - Add `COMPUTER_LIMIT` for queued work (including iOS) or concurrency admission refusals, without retrying or stopping a definitely refused start. Preserve `SESSION_BUSY` for operation limits.
@@ -14,12 +14,13 @@ Release preparation only; no publication is implied.
 - Expose optional `expiresAt` and bound operation/screenshot observation by the hard 60-minute lifetime from create, while keeping explicit close possible.
 - Add computer `recording()` metadata retrieval after terminal state and confirmed release, including after close. Missing recordings return null; signed URLs remain private, with no automatic waiting or download.
 - Keep Linux CLI init intentionally unavailable; use inline targets or config entries. Computer instruction/validation remain locally unavailable.
+- Skip CI publication when the exact version is already on npm, fail closed on registry lookup errors, and document manual Mac publication, optional trusted publishing, and independent Go module tags.
 
 Validation uses fake API responses, not live computer sessions.
 
 ## 0.1.0
 
-Initial release preparation; this entry does not mean the package has been published.
+Published manually from a maintainer's Mac without provenance.
 
 - Open Revyl cloud web browsers, iOS simulators, and Android emulators from TypeScript.
 - Run natural-language instruction and validation steps, with typed failures and optional soft validation results.

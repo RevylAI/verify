@@ -16,6 +16,8 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      published: ${{ steps.registry.outputs.published }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -30,6 +32,10 @@ jobs:
         run: |
           node scripts/check-release.mjs "$GITHUB_REF_NAME"
           git merge-base --is-ancestor HEAD origin/main
+      - name: Check whether this version is already published
+        id: registry
+        if: github.event_name == 'push'
+        run: node scripts/check-published.mjs
       - run: npm ci
       - run: npm run build
       - run: npm run typecheck
@@ -49,7 +55,7 @@ jobs:
           retention-days: 7
 
   publish:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.validate.outputs.published == 'false'
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 15

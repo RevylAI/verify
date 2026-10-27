@@ -14,6 +14,7 @@ const required = [
   'dist/index.d.ts',
   'dist/cli/main.js',
   'docs/README.md',
+  'docs/end-to-end.md',
   'docs/agents.md',
   'docs/api.md',
   'docs/getting-started.md',
