@@ -34,6 +34,7 @@ from ._transport import (
     Json,
     Response,
     VerifyError,
+    edge_blocked_error,
     obj,
     refusal_reason,
     seconds,
@@ -407,6 +408,9 @@ class Session:
             return
 
     def _worker_error(self, method: str, response: Response) -> VerifyError:
+        blocked = edge_blocked_error(response)
+        if blocked is not None:
+            return blocked
         try:
             raw = obj(response.json())
         except VerifyError:

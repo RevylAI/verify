@@ -4,6 +4,7 @@ export type VerifyErrorCode =
   | 'CONFIG_INVALID'
   | 'AUTH_MISSING'
   | 'AUTH_REJECTED'
+  | 'EDGE_BLOCKED'
   | 'API_ERROR'
   | 'SESSION_START_FAILED'
   | 'SESSION_ENDED'

@@ -498,7 +498,7 @@ describe.each(['mac', 'linux'] as const)('%s computer operations', (platform) =>
     const session = await start(fake);
     expect(await session.exec(['printf', '%s', 'a b'], { stdin: 'input', timeout: 300_000 })).toEqual({ exitCode: 0, stdout: 'ok\n', stderr: '' });
     const request = fake.calls('POST', /\/operations$/)[0]!;
-    expect(request.body.command).toEqual({ kind: 'exec', argv: ['printf', '%s', 'a b'], stdin: 'aW5wdXQ=', timeout_ms: 300_000 });
+    expect(request.body.command).toEqual({ kind: 'exec', argv_b64: ['cHJpbnRm', 'JXM=', 'YSBi'], stdin: 'aW5wdXQ=', timeout_ms: 300_000 });
     expect(request.headers.get('prefer')).toBe('respond-async');
   });
 

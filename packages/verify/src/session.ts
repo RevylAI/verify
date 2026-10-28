@@ -5,6 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import {
   RevylClient,
   apiError,
+  edgeBlockedError,
   parseJson,
   responseDetail,
   responseErrorCode,
@@ -283,6 +284,8 @@ export class DeviceSession implements Session {
       if (response.status < 200 || response.status >= 300) {
         const reason = responseRefusalReason(response);
         refused = [400, 401, 403, 404, 405, 409, 422, 429].includes(response.status) || (response.status === 503 && reason !== undefined && reason !== 'request_timeout' && reason !== 'protocol_error');
+        const blocked = edgeBlockedError(response);
+        if (blocked) throw blocked;
         const code = response.status === 401 || response.status === 403 ? 'AUTH_REJECTED'
           : reason === 'computer_not_found' || response.status === 404 ? 'NOT_FOUND'
           : reason === 'computer_not_running' ? 'SESSION_ENDED'

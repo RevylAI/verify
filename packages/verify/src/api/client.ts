@@ -233,6 +233,8 @@ export function responseErrorCode(response: RawResponse): string | undefined {
 }
 
 export function apiError(method: string, path: string, response: RawResponse): VerifyError {
+  const blocked = edgeBlockedError(response);
+  if (blocked) return blocked;
   const detail = path === '/api/v1/execution/start_device' ? responseKnownDetail(response, START_ERROR_DETAILS) : responseDetail(response);
   const suffix = detail ? `: ${detail}` : '';
   if (response.status === 401 || response.status === 403) {
@@ -243,6 +245,15 @@ export function apiError(method: string, path: string, response: RawResponse): V
     );
   }
   return new VerifyError('API_ERROR', `Revyl request ${method} ${path} failed with HTTP ${response.status}${suffix}`, { reason: responseRefusalReason(response), httpStatus: response.status });
+}
+
+export function edgeBlockedError(response: RawResponse): VerifyError | undefined {
+  if (response.status !== 403 || response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() !== 'text/html' || !response.headers.get('cf-ray')?.trim()) return undefined;
+  try {
+    JSON.parse(new TextDecoder().decode(response.body));
+    return undefined;
+  } catch {}
+  return new VerifyError('EDGE_BLOCKED', 'Revyl request was blocked at the network edge (HTTP 403). Check network access or contact support. Verify will not retry this request.', { httpStatus: response.status });
 }
 
 const REFUSAL_REASONS = new Set<RefusalReason>([
