@@ -221,7 +221,7 @@ func httpError(r response) error {
 	if r.status == 401 || r.status == 403 {
 		code = ErrAuthRejected
 	}
-	return failure(code, fmt.Sprintf("Revyl request failed (HTTP %d).", r.status))
+	return responseFailure(r, code, fmt.Sprintf("Revyl request failed (HTTP %d).", r.status))
 }
 
 func (c *client) json(ctx context.Context, method, path string, body any, retry bool, timeout time.Duration, into any) error {

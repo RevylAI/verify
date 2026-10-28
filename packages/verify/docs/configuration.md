@@ -76,6 +76,8 @@ Computers do not accept `idleTimeoutSeconds`, image, provider, cwd, or lifetime 
 
 ## Command line
 
+Hosted children use `computer.open(target)` rather than named config targets. Unlike ordinary mobile targets, they require an existing app/build pair and use the computer's fixed device profile. See [the hosted API](api.md#computeropentarget).
+
 Use the explicitly scoped package command below. Installing `@revyl/verify` provides the `verify` and `revyl-verify` bins. The separate `revyl-verify` npm alias also provides `npx revyl-verify` with the same behavior; bare `npx verify` can fetch an unrelated package. Scripts run with `node`, not through the CLI.
 
 ```text

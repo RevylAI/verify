@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import math
 import re
+import threading
 import time
 import uuid
 from collections.abc import Callable
@@ -30,6 +31,7 @@ from ._transport import (
     VerifyError,
     decode_bytes,
     obj,
+    refusal_reason,
     timestamp,
 )
 
@@ -145,6 +147,94 @@ class ComputerSession(Session):
     ) -> None:
         super().__init__(client, id, run_id, platform, viewer_url, step_timeout)
         self._screen_ready_until: float = 0
+        self._children: list[Session] = []
+        self._child_starts = 0
+        self._child_condition = threading.Condition(self._lock)
+
+    @classmethod
+    def attach(
+        cls,
+        client: Client,
+        app_url: str,
+        computer_id: str,
+        step_timeout: float,
+        log: Callable[[str], None] | None = None,
+        cancellation: Cancellation | None = None,
+    ) -> ComputerSession:
+        session = cls(
+            client,
+            computer_id,
+            "",
+            "mac",
+            f"{app_url.rstrip('/')}/sessions/{computer_id}?kind=computer",
+            step_timeout,
+        )
+        session._log_callback = log
+        session._cancellation = cancellation or Cancellation()
+        deadline = Deadline(30, session._cancellation)
+        try:
+            report = session._report(session._request("GET", "/report", None, deadline))
+            if report.get("os") not in ("macos", "linux") or session.expires_at is None:
+                raise _invalid()
+            session.platform = "mac" if report["os"] == "macos" else "linux"
+            if report["state"] != "active" or datetime.now(timezone.utc) >= session.expires_at:
+                raise VerifyError("SESSION_ENDED", "The computer is not active or has expired.")
+            deadline.remaining()
+        except BaseException as error:
+            session._startup_failure(error, cleanup=False, refused=True)
+            raise
+        track(session)
+        session._log("attached")
+        return session
+
+    def open(self, target: Target, *, _cancellation: Cancellation | None = None) -> Session:
+        if not isinstance(target, Target):
+            raise VerifyError("INVALID_ARGUMENT", "open() requires a Target value.")
+        target.validate(hosted=True)
+        with self._child_condition:
+            self._assert_computer_open()
+            if self.expires_at is None:
+                raise VerifyError(
+                    "API_ERROR", "A confirmed computer expiry is required before hosting a session."
+                )
+            if (self.platform == "mac" and target.platform == "android") or (
+                self.platform == "linux" and target.platform == "ios"
+            ):
+                raise VerifyError(
+                    "NOT_AVAILABLE_ON_PLATFORM",
+                    "This computer cannot host the requested platform.",
+                    reason="computer_cannot_host_platform",
+                )
+            cancellation = _cancellation or Cancellation()
+            self._cancellation.add(cancellation.cancel)
+            self._child_starts += 1
+        child: Session | None = None
+        try:
+            child = Session.start(
+                self._client,
+                self.viewer_url.rsplit("/sessions/", 1)[0],
+                target,
+                self._step_timeout,
+                self._log_callback,
+                cancellation,
+                computer_session_id=self.id,
+                expires_at=self.expires_at,
+            )
+            with self._child_condition:
+                closing = self._closed
+                if not closing:
+                    self._children.append(child)
+            if closing:
+                error = VerifyError("SESSION_ENDED", "The computer is closing.")
+                child._startup_failure(error)
+                raise error
+            return child
+        finally:
+            with self._child_condition:
+                if child is None or child.closed:
+                    self._cancellation.remove(cancellation.cancel)
+                self._child_starts -= 1
+                self._child_condition.notify_all()
 
     @classmethod
     def start(
@@ -155,8 +245,15 @@ class ComputerSession(Session):
         step_timeout: float,
         log: Callable[[str], None] | None = None,
         cancellation: Cancellation | None = None,
+        *,
+        computer_session_id: str | None = None,
+        expires_at: datetime | None = None,
     ) -> ComputerSession:
-        if target.platform not in {"mac", "linux"}:
+        if (
+            target.platform not in {"mac", "linux"}
+            or computer_session_id is not None
+            or expires_at is not None
+        ):
             raise VerifyError("INVALID_ARGUMENT", "A computer target must be mac or linux.")
         session_id = str(uuid.uuid4())
         session = cls(
@@ -265,7 +362,8 @@ class ComputerSession(Session):
             ) from None
         if 200 <= response.status < 300:
             return response
-        detail = _detail(response)
+        reason = refusal_reason(response)
+        detail = reason or _detail(response)
         if suffix == "/recording" and response.status == 404 and detail == "recording_unavailable":
             return response
         if suffix == "/screen/screenshot" and (
@@ -281,6 +379,8 @@ class ComputerSession(Session):
                 f"Revyl refused the computer request ({detail}). {_AVAILABILITY}. "
                 "Ask support@revyl.ai about staging organization enablement. "
                 f"See {self.viewer_url}",
+                reason=reason,
+                http_status=response.status,
             )
         if response.status == 429 and detail == "computer_limit":
             raise VerifyError(
@@ -288,6 +388,8 @@ class ComputerSession(Session):
                 "Computer admission was refused because of queued work (including iOS) "
                 "or the concurrency limit. Verify will not retry the start. "
                 f"See {self.viewer_url}",
+                reason=reason,
+                http_status=response.status,
             )
         code = "API_ERROR"
         if detail == "run_closed":
@@ -308,9 +410,12 @@ class ComputerSession(Session):
             method == "POST" and (response.status >= 500 or response.status < 400)
         ):
             code = "ACTION_UNCERTAIN"
-        reason = detail if detail in _ERRORS else f"HTTP {response.status}"
+        description = detail if detail in _ERRORS else f"HTTP {response.status}"
         raise VerifyError(
-            code, f"Revyl refused the computer request ({reason}). See {self.viewer_url}"
+            code,
+            f"Revyl refused the computer request ({description}). See {self.viewer_url}",
+            reason=reason,
+            http_status=response.status,
         )
 
     def _report(self, response: Response) -> dict[str, Json]:
@@ -684,9 +789,18 @@ class ComputerSession(Session):
                         raise self._close_error
                     return
             try:
-                with self._lock:
+                with self._child_condition:
                     self._closed = True
-                self._cancellation.cancel()
+                    self._child_condition.notify_all()
+                    self._cancellation.cancel()
+                    while self._child_starts:
+                        self._child_condition.wait()
+                    children = list(self._children)
+                for child in children:
+                    try:
+                        child.close()
+                    except BaseException:
+                        self._log("child cleanup unconfirmed; stopping parent")
                 report = self._report(self._request("POST", "/stop", None, Deadline(310)))
                 if report.get("release") != "confirmed":
                     raise VerifyError(
@@ -705,6 +819,8 @@ class ComputerSession(Session):
                         error.code,
                         f"{error.message} A possible cause is that no computer could be assigned. "
                         f"{_AVAILABILITY}",
+                        reason=error.reason,
+                        http_status=error.http_status,
                     )
                 with self._lock:
                     self._close_error = error

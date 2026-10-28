@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import struct
@@ -41,6 +42,8 @@ def main() -> None:
     image = screenshot_png()
     proxy = "/api/v1/execution/device-proxy/wheel-run/"
     session_id = "11111111-2222-4333-8444-555555555555"
+    computer_id = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+    computer_path = f"/api/v1/computer-runs/{computer_id}"
     stop = f"/api/v1/execution/device/sessions/{session_id}/stop"
 
     class Handler(BaseHTTPRequestHandler):
@@ -60,7 +63,24 @@ def main() -> None:
             status = 200
             response: object
             if self.command == "POST" and self.path == "/api/v1/execution/start_device":
-                response = {"session_id": session_id, "workflow_run_id": "wheel-run"}
+                response = {
+                    "session_id": body.get("session_id", session_id),
+                    "workflow_run_id": "wheel-run",
+                }
+            elif self.path in (computer_path + "/report", computer_path + "/stop"):
+                response = {
+                    "computer_session_id": computer_id,
+                    "os": "macos",
+                    "state": "stopped" if self.path.endswith("/stop") else "active",
+                    "expires_at": "2999-01-01T00:00:00Z",
+                    "release": "confirmed" if self.path.endswith("/stop") else "pending",
+                }
+            elif self.command == "GET" and self.path.startswith(
+                "/api/v1/execution/device-sessions/"
+            ):
+                response = {"status": "running", "workflow_run_id": "wheel-run"}
+            elif self.command == "POST" and self.path == proxy + "open_url":
+                response = {"success": True, "action": "navigate"}
             elif self.command == "GET" and self.path.endswith("worker-connection/wheel-run"):
                 response = {"status": "ready", "worker_ws_url": "wss://worker.test"}
             elif self.command == "GET" and self.path == proxy + "health":
@@ -78,11 +98,11 @@ def main() -> None:
                         "validation_result": True,
                     },
                 }
-            elif self.command == "POST" and self.path == stop:
+            elif self.command == "POST" and self.path.endswith("/stop"):
                 response = {
                     "success": True,
                     "request_accepted": True,
-                    "session_id": session_id,
+                    "session_id": self.path.split("/")[-2],
                     "status": "stopping",
                 }
             else:
@@ -106,6 +126,11 @@ def main() -> None:
                 import revyl_verify
 
                 assert revyl_verify.__version__ == "0.1.0"
+                assert callable(revyl_verify.attach) and callable(revyl_verify.async_attach)
+                assert callable(revyl_verify.ComputerSession.open)
+                assert callable(revyl_verify.Session.navigate)
+                assert callable(revyl_verify.AsyncSession.open)
+                assert callable(revyl_verify.AsyncSession.navigate)
                 with revyl_verify.open(
                     revyl_verify.Target(
                         platform="ios",
@@ -120,12 +145,32 @@ def main() -> None:
                     assert len(session.steps) == 2
                 assert session.closed
                 session.close()
+                target = revyl_verify.Target(
+                    "web",
+                    app_id="0b6a8c3e-1111-4222-8333-944455556666",
+                    build_id="9a9a9a9a-1111-4222-8333-944455556666",
+                )
+                with revyl_verify.attach(computer_id) as computer:
+                    with computer.open(target) as browser:
+                        browser.navigate("http://localhost:3000")
+                        assert browser.report()["status"] == "running"
+
+                async def check_async() -> None:
+                    async with await revyl_verify.async_attach(computer_id) as computer:
+                        async with await computer.open(target) as browser:
+                            await browser.navigate("http://localhost:3000")
+                            assert (await browser.report())["status"] == "running"
+
+                asyncio.run(check_async())
             finally:
                 server.shutdown()
                 thread.join(timeout=3)
     assert not errors, errors
     starts = [body for method, path, body, _ in requests if path.endswith("/start_device")]
-    assert starts == [{"platform": "ios", "idle_timeout_seconds": 600, "is_simulation": True}]
+    assert starts[0] == {"platform": "ios", "idle_timeout_seconds": 600, "is_simulation": True}
+    assert len(starts) == 3
+    assert all(start["computer_session_id"] == computer_id for start in starts[1:])
+    assert all(start["session_id"] != computer_id for start in starts[1:])
     launches = [body for method, path, body, _ in requests if path == proxy + "launch"]
     assert launches == [{"bundle_id": "com.apple.Preferences"}]
     steps = [body for method, path, body, _ in requests if path == proxy + "execute_step"]
@@ -150,7 +195,7 @@ def main() -> None:
         assert "revyl-verify/" in headers["User-Agent"]
         if path.startswith(proxy):
             assert headers["X-Revyl-Agent"] == "Verify"
-    print("Installed revyl_verify mobile loopback smoke passed.")
+    print("Installed revyl_verify mobile and hosted sync/async loopback smoke passed.")
 
 
 if __name__ == "__main__":

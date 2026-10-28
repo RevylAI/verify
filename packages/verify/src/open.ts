@@ -12,6 +12,14 @@ export interface OpenOptions {
   log?: false | ((line: string) => void);
 }
 
+export async function attach(computerId: string, options: Pick<OpenOptions, 'log'> = {}): Promise<ComputerSession> {
+  if (typeof computerId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(computerId)) throw new VerifyError('INVALID_ARGUMENT', 'attach() requires a computer session UUID.');
+  const credentials = await resolveCredentials();
+  if (!credentials) throw new VerifyError('AUTH_MISSING', missingCredentialsMessage());
+  const log = options.log === false ? undefined : (options.log ?? ((line: string) => void process.stderr.write(`[verify] ${line}\n`)));
+  return ComputerSession.attach(new RevylClient({ token: credentials.token }), computerId, { stepTimeout: DEFAULT_STEP_TIMEOUT_MS, log });
+}
+
 /**
  * Starts a Revyl cloud browser, device, or computer. Mobile first-screen readiness is best-effort.
  * Pass a target name from verify.config.ts, such as open('web'), or a target object.

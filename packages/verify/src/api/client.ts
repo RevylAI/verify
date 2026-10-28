@@ -1,5 +1,5 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import { VerifyError, errorMessage } from '../errors.js';
+import { VerifyError, errorMessage, type RefusalReason } from '../errors.js';
 import { VERSION } from '../version.js';
 import type {
   AppResponse,
@@ -95,8 +95,8 @@ export class RevylClient {
     return this.json('GET', `/api/v1/execution/streaming/worker-connection/${encodeURIComponent(workflowRunId)}`, { signal });
   }
 
-  stopDeviceSession(sessionId: string): Promise<DeviceSessionStopResponse> {
-    return this.json('POST', `/api/v1/execution/device/sessions/${encodeURIComponent(sessionId)}/stop`, { retry: true });
+  stopDeviceSession(sessionId: string, retry = true): Promise<DeviceSessionStopResponse> {
+    return this.json('POST', `/api/v1/execution/device/sessions/${encodeURIComponent(sessionId)}/stop`, { retry });
   }
 
   cancelDevice(workflowRunId: string): Promise<unknown> {
@@ -233,15 +233,38 @@ export function responseErrorCode(response: RawResponse): string | undefined {
 }
 
 export function apiError(method: string, path: string, response: RawResponse): VerifyError {
-  const detail = responseDetail(response);
+  const detail = path === '/api/v1/execution/start_device' ? responseRefusalReason(response) : responseDetail(response);
   const suffix = detail ? `: ${detail}` : '';
   if (response.status === 401 || response.status === 403) {
     return new VerifyError(
       'AUTH_REJECTED',
       `Revyl rejected the request ${method} ${path} (HTTP ${response.status})${suffix}. Check REVYL_API_KEY or run 'revyl auth login'.`,
+      { reason: responseRefusalReason(response), httpStatus: response.status },
     );
   }
-  return new VerifyError('API_ERROR', `Revyl request ${method} ${path} failed with HTTP ${response.status}${suffix}`);
+  return new VerifyError('API_ERROR', `Revyl request ${method} ${path} failed with HTTP ${response.status}${suffix}`, { reason: responseRefusalReason(response), httpStatus: response.status });
+}
+
+const REFUSAL_REASONS = new Set<RefusalReason>([
+  'web_runtime_unavailable', 'computer_limit', 'runtime_unavailable', 'computer_runtime_unavailable',
+  'computer_at_capacity', 'computer_not_running', 'computer_cannot_host_platform', 'computer_not_found',
+  'web_build_required', 'web_build_not_supported', 'ios_build_required', 'ios_build_not_supported',
+  'android_build_required', 'android_build_not_supported', 'web_session_conflict', 'ios_session_conflict',
+  'android_session_conflict', 'not_available_on_platform',
+]);
+
+export function responseRefusalReason(response: RawResponse): RefusalReason | undefined {
+  try {
+    const parsed: unknown = JSON.parse(new TextDecoder().decode(response.body));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+    const record = parsed as Record<string, unknown>;
+    const values: unknown[] = [record.detail];
+    if (record.detail && typeof record.detail === 'object') values.push((record.detail as Record<string, unknown>).error);
+    values.push(record.error);
+    return values.find((value): value is RefusalReason => typeof value === 'string' && REFUSAL_REASONS.has(value as RefusalReason));
+  } catch {
+    return undefined;
+  }
 }
 
 function validateBackendUrl(raw: string): string {

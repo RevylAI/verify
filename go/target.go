@@ -55,7 +55,7 @@ var personaPattern = regexp.MustCompile(`^[a-z0-9_-]{1,32}$`)
 
 func textLength(s string) int { return len(utf16.Encode([]rune(s))) }
 
-func (t *Target) validate() error {
+func (t *Target) validate(hosted bool) error {
 	bad := func(message string) error { return failure(ErrInvalidArgument, message) }
 	if t.Platform != Web && t.Platform != IOS && t.Platform != Android && !t.Platform.computer() {
 		return bad("Platform must be web, ios, android, mac, or linux.")
@@ -82,6 +82,9 @@ func (t *Target) validate() error {
 		if id != "" && !uuidPattern.MatchString(id) {
 			return bad("AppID and BuildID must be Revyl UUIDs.")
 		}
+	}
+	if hosted && (t.AppID == "" || t.BuildID == "" || t.URL != "" || t.Branch != "" || t.ArtifactURL != "" || t.BundleID != "" || t.DeviceModel != "" || t.OSVersion != "") {
+		return bad("Hosted targets require AppID and BuildID UUIDs and cannot select URLs, branches, artifacts, bundles, or devices.")
 	}
 	if t.Platform == Web {
 		if t.AppID == "" || t.BundleID != "" || t.ArtifactURL != "" || t.DeviceModel != "" || t.OSVersion != "" {
@@ -113,6 +116,9 @@ func (t *Target) validate() error {
 	}
 	if t.URL != "" || t.Branch != "" || t.Viewport != nil || t.SignIn != nil {
 		return bad("URL, Branch, Viewport, and SignIn apply only to web targets.")
+	}
+	if hosted {
+		return nil
 	}
 	sources := 0
 	for _, source := range []string{t.AppID, t.BuildID, t.ArtifactURL, t.BundleID} {

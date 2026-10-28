@@ -5,11 +5,11 @@ import re
 import threading
 import time
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from types import TracebackType
 from typing import Literal, NoReturn
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 from uuid import uuid4
 
 from PIL import Image, UnidentifiedImageError
@@ -35,6 +35,7 @@ from ._transport import (
     Response,
     VerifyError,
     obj,
+    refusal_reason,
     seconds,
 )
 
@@ -169,14 +170,24 @@ class Session:
         step_timeout: float,
         log: Callable[[str], None] | None = None,
         cancellation: Cancellation | None = None,
+        *,
+        computer_session_id: str | None = None,
+        expires_at: datetime | None = None,
     ) -> Session:
         cancellation = cancellation or Cancellation()
         deadline = Deadline(target.start_timeout, cancellation)
+        if expires_at is not None:
+            deadline = deadline.cap((expires_at - datetime.now(timezone.utc)).total_seconds())
+        hosted = computer_session_id is not None
         body: dict[str, Json] = {
             "platform": target.platform,
             "idle_timeout_seconds": target.idle_timeout_seconds or 600,
         }
         proposed_id = str(uuid4())
+        if hosted:
+            if proposed_id == computer_session_id:
+                raise VerifyError("API_ERROR", "Could not allocate a distinct child session ID.")
+            body.update(computer_session_id=computer_session_id, session_id=proposed_id)
         if target.platform == "web":
             web: dict[str, Json] = {}
             if target.viewport:
@@ -212,18 +223,20 @@ class Session:
                     body[key] = value
         session = cls(
             client,
-            proposed_id if target.platform == "web" else "",
+            proposed_id if target.platform == "web" or hosted else "",
             "",
             target.platform,
-            app_url + "/sessions/" + (proposed_id if target.platform == "web" else ""),
+            app_url + "/sessions/" + (proposed_id if target.platform == "web" or hosted else ""),
             step_timeout,
         )
         session._log_callback = log
         session._cancellation = cancellation
+        session._expires_at = expires_at
         submitted = False
         refused = False
         try:
             session._log("starting session" + (" " + session.viewer_url if session.id else ""))
+            deadline.remaining()
             submitted = True
             if session.id:
                 track(session)
@@ -234,14 +247,27 @@ class Session:
                 refused = response.status in (400, 401, 403, 404, 405, 422, 429)
                 from ._transport import http_error
 
-                raise http_error(response)
+                error = http_error(response, hosted=hosted)
+                refused = refused or (
+                    hosted
+                    and (
+                        (response.status == 503 and error.reason is not None)
+                        or (400 <= response.status < 500 and response.status != 408)
+                    )
+                )
+                raise error
             start = obj(response.json())
             session_id, run_id = start.get("session_id"), start.get("workflow_run_id")
             valid_run_id = isinstance(run_id, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,255}", run_id)
             valid_session_id = isinstance(session_id, str) and UUID_PATTERN.fullmatch(session_id)
             if valid_run_id and isinstance(run_id, str):
                 session._run_id = run_id
-            if target.platform != "web" and valid_session_id and isinstance(session_id, str):
+            if (
+                not hosted
+                and target.platform != "web"
+                and valid_session_id
+                and isinstance(session_id, str)
+            ):
                 session.id = session_id
                 session.viewer_url = app_url + "/sessions/" + quote(session_id, safe="")
             if session.id or session._run_id:
@@ -254,8 +280,15 @@ class Session:
             if (
                 (session_id is not None and not valid_session_id)
                 or (run_id is not None and not valid_run_id)
-                or (target.platform == "web" and session_id != proposed_id)
+                or ((target.platform == "web" or hosted) and session_id != proposed_id)
                 or (target.platform != "web" and not session._run_id)
+                or (
+                    hosted
+                    and (
+                        not session._run_id
+                        or ("platform" in start and start["platform"] != target.platform)
+                    )
+                )
             ):
                 raise VerifyError(
                     "SESSION_START_FAILED", "Revyl did not acknowledge the new session."
@@ -263,6 +296,8 @@ class Session:
             session._ready(target, deadline)
             if target.platform != "web":
                 session._wait_first_screen(deadline.cap(10))
+            if hosted:
+                deadline.remaining()
             session._log("ready")
         except BaseException as error:
             session._startup_failure(
@@ -395,7 +430,10 @@ class Session:
         ):
             code = "ACTION_UNCERTAIN"
         return VerifyError(
-            code, f"Revyl session request failed (HTTP {response.status}). See {self.viewer_url}"
+            code,
+            f"Revyl session request failed (HTTP {response.status}). See {self.viewer_url}",
+            reason=refusal_reason(response),
+            http_status=response.status,
         )
 
     def _worker(
@@ -410,6 +448,11 @@ class Session:
     ) -> Response:
         if self.closed:
             raise VerifyError("SESSION_ENDED", "The session was closed.")
+        if self.expires_at is not None:
+            remaining = (self.expires_at - datetime.now(timezone.utc)).total_seconds()
+            if remaining <= 0:
+                raise VerifyError("SESSION_ENDED", "The hosting computer has expired.")
+            deadline = deadline.cap(remaining)
         response = self._client.request(
             method,
             self._path(action),
@@ -430,6 +473,52 @@ class Session:
                 "INSTRUCTION_FAILED", "Instruction failed. See " + self.viewer_url, result=result
             )
         return result
+
+    def open(self, target: Target, *, _cancellation: Cancellation | None = None) -> Session:
+        self._computer_only()
+
+    def navigate(self, url: str) -> None:
+        if self.platform != "web":
+            raise VerifyError("NOT_AVAILABLE_ON_PLATFORM", "navigate() is available only on web.")
+        try:
+            if (
+                not isinstance(url, str)
+                or not url
+                or text_length(url) > 2048
+                or re.search(r"[\s\x00-\x1f\x7f-\x9f\\]", url)
+            ):
+                raise ValueError
+            parsed = urlsplit(url)
+            if (
+                parsed.scheme not in ("http", "https")
+                or not parsed.hostname
+                or parsed.username is not None
+                or parsed.password is not None
+            ):
+                raise ValueError
+            _ = parsed.port
+        except ValueError:
+            raise VerifyError(
+                "INVALID_ARGUMENT",
+                "Navigation needs an HTTP(S) URL without credentials or controls.",
+            ) from None
+        response = self._worker(
+            "POST",
+            "open_url",
+            {"url": url},
+            deadline=Deadline(self._step_timeout, self._cancellation),
+            timeout=self._step_timeout,
+        )
+        result = obj(response.json())
+        status = result.get("status_code")
+        if (
+            not isinstance(result.get("success"), bool)
+            or ("action" in result and result["action"] != "navigate")
+            or ("status_code" in result and (type(status) is not int or not 100 <= status <= 599))
+        ):
+            raise VerifyError("API_ERROR", "Revyl returned an invalid navigation response.")
+        if result["success"] is not True:
+            raise VerifyError("ACTION_FAILED", "Revyl did not confirm web navigation.")
 
     def validation(
         self, text: str, *, timeout: float | None = None, soft: bool = False

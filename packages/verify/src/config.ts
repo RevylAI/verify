@@ -53,6 +53,10 @@ export interface ComputerTargetConfig {
 
 export type TargetConfig = WebTargetConfig | MobileTargetConfig | ComputerTargetConfig;
 
+export type HostedTargetConfig = (Omit<WebTargetConfig, 'app'> | Omit<MobileTargetConfig, 'app' | 'device'>) & {
+  app: { appId: string; buildId: string };
+};
+
 export interface VerifyConfig {
   /** Named targets that open() takes by name, such as open('web'). */
   targets: Record<string, TargetConfig>;
@@ -145,9 +149,16 @@ export function validateTarget(raw: unknown): ResolvedTarget {
   return parseTarget(raw, typeof platform === 'string' ? platform : 'target', 'target', fail);
 }
 
+export function validateHostedTarget(raw: HostedTargetConfig): ResolvedDeviceTarget {
+  const fail: Fail = (path, problem) => { throw new VerifyError('INVALID_ARGUMENT', `computer.open(): ${path} ${problem}`); };
+  const target = parseTarget(raw, raw?.platform ?? 'target', 'target', fail, true);
+  if (target.platform === 'mac' || target.platform === 'linux') fail('target.platform', 'must be web, ios, or android.');
+  return target as ResolvedDeviceTarget;
+}
+
 type Fail = (path: string, problem: string) => never;
 
-function parseTarget(raw: unknown, name: string, path: string, fail: Fail): ResolvedTarget {
+function parseTarget(raw: unknown, name: string, path: string, fail: Fail, hosted = false): ResolvedTarget {
   const target = asRecord(raw, path, fail);
   const platform = target.platform;
   if (typeof platform !== 'string' || !(PLATFORMS as readonly string[]).includes(platform)) {
@@ -164,6 +175,12 @@ function parseTarget(raw: unknown, name: string, path: string, fail: Fail): Reso
     idleTimeoutSeconds: integer(target.idleTimeoutSeconds, `${path}.idleTimeoutSeconds`, 60, 3_600, 600, fail),
   };
   const app = asRecord(target.app, `${path}.app`, fail);
+  if (hosted) {
+    uuid(app.appId, `${path}.app.appId`, true, fail);
+    uuid(app.buildId, `${path}.app.buildId`, true, fail);
+    rejectUnknownKeys(app, ['appId', 'buildId'], `${path}.app`, fail);
+    if (target.device !== undefined) fail(`${path}.device`, 'is fixed by the hosting computer.');
+  }
 
   if (platform === 'web') {
     rejectUnknownKeys(target, ['platform', 'app', 'viewport', 'signIn', 'startTimeout', 'idleTimeoutSeconds'], path, fail);
@@ -228,7 +245,7 @@ function parseTarget(raw: unknown, name: string, path: string, fail: Fail): Reso
     fail(`${path}.app.artifactUrl`, 'must be an HTTPS URL.');
   }
   const sources = [app.appId, app.buildId, app.artifactUrl, app.bundleId].filter((value) => value !== undefined).length;
-  if (sources !== 1) {
+  if (!hosted && sources !== 1) {
     fail(`${path}.app`, 'takes exactly one of appId, buildId, or artifactUrl to install an app, or bundleId to open one already on the device.');
   }
   let device: MobileTargetConfig['device'];

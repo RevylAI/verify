@@ -93,6 +93,14 @@ class AsyncSession:
     async def screenshot(self, *, path: str | Path | None = None) -> bytes:
         return await self._call(functools.partial(self._session.screenshot, path=path))
 
+    async def open(self, target: Target) -> AsyncSession:
+        return await _create_session(
+            lambda cancellation: self._session.open(target, _cancellation=cancellation)
+        )
+
+    async def navigate(self, url: str) -> None:
+        await self._call(functools.partial(self._session.navigate, url))
+
     async def report(self) -> dict[str, Json]:
         return await self._call(self._session.report)
 
@@ -140,14 +148,8 @@ async def async_open(
 ) -> AsyncSession:
     from . import open
 
-    install_signal_cleanup()
-    abandoned = threading.Event()
-    cancellation = Cancellation()
-    lock = threading.Lock()
-    created: list[Session] = []
-
-    def start() -> Session:
-        session = open(
+    return await _create_session(
+        lambda cancellation: open(
             target,
             backend_url=backend_url,
             app_url=app_url,
@@ -155,6 +157,40 @@ async def async_open(
             log=log,
             _cancellation=cancellation,
         )
+    )
+
+
+async def async_attach(
+    computer_id: str,
+    *,
+    backend_url: str | None = None,
+    app_url: str | None = None,
+    step_timeout: float = 180,
+    log: Callable[[str], None] | None = None,
+) -> AsyncSession:
+    from . import attach
+
+    return await _create_session(
+        lambda cancellation: attach(
+            computer_id,
+            backend_url=backend_url,
+            app_url=app_url,
+            step_timeout=step_timeout,
+            log=log,
+            _cancellation=cancellation,
+        )
+    )
+
+
+async def _create_session(create: Callable[[Cancellation], Session]) -> AsyncSession:
+    install_signal_cleanup()
+    abandoned = threading.Event()
+    cancellation = Cancellation()
+    lock = threading.Lock()
+    created: list[Session] = []
+
+    def start() -> Session:
+        session = create(cancellation)
         with lock:
             if not abandoned.is_set():
                 created.append(session)
