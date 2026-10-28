@@ -270,7 +270,14 @@ def test_cross_os_child_is_refused_locally(
     assert not hosted.fake.calls("POST", START)
 
 
-@pytest.mark.parametrize("reason", get_args(RefusalReason))
+@pytest.mark.parametrize(
+    "reason",
+    [
+        reason
+        for reason in get_args(RefusalReason)
+        if reason not in ("request_timeout", "protocol_error")
+    ],
+)
 def test_hosted_refusals_are_typed_safe_and_do_not_stop(
     hosted: HostedAPI, reason: RefusalReason
 ) -> None:
@@ -301,6 +308,22 @@ def test_hosted_refusals_are_typed_safe_and_do_not_stop(
     assert not any(r.path.endswith("/stop") for r in hosted.fake.requests)
     assert not parent.closed
     assert len(hosted.fake.calls("POST", START)) == 1
+
+
+@pytest.mark.parametrize("reason", ["request_timeout", "protocol_error"])
+def test_hosted_transient_error_reasons_do_not_skip_startup_cleanup(
+    hosted: HostedAPI, reason: RefusalReason
+) -> None:
+    parent = hosted.attach()
+    hosted.handler = lambda request: (
+        Reply(503, {"error": reason}) if request.path == START else None
+    )
+    with pytest.raises(VerifyError) as caught:
+        parent.open(Target("web", app_id=APP_ID, build_id=BUILD_ID))
+    assert caught.value.reason == reason
+    assert caught.value.code == "ACTION_UNCERTAIN"
+    child_id = hosted.fake.calls("POST", START)[0].body["session_id"]
+    assert len(hosted.fake.calls("POST", f"/api/v1/execution/device/sessions/{child_id}/stop")) == 1
 
 
 @pytest.mark.parametrize(
@@ -905,3 +928,46 @@ def test_navigation_accepts_absent_action_and_never_retries_failure(hosted: Host
     assert "private URL and secret" not in str(caught.value)
     assert len(hosted.fake.calls("POST", PROXY + "open_url")) == 2
     assert obj(hosted.fake.requests[-1].body) == {"url": "http://localhost:3000"}
+
+
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.parametrize("reason,status", [("request_timeout", 504), ("protocol_error", 502)])
+def test_navigation_uncertainty_keeps_hosted_session_open(
+    hosted: HostedAPI, asynchronous: bool, reason: RefusalReason, status: int
+) -> None:
+    parent = hosted.attach()
+    session = parent.open(Target("web", app_id=APP_ID, build_id=BUILD_ID))
+    hosted.handler = lambda request: (
+        Reply(
+            status,
+            {
+                "success": False,
+                "action": "navigate",
+                "error": reason,
+                "code": reason,
+                "failure_stage": "input",
+                "input_dispatched": True,
+                "execution_uncertain": True,
+                "message": "private origin response",
+            },
+        )
+        if request.path == PROXY + "open_url"
+        else None
+    )
+    with pytest.raises(VerifyError) as caught:
+        if asynchronous:
+            asyncio.run(verify.AsyncSession(session).navigate("http://localhost:3000/private"))
+        else:
+            session.navigate("http://localhost:3000/private")
+    assert caught.value.code == "ACTION_UNCERTAIN"
+    assert caught.value.reason == reason and caught.value.http_status == status
+    assert "private" not in str(caught.value)
+    if reason == "request_timeout":
+        assert "did not confirm within the action budget" in str(caught.value)
+        assert "may still complete" in str(caught.value)
+        assert "session is still open" in str(caught.value)
+    assert len(hosted.fake.calls("POST", PROXY + "open_url")) == 1
+    assert not any(request.path.endswith("/stop") for request in hosted.fake.requests)
+    assert not session.closed
+    assert session.screenshot()
+    session.close()

@@ -116,6 +116,15 @@ describe('attached computers and hosted children', () => {
     expect(parent.closed).toBe(false);
   });
 
+  it.each(['request_timeout', 'protocol_error'])('does not treat %s as a definite hosted-start refusal', async (reason) => {
+    const fake = runtime().on('POST', /\/start_device$/, () => json({ error: reason }, 503));
+    const parent = await computer(fake);
+    await expect(parent.open(web)).rejects.toMatchObject({ code: 'ACTION_UNCERTAIN', reason, httpStatus: 503 });
+    const childId = fake.calls('POST', /\/start_device$/)[0]?.body.session_id;
+    expect(fake.calls('POST', /\/stop$/).map((call) => call.path)).toEqual([`/api/v1/execution/device/sessions/${childId}/stop`]);
+    expect(parent.closed).toBe(false);
+  });
+
   it.each([
     { session_id: 'a different session', workflow_run_id: 'child-run' },
     { workflow_run_id: '' },
@@ -227,6 +236,36 @@ describe('attached computers and hosted children', () => {
 });
 
 describe('safe startup refusal and navigation', () => {
+  it.each(['request_timeout', 'protocol_error'] as const)('keeps %s navigation uncertain without replay or closing the session', async (reason) => {
+    const status = reason === 'request_timeout' ? 504 : 502;
+    const fake = runtime().on('POST', /\/open_url$/, () => json({
+      success: false, action: 'navigate', error: reason, code: reason,
+      failure_stage: reason === 'request_timeout' ? 'input' : 'response_validation',
+      input_dispatched: true, execution_uncertain: true, message: 'private origin response',
+    }, status));
+    const parent = await computer(fake);
+    const session = await parent.open(web);
+    const failure = session.navigate('http://localhost:3000/private');
+    await expect(failure).rejects.toMatchObject({
+      code: 'ACTION_UNCERTAIN', reason, httpStatus: status,
+      message: expect.not.stringContaining('private'),
+    });
+    if (reason === 'request_timeout') await expect(failure).rejects.toThrow(/did not confirm within the action budget.*may still complete.*session is still open/i);
+    expect(fake.calls('POST', /\/open_url$/)).toHaveLength(1);
+    expect(fake.calls('POST', /\/stop$/)).toHaveLength(0);
+    expect(session.closed).toBe(false);
+    expect((await session.report()).status).toBe('running');
+    expect(await session.screenshot()).toEqual(png(800, 600));
+  });
+
+  it('accepts a successful navigation after a slow commit', async () => {
+    const fake = runtime().on('POST', /\/open_url$/, () => json({ success: true, action: 'navigate', latency_ms: 6_000 }));
+    const session = await (await computer(fake)).open(web);
+    await session.navigate('http://localhost:3000');
+    expect(fake.calls('POST', /\/open_url$/)).toHaveLength(1);
+    expect(session.closed).toBe(false);
+  });
+
   it('keeps legacy Session implementations valid while open returns the extended API', () => {
     expectTypeOf<Omit<OpenedSession, 'report' | 'navigate' | 'open'>>().toMatchTypeOf<Session>();
     expectTypeOf<Awaited<ReturnType<typeof open>>>().toMatchTypeOf<OpenedSession>();

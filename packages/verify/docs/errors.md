@@ -20,6 +20,8 @@
 
 Ordinary start errors retain recognized safe server diagnostic codes such as `web_app_required` in the message even when they are not typed refusal reasons. Arbitrary server messages and payloads are not copied into startup diagnostics.
 
+Web navigation timeouts expose `reason: 'request_timeout'` with HTTP 504 and `code: 'ACTION_UNCERTAIN'`: the action budget expired before navigation was confirmed, but the request may still commit and the session remains open. A normalized `protocol_error` also preserves uncertainty and its HTTP status. Neither error causes Verify to replay navigation or close the session. Inspect the live page before deciding whether to navigate again.
+
 Everything Verify throws on purpose is a `VerifyError` with a stable `code`. Messages name the problem and, for step failures, end with the session link.
 
 ```ts

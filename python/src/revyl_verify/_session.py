@@ -255,7 +255,11 @@ class Session:
                 ):
                     refused = True
                 if hosted and (
-                    (response.status == 503 and error.reason is not None)
+                    (
+                        response.status == 503
+                        and error.reason is not None
+                        and error.reason not in ("request_timeout", "protocol_error")
+                    )
                     or (400 <= response.status < 500 and response.status != 408)
                 ):
                     refused = True
@@ -506,13 +510,26 @@ class Session:
                 "INVALID_ARGUMENT",
                 "Navigation needs an HTTP(S) URL without credentials or controls.",
             ) from None
-        response = self._worker(
-            "POST",
-            "open_url",
-            {"url": url},
-            deadline=Deadline(self._step_timeout, self._cancellation),
-            timeout=self._step_timeout,
-        )
+        try:
+            response = self._worker(
+                "POST",
+                "open_url",
+                {"url": url},
+                deadline=Deadline(self._step_timeout, self._cancellation),
+                timeout=self._step_timeout,
+            )
+        except VerifyError as error:
+            if error.code == "ACTION_UNCERTAIN" and error.reason == "request_timeout":
+                raise VerifyError(
+                    error.code,
+                    "Web navigation did not confirm within the action budget "
+                    "and may still complete. "
+                    "The session is still open; Verify did not replay the request. "
+                    f"See {self.viewer_url}",
+                    reason=error.reason,
+                    http_status=error.http_status,
+                ) from error
+            raise
         result = obj(response.json())
         status = result.get("status_code")
         if (

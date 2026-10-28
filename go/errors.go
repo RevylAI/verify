@@ -29,6 +29,8 @@ const (
 	ReasonIOSSessionConflict         RefusalReason = "ios_session_conflict"
 	ReasonAndroidSessionConflict     RefusalReason = "android_session_conflict"
 	ReasonNotAvailableOnPlatform     RefusalReason = "not_available_on_platform"
+	ReasonRequestTimeout             RefusalReason = "request_timeout"
+	ReasonProtocolError              RefusalReason = "protocol_error"
 )
 
 func (c Code) Error() string { return string(c) }
@@ -105,7 +107,7 @@ func refusalReason(r response) RefusalReason {
 			ReasonComputerAtCapacity, ReasonComputerNotRunning, ReasonComputerCannotHostPlatform, ReasonComputerNotFound,
 			ReasonWebBuildRequired, ReasonWebBuildNotSupported, ReasonIOSBuildRequired, ReasonIOSBuildNotSupported,
 			ReasonAndroidBuildRequired, ReasonAndroidBuildNotSupported, ReasonWebSessionConflict, ReasonIOSSessionConflict,
-			ReasonAndroidSessionConflict, ReasonNotAvailableOnPlatform:
+			ReasonAndroidSessionConflict, ReasonNotAvailableOnPlatform, ReasonRequestTimeout, ReasonProtocolError:
 			return reason
 		}
 	}

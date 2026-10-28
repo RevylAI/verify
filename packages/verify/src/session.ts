@@ -282,7 +282,7 @@ export class DeviceSession implements Session {
       const response = await client.send('POST', '/api/v1/execution/start_device', { body: request, retry: false, signal: session.readySignal, timeoutMs: 120_000 });
       if (response.status < 200 || response.status >= 300) {
         const reason = responseRefusalReason(response);
-        refused = [400, 401, 403, 404, 405, 409, 422, 429].includes(response.status) || (response.status === 503 && reason !== undefined);
+        refused = [400, 401, 403, 404, 405, 409, 422, 429].includes(response.status) || (response.status === 503 && reason !== undefined && reason !== 'request_timeout' && reason !== 'protocol_error');
         const code = response.status === 401 || response.status === 403 ? 'AUTH_REJECTED'
           : reason === 'computer_not_found' || response.status === 404 ? 'NOT_FOUND'
           : reason === 'computer_not_running' ? 'SESSION_ENDED'
@@ -564,7 +564,11 @@ export class DeviceSession implements Session {
     if (response.status >= 200 && response.status < 300) return response;
     if (action === 'open_url') {
       const error = this.workerError(method, action, response);
-      throw new VerifyError(error.code, `Web navigation failed (HTTP ${response.status}). See ${this.viewerUrl}`, { reason: responseRefusalReason(response), httpStatus: response.status });
+      const reason = responseRefusalReason(response);
+      const message = error.code === 'ACTION_UNCERTAIN' && reason === 'request_timeout'
+        ? `Web navigation did not confirm within the action budget and may still complete. The session is still open; Verify did not replay the request. See ${this.viewerUrl}`
+        : `Web navigation failed (HTTP ${response.status}). See ${this.viewerUrl}`;
+      throw new VerifyError(error.code, message, { reason, httpStatus: response.status });
     }
     throw this.workerError(method, action, response);
   }
