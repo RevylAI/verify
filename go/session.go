@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -54,18 +55,18 @@ type Session struct {
 	log                      func(string)
 	expiresAt                time.Time
 	computerScreenReadyUntil time.Time
+	viewerBase               string
+	childOpens               sync.WaitGroup
+	children                 []*Session
 }
 
 func (s *Session) ID() string           { return s.id }
 func (s *Session) ViewerURL() string    { return s.viewer }
 func (s *Session) ExpiresAt() time.Time { return s.expiresAt }
 
-func Open(ctx context.Context, target Target, options ...OpenOptions) (*Session, error) {
+func openOptions(options []OpenOptions) (OpenOptions, error) {
 	if len(options) > 1 {
-		return nil, failure(ErrInvalidArgument, "Open accepts at most one options value.")
-	}
-	if err := target.validate(); err != nil {
-		return nil, err
+		return OpenOptions{}, failure(ErrInvalidArgument, "Open and Attach accept at most one options value.")
 	}
 	var opt OpenOptions
 	if len(options) == 1 {
@@ -75,7 +76,18 @@ func Open(ctx context.Context, target Target, options ...OpenOptions) (*Session,
 		opt.StepTimeout = 3 * time.Minute
 	}
 	if opt.StepTimeout < time.Second {
-		return nil, failure(ErrInvalidArgument, "StepTimeout must be at least one second.")
+		return OpenOptions{}, failure(ErrInvalidArgument, "StepTimeout must be at least one second.")
+	}
+	return opt, nil
+}
+
+func Open(ctx context.Context, target Target, options ...OpenOptions) (*Session, error) {
+	if err := target.validate(false); err != nil {
+		return nil, err
+	}
+	opt, err := openOptions(options)
+	if err != nil {
+		return nil, err
 	}
 	callerCtx := ctx
 	ctx, cancel := context.WithTimeout(callerCtx, target.StartTimeout)
@@ -331,17 +343,49 @@ func (s *Session) workerError(method string, r response) error {
 	case method == "POST" && (detail.Uncertain || detail.Error == "request_timeout" || detail.Error == "connection_closed" || detail.Error == "protocol_error"):
 		code = ErrActionUncertain
 	}
-	return failure(code, fmt.Sprintf("Revyl session request failed (HTTP %d). See %s", r.status, s.viewer))
+	return responseFailure(r, code, fmt.Sprintf("Revyl session request failed (HTTP %d). See %s", r.status, s.viewer))
 }
 
-func (s *Session) worker(ctx context.Context, method, action string, body any, retry bool, timeout time.Duration) (response, error) {
+func (s *Session) sessionEndError() error {
 	s.mu.Lock()
 	closed := s.closeDone != nil
 	s.mu.Unlock()
 	if closed {
-		return response{}, failure(ErrSessionEnded, "The session was closed.")
+		return failure(ErrSessionEnded, "The session was closed.")
 	}
-	r, err := s.client.send(ctx, method, s.workerPath(action), body, retry, timeout, true)
+	if s.lifetime != nil && s.lifetime.Err() != nil {
+		return failure(ErrSessionEnded, "The parent session was closed.")
+	}
+	if !s.expiresAt.IsZero() && !time.Now().Before(s.expiresAt) {
+		return failure(ErrSessionEnded, "The session lifetime has expired.")
+	}
+	return nil
+}
+
+func (s *Session) worker(ctx context.Context, method, action string, body any, retry bool, timeout time.Duration) (response, error) {
+	if err := s.sessionEndError(); err != nil {
+		return response{}, err
+	}
+	requestCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if !s.expiresAt.IsZero() {
+		var expireCancel context.CancelFunc
+		requestCtx, expireCancel = context.WithDeadline(requestCtx, s.expiresAt)
+		defer expireCancel()
+	}
+	if s.lifetime != nil {
+		stop := context.AfterFunc(s.lifetime, cancel)
+		defer stop()
+		if s.lifetime.Err() != nil {
+			cancel()
+		}
+	}
+	r, err := s.client.send(requestCtx, method, s.workerPath(action), body, retry, timeout, true)
+	if err != nil {
+		if ended := s.sessionEndError(); ended != nil {
+			return response{}, ended
+		}
+	}
 	if err == nil && (r.status < 200 || r.status >= 300) {
 		err = s.workerError(method, r)
 	}
@@ -368,7 +412,13 @@ func (s *Session) Close(ctx context.Context) error {
 	s.mu.Unlock()
 	if s.platform.computer() {
 		s.stopLifetime()
+		childErr := s.closeChildren(ctx)
 		err := s.closeComputer(ctx)
+		if err != nil {
+			err = errors.Join(err, childErr)
+		} else if childErr != nil {
+			s.computerLog("child stop failed; parent physical release is confirmed")
+		}
 		s.mu.Lock()
 		s.closeErr = err
 		close(s.closeDone)
@@ -387,6 +437,27 @@ func (s *Session) Close(ctx context.Context) error {
 	s.closeErr = err
 	close(s.closeDone)
 	s.mu.Unlock()
+	return err
+}
+
+func (s *Session) closeChildren(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		s.childOpens.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		return contextError(ctx)
+	}
+	s.mu.Lock()
+	children := append([]*Session(nil), s.children...)
+	s.mu.Unlock()
+	var err error
+	for _, child := range children {
+		err = errors.Join(err, child.Close(ctx))
+	}
 	return err
 }
 

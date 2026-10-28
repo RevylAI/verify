@@ -1,7 +1,7 @@
 # API
 
 ```ts
-import { open, defineConfig, VerifyError, isVerifyError } from '@revyl/verify';
+import { attach, open, defineConfig, VerifyError, isVerifyError } from '@revyl/verify';
 ```
 
 ## open(target, options?)
@@ -24,6 +24,42 @@ const linux = await open({ platform: 'linux' });                    // same comp
 - `options.log`: where progress lines go. By default Verify writes the session link and each step's outcome to stderr, prefixed with `[verify]`. Pass a function to receive the lines yourself, or `false` to turn them off.
 
 `open` needs credentials: `REVYL_API_KEY` or a Revyl CLI login. It throws `AUTH_MISSING` without them, `CONFIG_NOT_FOUND` or `CONFIG_INVALID` for config problems, and `SESSION_START_FAILED` or `TIMEOUT` when the browser or device does not start.
+
+## attach(computerId, options?)
+
+The attachment, hosted-child and navigation APIs below are new in the unreleased source; they are not in the published TypeScript 0.2.0 package.
+
+Attaches to an active Mac or Linux computer in your organization without creating a new one. It uses the same credential precedence and `REVYL_BACKEND_URL` / `REVYL_APP_URL` overrides as `open`; `options.log` controls progress. The returned computer owns cleanup: `close()` stops it, and automatic cleanup also applies. Attaching requires a valid expiry and does not extend the lifetime. Invalid, inaccessible, inactive or expired computers fail without sending a stop request.
+
+## computer.open(target)
+
+Starts a child app session inside this computer, returning the normal session API. It inherits the parent's authenticated client, logging and step timeout; callers cannot route a child to another backend. Both `target.app.appId` and `target.app.buildId` are required. Web accepts an existing external HTTPS build, plus optional viewport/sign-in settings; native builds use the computer's fixed device profile and accept no bundle, artifact or device override. Named targets and initial URL overrides are not supported here.
+
+Mac supports Web and iOS children. Linux supports Android and may support Web when its runtime advertises that capability; Linux Web currently has a runtime limitation, so do not rely on it without confirming availability. The server remains authoritative for access, capability and capacity. Children require and share the parent's known deadline. Closing a child leaves the parent running; closing the parent cancels pending starts, closes its tracked children first, then requests confirmed computer release. A failed child start never closes the parent.
+
+```ts
+const computer = await attach(existingComputerId, { log: false });
+try {
+  const web = await computer.open({
+    platform: 'web',
+    app: { appId: webAppId, buildId: externalBuildId },
+  });
+  await web.navigate('http://localhost:3000');
+  await web.validation('The home page is visible');
+} finally {
+  await computer.close();
+}
+```
+
+This requires an already-running service on the computer. The initial Web build still uses HTTPS; navigation after start can reach the computer's localhost. No localhost-start option is implied.
+
+## session.navigate(url)
+
+Web only, hosted or normal. Sends one deterministic `open_url` action and checks the returned navigation outcome. Accepts an HTTP(S) URL without credentials, whitespace, control characters or backslashes. A hosted browser can reach its parent computer's loopback address; a normal cloud browser's localhost is its own runtime, not your machine. Navigation is not replayed after failure and does not run an agent step. It resolves with no value, or throws a typed error. Computer and native sessions reject it locally.
+
+## session.report()
+
+Returns authenticated JSON metadata: `/execution/device-sessions/{id}` for normal and hosted app sessions, or the computer report for computers. It works after close, does not download recordings, and does not turn a device stop acknowledgment into proof of physical release. Treat returned metadata as private.
 
 ## session.instruction(text, options?)
 

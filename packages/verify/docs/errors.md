@@ -1,5 +1,23 @@
 # Errors
 
+## Structured refusal reasons
+
+`VerifyError.reason` is an optional typed `RefusalReason` and `httpStatus` is the HTTP status when available. They supplement, rather than replace, the existing `code`. Only recognized server codes are retained; raw error messages and unknown payloads are not exposed as reasons. Starts and navigation are never replayed automatically.
+
+| Start refusal | Existing `code` | `reason` |
+| --- | --- | --- |
+| Web HTTP 409 capacity/availability | `API_ERROR` | `web_runtime_unavailable` |
+| Computer HTTP 429 admission | `COMPUTER_LIMIT` | `computer_limit` |
+| Computer HTTP 503 runtime availability | `NOT_AVAILABLE_ON_PLATFORM` | `runtime_unavailable` |
+| Hosted child capacity | `COMPUTER_LIMIT` | `computer_at_capacity` |
+| Hosted runtime/capability | `NOT_AVAILABLE_ON_PLATFORM` | `computer_runtime_unavailable` / `computer_cannot_host_platform` |
+| Hosted parent no longer running | `SESSION_ENDED` | `computer_not_running` |
+| Hosted parent inaccessible | `NOT_FOUND` | `computer_not_found` |
+| Hosted build input | `INVALID_ARGUMENT` | `web_build_required`, `web_build_not_supported`, or corresponding `ios_` / `android_` codes |
+| Hosted identity conflict | `SESSION_BUSY` | `web_session_conflict`, `ios_session_conflict`, `android_session_conflict` |
+
+`web_runtime_unavailable` does not distinguish full capacity from an unavailable runtime. `computer_limit` does not distinguish queued work from concurrency exhaustion. Inspect these fields to classify refusal without parsing prose; do not infer a specific cause or automatically start a replacement session.
+
 Everything Verify throws on purpose is a `VerifyError` with a stable `code`. Messages name the problem and, for step failures, end with the session link.
 
 ```ts

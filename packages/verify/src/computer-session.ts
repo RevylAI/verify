@@ -2,12 +2,12 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { RevylClient, responseDetail, responseErrorCode, sessionViewerUrl, type RawResponse } from './api/client.js';
+import { RevylClient, responseDetail, responseErrorCode, responseRefusalReason, sessionViewerUrl, type RawResponse } from './api/client.js';
 import type { ComputerCommand, ComputerCommandResponse, ComputerPlatform, ComputerRecordingResponse, ComputerReport, ComputerResult, ComputerScreenshot } from './api/types.js';
 import { trackSession, untrackSession } from './cleanup.js';
-import type { ResolvedComputerTarget } from './config.js';
+import { validateHostedTarget, type HostedTargetConfig, type ResolvedComputerTarget } from './config.js';
 import { VerifyError, isVerifyError, type VerifyErrorCode } from './errors.js';
-import { pngSize, type ComputerProcess, type ComputerRecording, type ExecOptions, type ExecResult, type FileStat, type OperationOptions, type Session, type SessionOptions, type StepResult } from './session.js';
+import { DeviceSession, pngSize, type ComputerProcess, type ComputerRecording, type ExecOptions, type ExecResult, type FileStat, type OperationOptions, type Session, type SessionOptions, type StepResult } from './session.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATES = new Set(['starting', 'active', 'closing', 'stopped', 'failed', 'owner_lost']);
@@ -19,15 +19,19 @@ const ERROR_CODES = new Set(['computer_not_enabled', 'run_closed', 'inaccessible
 export class ComputerSession implements Session {
   readonly platform: ComputerPlatform;
   readonly target: string;
-  readonly id = randomUUID();
+  readonly id: string;
   readonly viewerUrl: string;
   readonly steps: StepResult[] = [];
   private readonly lifetime = new AbortController();
   private closePromise: Promise<void> | undefined;
   private expiresAtMs: number | undefined;
   private screenReadyUntilMs = 0;
+  private readonly children = new Set<Session>();
+  private readonly childStarts = new Set<Promise<Session>>();
+  private closing = false;
 
-  private constructor(private readonly client: RevylClient, target: ResolvedComputerTarget, private readonly options: SessionOptions) {
+  private constructor(private readonly client: RevylClient, target: ResolvedComputerTarget, private readonly options: SessionOptions, id: string = randomUUID()) {
+    this.id = id;
     this.target = target.name;
     this.platform = target.platform;
     this.viewerUrl = sessionViewerUrl(this.id, 'computer');
@@ -42,7 +46,7 @@ export class ComputerSession implements Session {
       session.log(`starting computer ${session.viewerUrl}. ${COMPUTER_AVAILABILITY}`);
       const response = await session.request('POST', '', { computer_session_id: session.id, os: target.platform === 'mac' ? 'macos' : 'linux' }, signal);
       createAcknowledged = true;
-      let report = session.report(response);
+      let report = session.parseReport(response);
       for (;;) {
         if (report.state === 'active') break;
         if (report.state !== 'starting') {
@@ -50,7 +54,7 @@ export class ComputerSession implements Session {
           throw new VerifyError('SESSION_START_FAILED', `The ${session.target} computer ended before it was ready (${report.state}).${reason} See ${session.viewerUrl}`);
         }
         await delay(2_000, undefined, { signal });
-        report = session.report(await session.request('GET', '/report', undefined, signal));
+        report = session.parseReport(await session.request('GET', '/report', undefined, signal));
       }
       session.screenReadyUntilMs = Date.now() + 30_000;
       session.log('ready');
@@ -72,13 +76,54 @@ export class ComputerSession implements Session {
     return this.closePromise !== undefined;
   }
 
+  static async attach(client: RevylClient, computerId: string, options: SessionOptions): Promise<ComputerSession> {
+    if (typeof computerId !== 'string' || !UUID.test(computerId)) throw new VerifyError('INVALID_ARGUMENT', 'attach() requires a computer session UUID.');
+    const probe = new ComputerSession(client, { name: 'computer', platform: 'mac', startTimeout: 600_000 }, options, computerId);
+    const response = await probe.request('GET', '/report', undefined, AbortSignal.timeout(30_000));
+    const raw = parseComputerJson<ComputerReport & { os?: string }>(response);
+    if (!raw || raw.computer_session_id !== computerId || !['macos', 'linux'].includes(raw.os ?? '') || raw.expires_at == null) throw invalidResponse();
+    const session = new ComputerSession(client, { name: raw.os === 'macos' ? 'mac' : 'linux', platform: raw.os === 'macos' ? 'mac' : 'linux', startTimeout: 600_000 }, options, computerId);
+    session.parseReport(response);
+    if (raw.state !== 'active' || (session.expiresAtMs !== undefined && Date.now() >= session.expiresAtMs)) throw new VerifyError('SESSION_ENDED', 'The computer is not active or has expired.');
+    trackSession(session);
+    return session;
+  }
+
+  async open(target: HostedTargetConfig): Promise<Session> {
+    this.assertOpen();
+    if (this.expiresAtMs === undefined) throw new VerifyError('API_ERROR', 'The computer report must include expiry before opening a hosted child.');
+    const resolved = validateHostedTarget(target);
+    if ((this.platform === 'mac' && resolved.platform === 'android') || (this.platform === 'linux' && resolved.platform === 'ios')) throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'This computer cannot host the requested platform.', { reason: 'computer_cannot_host_platform' });
+    const pending = DeviceSession.start(this.client, resolved, this.options, {
+      id: this.id,
+      signal: this.lifetime.signal,
+      expiresAt: this.expiresAt,
+      register: (session) => { this.children.add(session); },
+    });
+    this.childStarts.add(pending);
+    try {
+      return await pending;
+    } finally {
+      this.childStarts.delete(pending);
+    }
+  }
+
+  async report(): Promise<Record<string, unknown>> {
+    const report = this.parseReport(await this.request('GET', '/report', undefined, AbortSignal.timeout(30_000)));
+    return { ...report };
+  }
+
+  navigate(): Promise<never> {
+    return this.unavailable('navigate');
+  }
+
   get expiresAt(): Date | undefined {
     return this.expiresAtMs === undefined ? undefined : new Date(this.expiresAtMs);
   }
 
   async recording(): Promise<ComputerRecording | null> {
     const signal = AbortSignal.timeout(30_000);
-    const report = this.report(await this.request('GET', '/report', undefined, signal));
+    const report = this.parseReport(await this.request('GET', '/report', undefined, signal));
     if (!['stopped', 'failed', 'owner_lost'].includes(report.state) || report.release !== 'confirmed') {
       throw new VerifyError('SESSION_BUSY', `The computer recording can be requested only after terminal state and confirmed release. See ${this.viewerUrl}`);
     }
@@ -195,13 +240,17 @@ export class ComputerSession implements Session {
 
   close(): Promise<void> {
     this.closePromise ??= (async () => {
+      this.closing = true;
       this.lifetime.abort();
+      await Promise.allSettled([...this.childStarts]);
+      const childResults = await Promise.allSettled([...this.children].map((child) => child.close()));
       try {
-        const report = this.report(await this.request('POST', '/stop', undefined, AbortSignal.timeout(310_000)));
+        const report = this.parseReport(await this.request('POST', '/stop', undefined, AbortSignal.timeout(310_000)));
         if (report.release !== 'confirmed') {
           throw new VerifyError('ACTION_UNCERTAIN', `Computer stop was requested, but physical release is unconfirmed. Inspect ${this.viewerUrl}`);
         }
         if (!['stopped', 'failed', 'owner_lost'].includes(report.state)) throw invalidResponse();
+        if (childResults.some((result) => result.status === 'rejected')) this.log('a child stop was unconfirmed before the parent was released');
         this.log('closed');
       } catch (error) {
         if (isVerifyError(error) && error.code === 'ACTION_UNCERTAIN') {
@@ -277,7 +326,8 @@ export class ComputerSession implements Session {
     }
     if (response.status >= 200 && response.status < 300) return response;
     if (suffix === '/recording' && response.status === 404 && responseErrorCode(response) === 'recording_unavailable') return response;
-    const detail = responseDetail(response);
+    const detail = responseRefusalReason(response) ?? responseDetail(response);
+    const refusal = { reason: responseRefusalReason(response), httpStatus: response.status };
     if (suffix === '/screen/screenshot') {
       let raw: { detail?: unknown; message?: unknown; error?: unknown } | null = null;
       try { raw = JSON.parse(new TextDecoder().decode(response.body)); } catch {}
@@ -285,9 +335,9 @@ export class ComputerSession implements Session {
       if ((code === 'screen_unavailable' && (response.status === 409 || response.status === 503)) || (code === 'screen_starting' && response.status === 409)) return response;
     }
     if (detail === 'computer_not_enabled' || (response.status === 503 && detail === 'runtime_unavailable')) {
-      throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `Revyl refused the computer request (${detail}). ${COMPUTER_AVAILABILITY}. Ask support@revyl.ai about staging organization enablement. See ${this.viewerUrl}`);
+      throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `Revyl refused the computer request (${detail}). ${COMPUTER_AVAILABILITY}. Ask support@revyl.ai about staging organization enablement. See ${this.viewerUrl}`, refusal);
     }
-    if (response.status === 429 && detail === 'computer_limit') throw new VerifyError('COMPUTER_LIMIT', `${COMPUTER_CAPACITY} See ${this.viewerUrl}`);
+    if (response.status === 429 && detail === 'computer_limit') throw new VerifyError('COMPUTER_LIMIT', `${COMPUTER_CAPACITY} See ${this.viewerUrl}`, refusal);
     let code: VerifyErrorCode = 'API_ERROR';
     if (detail === 'run_closed') code = 'SESSION_ENDED';
     else if (detail === 'inaccessible' || detail === 'invalid_handle') code = 'NOT_FOUND';
@@ -299,10 +349,10 @@ export class ComputerSession implements Session {
     else if (suffix.startsWith('/operations/') && response.status >= 500) code = 'ACTION_UNCERTAIN';
     else if (method === 'POST' && (response.status >= 500 || response.status < 400)) code = 'ACTION_UNCERTAIN';
     const reason = detail && ERROR_CODES.has(detail) ? detail : `HTTP ${response.status}`;
-    throw new VerifyError(code, `Revyl refused the computer request (${reason}). See ${this.viewerUrl}`);
+    throw new VerifyError(code, `Revyl refused the computer request (${reason}). See ${this.viewerUrl}`, refusal);
   }
 
-  private report(response: RawResponse): ComputerReport {
+  private parseReport(response: RawResponse): ComputerReport {
     const report = parseComputerJson<ComputerReport>(response);
     if (!report || report.computer_session_id !== this.id || !STATES.has(report.state)) throw invalidResponse();
     if (report.expires_at != null) this.expiresAtMs = parseTimestamp(report.expires_at).getTime();
@@ -310,7 +360,7 @@ export class ComputerSession implements Session {
   }
 
   private assertOpen(): void {
-    if (this.closed || (this.expiresAtMs !== undefined && Date.now() >= this.expiresAtMs)) throw new VerifyError('SESSION_ENDED', `The ${this.target} computer was closed or expired.`);
+    if (this.closing || this.closed || (this.expiresAtMs !== undefined && Date.now() >= this.expiresAtMs)) throw new VerifyError('SESSION_ENDED', `The ${this.target} computer was closed or expired.`);
   }
 
   private observationSignal(timeoutMs: number): AbortSignal {

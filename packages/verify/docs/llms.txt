@@ -7,7 +7,7 @@
 Both computer operating systems are early access and not yet available in Revyl production. They work only on Revyl staging for organizations enabled for the requested OS using the optional REVYL_BACKEND_URL override and matching staging credentials. Linux init remains intentionally unavailable; use an inline target or config entry. See computers.md#availability-and-errors.
 
 - [Getting started](getting-started.md): install, authenticate, init, run a script
-- [API](api.md): open(), agent steps, screenshot(), exec(), file/process methods, close()
+- [API](api.md): open(), attach(), hosted children, navigate(), report(), agent steps, screenshot(), exec(), file/process methods, close()
 - [Configuration](configuration.md): verify.config.ts targets, environment variables, the init and whoami commands
 - [Web](web.md): Revyl web sessions, URLs and builds, sign-in, steps, and optional staging access
 - [Mobile](mobile.md): iOS and Android devices and installing apps

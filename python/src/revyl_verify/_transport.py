@@ -16,7 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, TypeAlias, cast
+from typing import TYPE_CHECKING, Literal, TypeAlias, cast, get_args
 from urllib.parse import urlsplit
 
 from . import _cleanup
@@ -25,15 +25,45 @@ if TYPE_CHECKING:
     from ._models import Platform
 
 CleanupStatus = Literal["not_attempted", "not_required", "acknowledged", "confirmed", "unconfirmed"]
+RefusalReason = Literal[
+    "web_runtime_unavailable",
+    "computer_limit",
+    "runtime_unavailable",
+    "computer_runtime_unavailable",
+    "computer_at_capacity",
+    "computer_not_running",
+    "computer_cannot_host_platform",
+    "computer_not_found",
+    "web_build_required",
+    "web_build_not_supported",
+    "ios_build_required",
+    "ios_build_not_supported",
+    "android_build_required",
+    "android_build_not_supported",
+    "web_session_conflict",
+    "ios_session_conflict",
+    "android_session_conflict",
+    "not_available_on_platform",
+]
 
 Json: TypeAlias = "None | bool | int | float | str | list[Json] | dict[str, Json]"
 
 
 class VerifyError(Exception):
-    def __init__(self, code: str, message: str, *, result: object | None = None) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        result: object | None = None,
+        reason: RefusalReason | None = None,
+        http_status: int | None = None,
+    ) -> None:
         self.code = code
         self.message = message
         self.result = result
+        self.reason: RefusalReason | None = reason
+        self.http_status: int | None = http_status
         self.platform: Platform | None = None
         self.session_id: str | None = None
         self.workflow_run_id: str | None = None
@@ -285,10 +315,56 @@ def origin(raw: str, *, app: bool = False) -> str:
         raise VerifyError("CONFIG_INVALID", message) from None
 
 
-def http_error(response: Response) -> VerifyError:
+def refusal_reason(response: Response) -> RefusalReason | None:
+    try:
+        raw = obj(response.json())
+    except VerifyError:
+        return None
+    detail = raw.get("detail")
+    candidates = (
+        detail,
+        detail.get("error") if isinstance(detail, dict) else None,
+        raw.get("error"),
+    )
+    for value in candidates:
+        if isinstance(value, str) and value in get_args(RefusalReason):
+            return cast(RefusalReason, value)
+    return None
+
+
+def http_error(response: Response, *, hosted: bool = False) -> VerifyError:
+    reason = refusal_reason(response)
+    code = "AUTH_REJECTED" if response.status in (401, 403) else "API_ERROR"
+    if hosted and response.status not in (401, 403):
+        if reason in {
+            "web_runtime_unavailable",
+            "runtime_unavailable",
+            "computer_runtime_unavailable",
+            "computer_cannot_host_platform",
+            "not_available_on_platform",
+        }:
+            code = "NOT_AVAILABLE_ON_PLATFORM"
+        elif reason in {"computer_at_capacity", "computer_limit"}:
+            code = "COMPUTER_LIMIT"
+        elif reason == "computer_not_running":
+            code = "SESSION_ENDED"
+        elif reason == "computer_not_found" or response.status == 404:
+            code = "NOT_FOUND"
+        elif reason is not None and "_build_" in reason:
+            code = "INVALID_ARGUMENT"
+        elif reason is not None and reason.endswith("_session_conflict"):
+            code = "SESSION_BUSY"
+        elif response.status in (400, 422):
+            code = "INVALID_ARGUMENT"
+        elif response.status == 409:
+            code = "SESSION_BUSY"
+        elif response.status == 408 or response.status >= 500:
+            code = "ACTION_UNCERTAIN"
     return VerifyError(
-        "AUTH_REJECTED" if response.status in (401, 403) else "API_ERROR",
+        code,
         f"Revyl request failed (HTTP {response.status}).",
+        reason=reason,
+        http_status=response.status,
     )
 
 

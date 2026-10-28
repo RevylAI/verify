@@ -55,6 +55,9 @@ func (s *Session) Validation(ctx context.Context, text string, options ...Valida
 }
 
 func (s *Session) step(ctx context.Context, kind, text string, timeout time.Duration) (StepResult, error) {
+	if err := s.sessionEndError(); err != nil {
+		return StepResult{}, err
+	}
 	if strings.TrimSpace(text) == "" || textLength(text) > 4000 {
 		return StepResult{}, failure(ErrInvalidArgument, "Step description must contain 1–4000 characters.")
 	}
@@ -80,8 +83,23 @@ func (s *Session) step(ctx context.Context, kind, text string, timeout time.Dura
 	text = strings.TrimSpace(text)
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	if !s.expiresAt.IsZero() {
+		var expireCancel context.CancelFunc
+		ctx, expireCancel = context.WithDeadline(ctx, s.expiresAt)
+		defer expireCancel()
+	}
+	if s.lifetime != nil {
+		stop := context.AfterFunc(s.lifetime, cancel)
+		defer stop()
+		if s.lifetime.Err() != nil {
+			cancel()
+		}
+	}
 	outcome, err := s.runStep(ctx, kind, text, timeout)
 	if err != nil {
+		if ended := s.sessionEndError(); ended != nil {
+			return StepResult{}, ended
+		}
 		return StepResult{}, err
 	}
 	reason := outcome.Output.Reason

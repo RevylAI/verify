@@ -18,6 +18,7 @@ export interface StartDeviceRequest {
   platform: MobilePlatform | 'web';
   is_simulation?: boolean;
   session_id?: string;
+  computer_session_id?: string;
   app_id?: string;
   build_id?: string;
   app_url?: string;

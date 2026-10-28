@@ -56,6 +56,7 @@ type ComputerRecording struct {
 
 type computerReport struct {
 	ID            string     `json:"computer_session_id"`
+	OS            string     `json:"os"`
 	State         string     `json:"state"`
 	Release       string     `json:"release"`
 	FailureReason string     `json:"failure_reason"`
@@ -94,7 +95,7 @@ func startComputer(ctx context.Context, c *client, viewer string, target Target,
 		return nil, failure(ErrAPI, "Could not generate a computer session ID.")
 	}
 	lifetime, stop := context.WithCancel(context.Background())
-	s := &Session{client: c, id: id, platform: target.Platform, viewer: viewer + "/sessions/" + url.PathEscape(id) + "?kind=computer", lifetime: lifetime, stopLifetime: stop, log: options.Log}
+	s := &Session{client: c, id: id, platform: target.Platform, viewer: viewer + "/sessions/" + url.PathEscape(id) + "?kind=computer", viewerBase: viewer, lifetime: lifetime, stopLifetime: stop, log: options.Log, stepTimeout: options.StepTimeout}
 	s.computerLog("starting " + string(s.platform) + " computer " + s.viewer + ". " + computerAvailability)
 	computerOS := "macos"
 	if target.Platform == Linux {
@@ -229,14 +230,17 @@ func (s *Session) computerRequest(ctx context.Context, method, suffix string, bo
 		_ = json.Unmarshal(raw[key], &detail)
 		break
 	}
+	if reason := refusalReason(r); reason != "" {
+		detail = string(reason)
+	}
 	if suffix == "/screen/screenshot" && ((detail == "screen_unavailable" && (r.status == 409 || r.status == 503)) || (detail == "screen_starting" && r.status == 409)) {
 		return r, nil
 	}
 	if detail == "computer_not_enabled" || (r.status == 503 && detail == "runtime_unavailable") {
-		return r, failure(ErrNotAvailableOnPlatform, fmt.Sprintf("Revyl refused the computer request (%s). %s. Ask support@revyl.ai about staging organization enablement. See %s", detail, computerAvailability, s.viewer))
+		return r, responseFailure(r, ErrNotAvailableOnPlatform, fmt.Sprintf("Revyl refused the computer request (%s). %s. Ask support@revyl.ai about staging organization enablement. See %s", detail, computerAvailability, s.viewer))
 	}
 	if r.status == 429 && detail == "computer_limit" {
-		return r, failure(ErrComputerLimit, "Computer admission was refused because of queued work (including iOS) or the concurrency limit. Verify will not retry the start. See "+s.viewer)
+		return r, responseFailure(r, ErrComputerLimit, "Computer admission was refused because of queued work (including iOS) or the concurrency limit. Verify will not retry the start. See "+s.viewer)
 	}
 	if method == "GET" && suffix == "/recording" && r.status == 404 && detail == "recording_unavailable" {
 		return r, nil
@@ -267,7 +271,7 @@ func (s *Session) computerRequest(ctx context.Context, method, suffix string, bo
 	case "computer_not_enabled", "run_closed", "inaccessible", "invalid_handle", "operation_not_found", "owner_unavailable", "invalid_request", "unauthenticated", "forbidden", "runtime_unavailable", "start_failed", "computer_limit", "request_conflict", "run_conflict", "evidence_conflict", "evidence_unavailable", "authentication_unavailable", "operation_limit", "screen_starting", "screen_unavailable":
 		reason = detail
 	}
-	return r, failure(code, fmt.Sprintf("Revyl refused the computer request (%s). See %s", reason, s.viewer))
+	return r, responseFailure(r, code, fmt.Sprintf("Revyl refused the computer request (%s). See %s", reason, s.viewer))
 }
 
 func (s *Session) closeComputer(ctx context.Context) error {
@@ -292,7 +296,7 @@ func (s *Session) closeComputer(ctx context.Context) error {
 	if errors.Is(err, ErrActionUncertain) {
 		var typed *Error
 		errors.As(err, &typed)
-		err = &Error{Code: ErrActionUncertain, Message: typed.Message + " A possible cause is that no computer host could be assigned. " + computerAvailability, Cause: typed.Cause}
+		err = &Error{Code: ErrActionUncertain, Reason: typed.Reason, HTTPStatus: typed.HTTPStatus, Message: typed.Message + " A possible cause is that no computer host could be assigned. " + computerAvailability, Cause: typed.Cause}
 	}
 	s.computerLog("close failed; inspect " + s.viewer)
 	return err

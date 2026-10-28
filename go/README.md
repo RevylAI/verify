@@ -106,6 +106,49 @@ Requests have bounded deadlines even when passed `context.Background()`: ordinar
 
 The Go SDK does not read `verify.config.ts`, resolve named targets, or provide an init CLI. Every step runs on the live session; there is no cached replay. Instruction and validation methods on computers return `ErrNotAvailableOnPlatform` locally; computer-only methods on web/mobile do the same.
 
+## Attach and hosted app sessions
+
+The `Attach`, hosted `Open`, `Navigate`, and `Report` APIs are unreleased additions; use a reviewed source revision until the next Go release includes them.
+
+`verify.Attach(ctx, computerID, options...)` connects to an existing active computer using the same credentials and `OpenOptions` as `verify.Open`. It reads the computer report, verifies the ID, OS, state, and future expiry, and returns a normal `*Session`. Failed attachment never creates or stops a computer. Successful attachment takes cleanup ownership: explicitly close it, even if another process created it. Do not let two independent owners close the same computer unexpectedly.
+
+Call `computer.Open(ctx, target)` to start a web, iOS, or Android app session inside that computer, rather than on an unrelated worker. It reuses the computer's credentials, backend, viewer, HTTP client, step timeout, and log callback. Both `AppID` and `BuildID` must be exact Revyl UUIDs. Hosted targets cannot select `URL`, `Branch`, `ArtifactURL`, `BundleID`, `DeviceModel`, or `OSVersion`. Web targets allow `Viewport`, `SignIn`, `IdleTimeoutSeconds`, and `StartTimeout`; native targets allow the two timeouts and always request simulation.
+
+Mac computers can host web and iOS; Linux computers can host web and Android. These are client-side compatibility limits, not a capacity guarantee: the server can refuse any hosted start. Linux hosted web is currently unavailable because of a runtime issue; accepting the target in the SDK does not imply it works in the runtime. Computers remain staging-only early access.
+
+Inside a function returning `error`, with a computer ID and existing app/build UUIDs supplied by your caller:
+
+```go
+computer, err := verify.Attach(ctx, computerID)
+if err != nil {
+	return err
+}
+defer func() {
+	cleanup, cancel := context.WithTimeout(context.Background(), 310*time.Second)
+	defer cancel()
+	_ = computer.Close(cleanup)
+}()
+browser, err := computer.Open(ctx, verify.Target{
+	Platform: verify.Web,
+	AppID:    webAppID,
+	BuildID:  webBuildID,
+})
+if err != nil {
+	return err
+}
+if err := browser.Navigate(ctx, "http://localhost:3000"); err != nil {
+	return err
+}
+_, err = browser.Validation(ctx, "The application home page is visible")
+return err
+```
+
+Select an existing HTTPS web build for startup, then navigate to a guest-local HTTP service once ready. `Navigate(ctx, url)` is web-only and submits `open_url` once, without retries. HTTP and HTTPS URLs of up to 2048 characters are accepted, including localhost; credentials, whitespace, control characters, backslashes, and invalid ports are rejected. It checks the success envelope and returns only an error, without logging the URL. Hosted sessions reuse `Instruction`, `Validation`, `Screenshot`, and `Close`.
+
+Each hosted start gets a distinct preallocated session ID and is never replayed. Ambiguous startup failures attempt cleanup of that child ID; definite refusals do not. Child startup failure never stops the parent. Parent close prevents new child opens, cancels and waits for in-flight startup, then closes returned or uncertain children before stopping the computer. Confirmed physical parent release completes cleanup even if a child stop failed; the optional log callback reports that failure without response content. Otherwise cleanup errors remain observable. Child readiness is bounded by both `StartTimeout` and the computer's remaining lifetime; older computer reports without an expiry cannot host sessions. Child worker operations also honor the parent's expiry and close cancellation; cleanup and reports remain available afterward. Explicitly closing a child does not close its parent.
+
+`session.Report(ctx)` returns a JSON object as `map[string]any` for normal, hosted, and computer sessions, including after close. It reads the device-session endpoint for app sessions and the computer report endpoint for computers; computer identity and state are validated. Reports may contain private session data: do not log or publish them indiscriminately.
+
 ## Mac and Linux commands and files
 
 The following Mac example runs against the environment you select through `REVYL_BACKEND_URL` and `REVYL_APP_URL`. Set those to your approved early-access environment and use matching credentials before running it. Use `verify.Linux` for the same file/command API on a Linux guest, with platform-appropriate argv. This does not make computers available in production.
@@ -170,6 +213,8 @@ An unclaimed start may fail with `no_host` after 120 seconds from creation. Veri
 `Instruction` and `Validation` return `StepResult{Type, Text, Reason, Passed, Duration}`. Failed instructions return `ErrInstructionFailed`; failed validation verdicts return `ErrValidationFailed`. `Soft: true` returns a false verdict without an error, but a missing verdict, failed execution, or cancellation still returns an error such as `ErrStepFailed`. `Screenshot` returns PNG bytes and optionally writes a path, creating parent directories.
 
 Errors support `errors.Is(err, verify.ErrTimeout)` and `errors.As(err, &sdkError)` where `var sdkError *verify.Error`. Stable codes distinguish invalid arguments/configuration, missing/rejected credentials, startup failure, ended/busy sessions, unavailable operations, action failure/uncertainty, step failure, and timeout. `Error.Cause` is available through `errors.Unwrap` when present. Do not replay mutations after `ErrActionUncertain`: the action may already have happened. Inspect the session in Revyl instead.
+
+`Error.HTTPStatus` exposes the HTTP status when a server response caused the error (zero for local failures), and `Error.Reason` is an optional `RefusalReason` drawn only from known service refusal codes. Constants such as `ReasonComputerAtCapacity`, `ReasonComputerCannotHostPlatform`, and `ReasonWebRuntimeUnavailable` let callers distinguish capacity, compatibility, and runtime refusals without parsing messages. Unknown server content is never copied into `Reason`. Existing non-hosted codes remain unchanged, including `ErrAPI` for a web 409, `ErrComputerLimit` for computer admission limits, and `ErrNotAvailableOnPlatform` for computer runtime unavailability.
 
 Credentials resolve from `REVYL_API_KEY`, then `~/.revyl/credentials.json`. A usable CLI login marked `local_auth_override` takes precedence over the environment key, matching the TypeScript SDK and Revyl CLI. Expired access tokens fall back to a stored API key. Never put keys, tokens, or private session content in source, fixtures, or logs.
 

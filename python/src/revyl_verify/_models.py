@@ -46,12 +46,32 @@ class Target:
     viewport: Viewport | None = None
     sign_in: SignIn | None = None
 
-    def validate(self) -> None:
+    def validate(self, *, hosted: bool = False) -> None:
         def bad(message: str) -> None:
             raise VerifyError("INVALID_ARGUMENT", message)
 
         if self.platform not in ("web", "ios", "android", "mac", "linux"):
             bad("Platform must be web, ios, android, mac, or linux.")
+        if hosted:
+            if self.platform not in ("web", "ios", "android"):
+                bad("Hosted targets must be web, ios, or android.")
+            if not self.app_id or not self.build_id:
+                bad("Hosted targets require both app_id and build_id UUIDs.")
+            if any(
+                value is not None
+                for value in (
+                    self.bundle_id,
+                    self.url,
+                    self.artifact_url,
+                    self.branch,
+                    self.device_model,
+                    self.os_version,
+                )
+            ):
+                bad(
+                    "Hosted targets accept existing app_id and build_id, "
+                    "not app or device overrides."
+                )
         seconds(self.start_timeout, 10, 1800, "start_timeout")
         for name in (
             "app_id",
@@ -141,7 +161,7 @@ class Target:
             return
         if any(value is not None for value in (self.url, self.branch, self.viewport, self.sign_in)):
             bad("url, branch, viewport, and sign_in apply only to web targets.")
-        if (
+        if not hosted and (
             sum(
                 value is not None
                 for value in (self.app_id, self.build_id, self.artifact_url, self.bundle_id)

@@ -8,6 +8,7 @@ import {
   parseJson,
   responseDetail,
   responseErrorCode,
+  responseRefusalReason,
   sessionViewerUrl,
   type RawResponse,
 } from './api/client.js';
@@ -16,13 +17,14 @@ import type {
   LiveStepType,
   Platform,
   StartDeviceRequest,
+  StartDeviceResponse,
   StepAccepted,
   StepStatus,
   WorkerActionResult,
   WorkerHealth,
 } from './api/types.js';
 import { trackSession, untrackSession } from './cleanup.js';
-import type { ResolvedDeviceTarget } from './config.js';
+import type { HostedTargetConfig, ResolvedDeviceTarget } from './config.js';
 import { VerifyError, errorMessage, isVerifyError } from './errors.js';
 import { screenHasContent } from './screen-readiness.js';
 
@@ -113,6 +115,9 @@ export interface Session {
   readonly closed: boolean;
   readonly expiresAt?: Date;
   recording(): Promise<ComputerRecording | null>;
+  report(): Promise<Record<string, unknown>>;
+  navigate(url: string): Promise<void>;
+  open(target: HostedTargetConfig): Promise<Session>;
   /** Asks Revyl's agent to do something on the app. Browsers and devices only. */
   instruction(text: string, options?: StepOptions): Promise<StepResult>;
   /** Asks Revyl's agent whether something holds on screen. Browsers and devices only. */
@@ -141,6 +146,13 @@ export interface SessionOptions {
   log: ((line: string) => void) | undefined;
 }
 
+export interface HostingParent {
+  id: string;
+  signal: AbortSignal;
+  expiresAt?: Date;
+  register(session: Session): void;
+}
+
 /** A Revyl cloud browser or iOS or Android device. */
 export class DeviceSession implements Session {
   readonly platform: Platform;
@@ -155,6 +167,12 @@ export class DeviceSession implements Session {
   private workflowRunId: string;
   private closePromise: Promise<void> | undefined;
   private stepRunning = false;
+  private parent?: HostingParent;
+  private readySignal?: AbortSignal;
+
+  get expiresAt(): Date | undefined {
+    return this.parent?.expiresAt;
+  }
 
   private constructor(
     private readonly client: RevylClient,
@@ -170,8 +188,9 @@ export class DeviceSession implements Session {
     this.viewerUrl = sessionViewerUrl(id);
   }
 
-  static async start(client: RevylClient, target: ResolvedDeviceTarget, options: SessionOptions): Promise<DeviceSession> {
-    const deadline = Date.now() + target.startTimeout;
+  static async start(client: RevylClient, target: ResolvedDeviceTarget, options: SessionOptions, parent?: HostingParent): Promise<DeviceSession> {
+    const deadline = Math.min(Date.now() + target.startTimeout, parent?.expiresAt?.getTime() ?? Infinity);
+    if (parent) return DeviceSession.startHosted(client, target, options, parent, deadline);
     if (target.platform === 'web') {
       const buildId = await resolveWebBuildId(client, target);
       const sessionId = randomUUID();
@@ -235,6 +254,66 @@ export class DeviceSession implements Session {
     return session;
   }
 
+  private static async startHosted(client: RevylClient, target: ResolvedDeviceTarget, options: SessionOptions, parent: HostingParent, deadline: number): Promise<DeviceSession> {
+    const id = randomUUID();
+    const session = new DeviceSession(client, target, id, '', options);
+    session.parent = parent;
+    session.readySignal = AbortSignal.any([parent.signal, AbortSignal.timeout(Math.max(0, deadline - Date.now()))]);
+    const request: StartDeviceRequest = {
+      platform: target.platform,
+      session_id: id,
+      computer_session_id: parent.id,
+      app_id: target.app.appId,
+      build_id: target.app.buildId,
+      idle_timeout_seconds: target.idleTimeoutSeconds,
+      ...(target.platform === 'web' ? { web: {
+        ...(target.viewport ? { viewport: { width: target.viewport.width, height: target.viewport.height, device_scale_factor: target.viewport.deviceScaleFactor } } : {}),
+        ...(target.signIn ? { sign_in: { path: target.signIn.path, secret_name: target.signIn.secret, persona: target.signIn.persona } } : {}),
+      } } : { is_simulation: true }),
+    };
+    let submitted = false;
+    let refused = false;
+    try {
+      session.readySignal.throwIfAborted();
+      submitted = true;
+      const response = await client.send('POST', '/api/v1/execution/start_device', { body: request, retry: false, signal: session.readySignal, timeoutMs: 120_000 });
+      if (response.status < 200 || response.status >= 300) {
+        const reason = responseRefusalReason(response);
+        refused = [400, 401, 403, 404, 405, 409, 422, 429].includes(response.status) || (response.status === 503 && reason !== undefined);
+        const code = response.status === 401 || response.status === 403 ? 'AUTH_REJECTED'
+          : reason === 'computer_not_found' || response.status === 404 ? 'NOT_FOUND'
+          : reason === 'computer_not_running' ? 'SESSION_ENDED'
+          : reason === 'computer_cannot_host_platform' || reason === 'computer_runtime_unavailable' || reason === 'web_runtime_unavailable' || reason === 'runtime_unavailable' || reason === 'not_available_on_platform' ? 'NOT_AVAILABLE_ON_PLATFORM'
+          : reason === 'computer_at_capacity' || reason === 'computer_limit' ? 'COMPUTER_LIMIT'
+          : response.status === 422 || response.status === 400 ? 'INVALID_ARGUMENT'
+          : response.status === 409 ? 'SESSION_BUSY'
+          : response.status === 408 || response.status >= 500 ? 'ACTION_UNCERTAIN' : 'API_ERROR';
+        throw new VerifyError(code, `Revyl refused the hosted session start (${reason ?? `HTTP ${response.status}`}).`, { reason, httpStatus: response.status });
+      }
+      const start = parseJson<StartDeviceResponse>(response, 'hosted session start');
+      if (!start || typeof start !== 'object' || Array.isArray(start)) throw new VerifyError('API_ERROR', 'Revyl returned an invalid hosted session response.');
+      if (start.session_id !== id || typeof start.workflow_run_id !== 'string' || !/^[A-Za-z0-9_-]{1,255}$/.test(start.workflow_run_id) || (start.platform !== undefined && start.platform !== target.platform)) throw new VerifyError('SESSION_START_FAILED', 'Revyl did not acknowledge the hosted session identity.');
+      session.workflowRunId = start.workflow_run_id;
+      parent.register(session);
+      await session.untilReady(async () => {
+        if (target.platform === 'web') await session.waitForWebReady(deadline);
+        else {
+          await session.waitForDeviceReady(deadline);
+          await session.waitForScreenContent(deadline);
+        }
+      });
+      session.readySignal.throwIfAborted();
+      return session;
+    } catch (error) {
+      if (submitted && !refused) {
+        parent.register(session);
+        await session.close().catch(() => undefined);
+      }
+      if (session.readySignal.aborted) throw new VerifyError('TIMEOUT', `Hosted startup was cancelled or exceeded its deadline. See ${session.viewerUrl}`, { cause: error });
+      throw error;
+    }
+  }
+
   get closed(): boolean {
     return this.closePromise !== undefined;
   }
@@ -272,8 +351,30 @@ export class DeviceSession implements Session {
     return response.body;
   }
 
+  async report(): Promise<Record<string, unknown>> {
+    const report: unknown = await this.client.getDeviceSession(this.id);
+    if (!report || typeof report !== 'object' || Array.isArray(report)) throw new VerifyError('API_ERROR', 'Revyl returned an invalid session report.');
+    return report as Record<string, unknown>;
+  }
+
+  async navigate(url: string): Promise<void> {
+    if (this.platform !== 'web') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'navigate() is available only on web sessions.');
+    if (typeof url !== 'string' || url.length > 2048 || /[\x00-\x20\x7f-\x9f\s\\]/.test(url)) throw new VerifyError('INVALID_ARGUMENT', 'navigate() requires an http(s) URL without credentials, whitespace, or backslashes.');
+    let parsed: URL;
+    try { parsed = new URL(url); } catch { throw new VerifyError('INVALID_ARGUMENT', 'navigate() requires a valid http(s) URL.'); }
+    if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password) throw new VerifyError('INVALID_ARGUMENT', 'navigate() requires an http(s) URL without credentials.');
+    const response = await this.worker('POST', 'open_url', { body: { url }, retry: false });
+    const result = parseJson<{ success?: boolean; action?: string; status_code?: number }>(response, 'open_url');
+    if (!result || typeof result !== 'object' || typeof result.success !== 'boolean' || (result.action !== undefined && result.action !== 'navigate') || (result.status_code !== undefined && (!Number.isInteger(result.status_code) || result.status_code < 100 || result.status_code > 599))) throw new VerifyError('API_ERROR', 'Revyl returned an invalid navigation response.');
+    if (!result.success) throw new VerifyError('ACTION_FAILED', `Revyl did not confirm navigation. See ${this.viewerUrl}`);
+  }
+
   exec(): Promise<ExecResult> {
     return this.computerOnly('exec');
+  }
+
+  open(): Promise<never> {
+    return this.computerOnly('open');
   }
 
   recording(): Promise<never> {
@@ -304,7 +405,7 @@ export class DeviceSession implements Session {
   close(): Promise<void> {
     this.closePromise ??= (async () => {
       try {
-        if (this.id) await this.client.stopDeviceSession(this.id);
+        if (this.id) await this.client.stopDeviceSession(this.id, this.parent === undefined);
         else await this.client.cancelDevice(this.workflowRunId);
         this.log('closed');
       } finally {
@@ -416,7 +517,7 @@ export class DeviceSession implements Session {
     while (Date.now() < deadline) {
       try {
         const response = await this.client.worker(this.workflowRunId, 'screenshot', {
-          method: 'GET', retry: false, signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+          method: 'GET', retry: false, signal: AbortSignal.any([AbortSignal.timeout(Math.max(1, deadline - Date.now())), ...(this.readySignal ? [this.readySignal] : [])]),
         });
         if (response.status === 200) {
           const content = screenHasContent(response.body);
@@ -449,9 +550,18 @@ export class DeviceSession implements Session {
     action: string,
     options: { body?: unknown; signal?: AbortSignal; retry?: boolean; timeoutMs?: number },
   ): Promise<RawResponse> {
-    if (this.closePromise) throw new VerifyError('SESSION_ENDED', `The ${this.target} session was closed.`);
-    const response = await this.client.worker(this.workflowRunId, action, { method, ...options });
+    if (this.closePromise || this.parent?.signal.aborted || (this.parent?.expiresAt && Date.now() >= this.parent.expiresAt.getTime())) throw new VerifyError('SESSION_ENDED', `The ${this.target} session was closed or its parent expired.`);
+    const signal = this.parent ? AbortSignal.any([
+      this.parent.signal,
+      ...(this.parent.expiresAt ? [AbortSignal.timeout(Math.max(0, this.parent.expiresAt.getTime() - Date.now()))] : []),
+      ...(options.signal ? [options.signal] : []),
+    ]) : options.signal;
+    const response = await this.client.worker(this.workflowRunId, action, { method, ...options, signal });
     if (response.status >= 200 && response.status < 300) return response;
+    if (action === 'open_url') {
+      const error = this.workerError(method, action, response);
+      throw new VerifyError(error.code, `Web navigation failed (HTTP ${response.status}). See ${this.viewerUrl}`, { reason: responseRefusalReason(response), httpStatus: response.status });
+    }
     throw this.workerError(method, action, response);
   }
 
@@ -502,7 +612,8 @@ export class DeviceSession implements Session {
 
   private async waitForWebReady(deadline: number): Promise<void> {
     for (;;) {
-      const detail = await this.client.getDeviceSession(this.id);
+      this.readySignal?.throwIfAborted();
+      const detail = await this.client.getDeviceSession(this.id, this.readySignal);
       if (ENDED_STATUSES.has(detail.status)) {
         throw new VerifyError(
           'SESSION_START_FAILED',
@@ -511,7 +622,7 @@ export class DeviceSession implements Session {
       }
       if (detail.status === 'running' && detail.workflow_run_id) {
         this.workflowRunId = detail.workflow_run_id;
-        const response = await this.client.worker(this.workflowRunId, 'screenshot', { method: 'GET' });
+        const response = await this.client.worker(this.workflowRunId, 'screenshot', { method: 'GET', signal: this.readySignal });
         if (response.status === 200 && pngSize(response.body)) return;
         if (response.status !== 503 && response.status !== 409 && responseErrorCode(response) !== 'not_ready') {
           throw this.workerError('GET', 'screenshot', response);
@@ -523,7 +634,8 @@ export class DeviceSession implements Session {
 
   private async waitForDeviceReady(deadline: number): Promise<void> {
     for (;;) {
-      const connection = await this.client.getWorkerConnection(this.workflowRunId);
+      this.readySignal?.throwIfAborted();
+      const connection = await this.client.getWorkerConnection(this.workflowRunId, this.readySignal);
       if (connection.status === 'ready' && connection.worker_ws_url) break;
       if (connection.status === 'cancelled' || connection.status === 'stopped' || connection.status === 'failed') {
         throw new VerifyError(
@@ -535,7 +647,7 @@ export class DeviceSession implements Session {
     }
     const connectDeadline = Math.min(deadline, Date.now() + DEVICE_CONNECT_TIMEOUT_MS);
     for (;;) {
-      const response = await this.client.worker(this.workflowRunId, 'health', { method: 'GET', retry: true });
+      const response = await this.client.worker(this.workflowRunId, 'health', { method: 'GET', retry: true, signal: this.readySignal });
       if (response.status === 200 && parseJson<WorkerHealth>(response, 'health').device_connected) return;
       if (response.status !== 200 && response.status !== 503) throw this.workerError('GET', 'health', response);
       await waitBeforeDeadline(connectDeadline, `The ${this.target} device did not connect in time.`);
