@@ -5,12 +5,13 @@ import math
 import re
 import time
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import NoReturn
 from urllib.parse import quote, urlsplit
 
-from ._cleanup import untrack
+from ._cleanup import track, untrack
 from ._models import (
     ComputerProcess,
     ComputerRecording,
@@ -20,7 +21,17 @@ from ._models import (
     Target,
 )
 from ._session import Session, save_screenshot
-from ._transport import Client, Deadline, Json, Response, VerifyError, decode_bytes, obj, timestamp
+from ._transport import (
+    Cancellation,
+    Client,
+    Deadline,
+    Json,
+    Response,
+    VerifyError,
+    decode_bytes,
+    obj,
+    timestamp,
+)
 
 _MAX_OUTPUT = 1_048_576
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
@@ -137,7 +148,13 @@ class ComputerSession(Session):
 
     @classmethod
     def start(
-        cls, client: Client, app_url: str, target: Target, step_timeout: float
+        cls,
+        client: Client,
+        app_url: str,
+        target: Target,
+        step_timeout: float,
+        log: Callable[[str], None] | None = None,
+        cancellation: Cancellation | None = None,
     ) -> ComputerSession:
         if target.platform not in {"mac", "linux"}:
             raise VerifyError("INVALID_ARGUMENT", "A computer target must be mac or linux.")
@@ -145,14 +162,19 @@ class ComputerSession(Session):
         session = cls(
             client,
             session_id,
-            session_id,
+            "",
             target.platform,
             f"{app_url.rstrip('/')}/sessions/{quote(session_id, safe='')}?kind=computer",
             step_timeout,
         )
-        deadline = Deadline(target.start_timeout)
+        cancellation = cancellation or Cancellation()
+        session._cancellation = cancellation
+        deadline = Deadline(target.start_timeout, cancellation)
+        session._log_callback = log
         acknowledged = False
         try:
+            track(session)
+            session._log(f"starting computer {session.viewer_url}. {_AVAILABILITY}")
             response = session._request(
                 "POST",
                 "",
@@ -167,6 +189,7 @@ class ComputerSession(Session):
                 report = session._report(response)
                 if report["state"] == "active":
                     session._screen_ready_until = time.monotonic() + 30
+                    session._log("ready")
                     return session
                 if report["state"] != "starting":
                     reason = ""
@@ -185,12 +208,15 @@ class ComputerSession(Session):
                 deadline.pause(2)
                 response = session._request("GET", "/report", None, deadline)
         except BaseException as error:
-            timed_out = False
-            try:
-                deadline.remaining()
-            except VerifyError:
-                timed_out = True
-            if (
+            timed_out = isinstance(error, VerifyError) and (
+                error.code == "TIMEOUT"
+                or (
+                    error.code == "ACTION_UNCERTAIN"
+                    and isinstance(error.__cause__, VerifyError)
+                    and error.__cause__.code == "TIMEOUT"
+                )
+            )
+            refused = (
                 not acknowledged
                 and isinstance(error, VerifyError)
                 and error.code
@@ -200,20 +226,20 @@ class ComputerSession(Session):
                     "INVALID_ARGUMENT",
                     "COMPUTER_LIMIT",
                 }
-            ):
+            )
+            if refused:
                 session._closed = True
-            else:
-                try:
-                    session.close()
-                except VerifyError:
-                    pass
+                untrack(session)
             if timed_out:
-                raise VerifyError(
+                error = VerifyError(
                     "TIMEOUT",
-                    f"The {target.platform} computer was not ready within "
-                    f"{target.start_timeout} seconds. A possible cause is that no computer "
-                    f"could be assigned. {_AVAILABILITY}. Inspect {session.viewer_url}",
-                ) from None
+                    f"The {target.platform} computer startup timed out "
+                    f"(startup budget: {target.start_timeout} seconds). A possible cause is that "
+                    f"no computer could be assigned. {_AVAILABILITY}. Inspect {session.viewer_url}",
+                )
+            session._startup_failure(error, cleanup=not refused, refused=refused)
+            if timed_out:
+                raise error from None
             raise
 
     def _request(self, method: str, suffix: str, body: Json, deadline: Deadline) -> Response:
@@ -233,7 +259,7 @@ class ComputerSession(Session):
                     "ACTION_UNCERTAIN",
                     "Computer request outcome is unconfirmed. Verify will not repeat it. "
                     f"See {self.viewer_url}",
-                ) from None
+                ) from error
             raise VerifyError(
                 error.code, f"Could not read the computer state. See {self.viewer_url}"
             ) from None
@@ -657,9 +683,10 @@ class ComputerSession(Session):
                     if self._close_error is not None:
                         raise self._close_error
                     return
-                self._closed = True
-            self._cancellation.cancel()
             try:
+                with self._lock:
+                    self._closed = True
+                self._cancellation.cancel()
                 report = self._report(self._request("POST", "/stop", None, Deadline(310)))
                 if report.get("release") != "confirmed":
                     raise VerifyError(
@@ -669,7 +696,10 @@ class ComputerSession(Session):
                     )
                 if report["state"] not in _TERMINAL:
                     raise _invalid()
+                self._cleanup_status = "confirmed"
+                self._log("physical release confirmed")
             except VerifyError as error:
+                self._cleanup_status = "unconfirmed"
                 if error.code == "ACTION_UNCERTAIN":
                     error = VerifyError(
                         error.code,
@@ -680,6 +710,7 @@ class ComputerSession(Session):
                     self._close_error = error
                 raise error
             except BaseException:
+                self._cleanup_status = "unconfirmed"
                 self._close_error = VerifyError(
                     "ACTION_UNCERTAIN",
                     "Computer stop was interrupted; physical release is unconfirmed. "
@@ -687,4 +718,7 @@ class ComputerSession(Session):
                 )
                 raise
             finally:
+                if self._close_error:
+                    self._attach_failure(self._close_error)
+                    self._log("physical release unconfirmed")
                 untrack(self)

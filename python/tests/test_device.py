@@ -160,10 +160,10 @@ class FakeRevyl:
         if request.method == "POST" and path == PROXY + "execute_step":
             key = "validationPassed" if request.body["step_type"] == "validation" else "stepResult"
             return Reply(body=FIXTURES[key])
-        if request.method == "POST" and (
-            path.endswith("/stop") or "/device/status/cancel/" in path
-        ):
-            return Reply(body=FIXTURES["stop"])
+        if request.method == "POST" and path.endswith("/stop"):
+            return Reply(body={**FIXTURES["stop"], "session_id": path.split("/")[-2]})
+        if request.method == "POST" and "/device/status/cancel/" in path:
+            return Reply(body={**FIXTURES["stop"], "workflow_run_id": path.rsplit("/", 1)[-1]})
         self.errors.append(f"Unexpected {request.method} {path}")
         return Reply(599)
 

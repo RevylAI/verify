@@ -70,7 +70,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-`async_open` returns an `AsyncSession`. Its async methods adapt the synchronous implementation through worker threads, rather than introducing another HTTP stack. Cancelling a method schedules best-effort session close; cancelling open closes the eventual returned session. Cancellation does not forcibly terminate an in-flight thread or undo a remote operation; do not replay an uncertain mutation. Always close explicitly or use `async with await async_open(...)`.
+`async_open` returns an `AsyncSession`. Its async methods adapt the synchronous implementation through worker threads, rather than introducing another HTTP stack. Cancelling a method schedules best-effort session close; cancelling open interrupts startup and attempts cleanup as soon as an identity is known. Cancellation does not forcibly terminate an in-flight thread or undo a remote operation; do not replay an uncertain mutation. Always close explicitly or use `async with await async_open(...)`.
 
 ### Linux computer (enabled staging organizations only)
 
@@ -103,6 +103,26 @@ Construct a frozen `Target(platform=...)`:
 
 `start_timeout` defaults to 600 seconds (allowed range 10–1800). Web/mobile also accept `idle_timeout_seconds` (60–3600). `open` and `async_open` accept optional `backend_url`, `app_url`, and default `step_timeout` in seconds. Prefer matching environment variables when selecting a non-default environment.
 
+Pass `log=callback` to either opening API for sanitized lifecycle progress, including the viewer link as soon as the session identity is known. The default is quiet. Async callbacks run on a worker thread, so make them thread-safe; callback exceptions do not interrupt resource cleanup. Progress never includes app URLs, command or step content, credentials, recording URLs, or raw server errors. Viewer links and session IDs are still private operational context.
+
+Startup `VerifyError` instances retain optional typed `platform`, `session_id`, `workflow_run_id`, and `viewer_url`, plus `cleanup_status` and `cleanup_error`. These fields remain available even though opening did not return a session:
+
+```python
+from revyl_verify import Target, VerifyError, open
+
+try:
+    session = open(Target(platform="linux"), log=lambda line: None)
+except VerifyError as error:
+    session_id = error.session_id
+    viewer_url = error.viewer_url
+    cleanup_status = error.cleanup_status
+    cleanup_error = error.cleanup_error
+else:
+    session.close()
+```
+
+Cleanup status is `acknowledged` for a validated device stop response, `confirmed` for terminal computer state plus physical release, `unconfirmed` when cleanup failed or no usable mobile identity was returned, and `not_required` after a definite create refusal. `not_attempted` applies before startup ownership exists. An unknown mobile ID is `None`, never invented. Web/computer caller-generated IDs remain available after an uncertain create; a mismatched web acknowledgment never authorizes stopping the other ID. Startup cleanup uses a fresh bounded deadline, preserves the original failure, and attaches a separate cleanup error. Do not retry creation to recover an uncertain outcome; inspect the known session privately. A device stop acknowledgment does not prove physical release.
+
 Session properties include `id`, `platform`, `viewer_url`, `expires_at` and `closed`. Steps return `StepResult` with `passed`, `reason` and `duration_seconds`; commands return `ExecResult` with `exit_code`, `stdout` and `stderr`. Computer methods also include `stat(path)`, `processes()` and `terminate(handle_id)`, with bounded seconds-based timeouts. Errors raise `VerifyError` with a stable `code`. Async session methods have the same arguments/results and are awaited.
 
 | Platform | Instructions / validations | Commands / files / processes | PNG screenshot |
@@ -113,7 +133,9 @@ Session properties include `id`, `platform`, `viewer_url`, `expires_at` and `clo
 
 Mac and Linux are staging-only early access for enabled organizations and OSes, **not available in production**. Computer admission may return `COMPUTER_LIMIT`; the SDK does not retry creation. Computer sessions have a hard 60-minute lifetime from creation. Screenshot observation retries structured startup screen-not-ready errors within a bounded window; other errors are not silently replayed.
 
-Context-manager exit calls `close()`. Device close acknowledges a stop request; computer close requires terminal state **and confirmed resource release**. Interpreter-exit cleanup is best effort and cannot replace explicit close, especially with asyncio. A failed close is not proof the resource was released; investigate it rather than starting replacement sessions blindly.
+Context-manager exit calls `close()`. Device close acknowledges a stop request; computer close requires terminal state **and confirmed resource release**. Close submits its stop mutation once; repeated calls share the first outcome, including an unconfirmed failure. Interpreter-exit cleanup is best effort and cannot replace explicit close, especially with asyncio. A failed close is not proof the resource was released; investigate it rather than starting replacement sessions blindly.
+
+Async startup cancellation interrupts its bounded startup request and cleans up when an identity is known. Context managers preserve an existing body failure if cleanup also fails, chaining the cleanup exception. Main-thread `open`/`async_open` installs cleanup-compatible SIGTERM handling only when no custom SIGTERM handler exists; it exits with `128 + signal` after unwinding and best-effort cleanup. Abrupt termination, SIGKILL, and existing application signal handlers cannot guarantee cleanup.
 
 ## Development
 

@@ -4,6 +4,7 @@ import io
 import re
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from types import TracebackType
@@ -13,8 +14,9 @@ from uuid import uuid4
 
 from PIL import Image, UnidentifiedImageError
 
-from ._cleanup import untrack
+from ._cleanup import track, untrack
 from ._models import (
+    UUID_PATTERN,
     ComputerProcess,
     ComputerRecording,
     ExecResult,
@@ -24,7 +26,17 @@ from ._models import (
     Target,
     text_length,
 )
-from ._transport import Cancellation, Client, Deadline, Json, Response, VerifyError, obj, seconds
+from ._transport import (
+    Cancellation,
+    CleanupStatus,
+    Client,
+    Deadline,
+    Json,
+    Response,
+    VerifyError,
+    obj,
+    seconds,
+)
 
 
 def png_size(data: bytes) -> tuple[int, int]:
@@ -86,6 +98,41 @@ class Session:
         self._close_lock = threading.Lock()
         self._step_running = False
         self._cancellation = Cancellation()
+        self._log_callback: Callable[[str], None] | None = None
+        self._cleanup_status: CleanupStatus = "not_attempted"
+
+    def _log(self, message: str) -> None:
+        if self._log_callback:
+            try:
+                self._log_callback(f"{self.platform}: {message}")
+            except Exception:
+                pass
+
+    def _startup_failure(
+        self,
+        error: BaseException,
+        *,
+        cleanup: bool = True,
+        refused: bool = False,
+    ) -> None:
+        if cleanup:
+            try:
+                self.close()
+            except BaseException:
+                pass
+        else:
+            self._cleanup_status = "not_required" if refused else "unconfirmed"
+        self._attach_failure(error)
+        self._log(f"startup failed; cleanup {self._cleanup_status}")
+
+    def _attach_failure(self, error: BaseException) -> None:
+        if isinstance(error, VerifyError):
+            error.platform = self.platform
+            error.session_id = self.id or None
+            error.workflow_run_id = self._run_id or None
+            error.viewer_url = self.viewer_url if self.id else None
+            error.cleanup_status = self._cleanup_status
+            error.cleanup_error = self._close_error if self._close_error is not error else None
 
     @property
     def expires_at(self) -> datetime | None:
@@ -104,11 +151,27 @@ class Session:
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        self.close()
+        try:
+            self.close()
+        except BaseException as cleanup_error:
+            if exc is None:
+                raise
+            if isinstance(exc, VerifyError):
+                self._attach_failure(exc)
+            raise exc.with_traceback(traceback) from cleanup_error
 
     @classmethod
-    def start(cls, client: Client, app_url: str, target: Target, step_timeout: float) -> Session:
-        deadline = Deadline(target.start_timeout)
+    def start(
+        cls,
+        client: Client,
+        app_url: str,
+        target: Target,
+        step_timeout: float,
+        log: Callable[[str], None] | None = None,
+        cancellation: Cancellation | None = None,
+    ) -> Session:
+        cancellation = cancellation or Cancellation()
+        deadline = Deadline(target.start_timeout, cancellation)
         body: dict[str, Json] = {
             "platform": target.platform,
             "idle_timeout_seconds": target.idle_timeout_seconds or 600,
@@ -147,35 +210,68 @@ class Session:
             ):
                 if value is not None:
                     body[key] = value
-        start = client.json(
-            "POST", "/api/v1/execution/start_device", body, deadline=deadline, timeout=120
-        )
-        session_id, run_id = start.get("session_id"), start.get("workflow_run_id")
-        if session_id is not None and not isinstance(session_id, str):
-            raise VerifyError("SESSION_START_FAILED", "Revyl did not acknowledge the new session.")
-        if run_id is not None and not isinstance(run_id, str):
-            raise VerifyError("SESSION_START_FAILED", "Revyl did not acknowledge the new session.")
-        if (target.platform == "web" and session_id != proposed_id) or (
-            target.platform != "web" and not run_id
-        ):
-            raise VerifyError("SESSION_START_FAILED", "Revyl did not acknowledge the new session.")
         session = cls(
             client,
-            session_id or "",
-            run_id or "",
+            proposed_id if target.platform == "web" else "",
+            "",
             target.platform,
-            app_url + "/sessions/" + quote(session_id or "", safe=""),
+            app_url + "/sessions/" + (proposed_id if target.platform == "web" else ""),
             step_timeout,
         )
+        session._log_callback = log
+        session._cancellation = cancellation
+        submitted = False
+        refused = False
         try:
+            session._log("starting session" + (" " + session.viewer_url if session.id else ""))
+            submitted = True
+            if session.id:
+                track(session)
+            response = client.request(
+                "POST", "/api/v1/execution/start_device", body, deadline=deadline, timeout=120
+            )
+            if not 200 <= response.status < 300:
+                refused = response.status in (400, 401, 403, 404, 405, 422, 429)
+                from ._transport import http_error
+
+                raise http_error(response)
+            start = obj(response.json())
+            session_id, run_id = start.get("session_id"), start.get("workflow_run_id")
+            valid_run_id = isinstance(run_id, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,255}", run_id)
+            valid_session_id = isinstance(session_id, str) and UUID_PATTERN.fullmatch(session_id)
+            if valid_run_id and isinstance(run_id, str):
+                session._run_id = run_id
+            if target.platform != "web" and valid_session_id and isinstance(session_id, str):
+                session.id = session_id
+                session.viewer_url = app_url + "/sessions/" + quote(session_id, safe="")
+            if session.id or session._run_id:
+                track(session)
+                if target.platform != "web":
+                    session._log(
+                        "assigned session "
+                        + (session.viewer_url if session.id else session._run_id)
+                    )
+            if (
+                (session_id is not None and not valid_session_id)
+                or (run_id is not None and not valid_run_id)
+                or (target.platform == "web" and session_id != proposed_id)
+                or (target.platform != "web" and not session._run_id)
+            ):
+                raise VerifyError(
+                    "SESSION_START_FAILED", "Revyl did not acknowledge the new session."
+                )
             session._ready(target, deadline)
             if target.platform != "web":
                 session._wait_first_screen(deadline.cap(10))
-        except BaseException:
-            try:
-                session.close()
-            except VerifyError:
-                pass
+            session._log("ready")
+        except BaseException as error:
+            session._startup_failure(
+                error,
+                cleanup=submitted and not refused and bool(session.id or session._run_id),
+                refused=refused,
+            )
+            if not session.id and not session._run_id or refused:
+                untrack(session)
             raise
         return session
 
@@ -204,6 +300,8 @@ class Session:
                     )
                 run = detail.get("workflow_run_id")
                 if detail.get("status") == "running" and isinstance(run, str) and run:
+                    if not re.fullmatch(r"[A-Za-z0-9_-]{1,255}", run):
+                        raise VerifyError("API_ERROR", "Revyl returned an invalid workflow ID.")
                     self._run_id = run
                     response = self._client.request(
                         "GET", self._path("screenshot"), deadline=deadline, worker=True
@@ -480,24 +578,63 @@ class Session:
                 if self._close_error:
                     raise self._close_error
                 return
-            self._closed = True
-            self._cancellation.cancel()
-            path = (
-                "/api/v1/execution/device/sessions/" + quote(self.id, safe="") + "/stop"
-                if self.id
-                else "/api/v1/execution/device/status/cancel/" + quote(self._run_id, safe="")
-            )
             try:
-                self._client.json("POST", path, deadline=Deadline(30), retry=True)
+                self._closed = True
+                self._cancellation.cancel()
+                path = (
+                    "/api/v1/execution/device/sessions/" + quote(self.id, safe="") + "/stop"
+                    if self.id
+                    else "/api/v1/execution/device/status/cancel/" + quote(self._run_id, safe="")
+                )
+                if not self.id and not self._run_id:
+                    raise VerifyError(
+                        "ACTION_UNCERTAIN", "No session identity is available to request cleanup."
+                    )
+                result = self._client.json("POST", path, deadline=Deadline(30))
+                response_id = result.get("session_id")
+                if (
+                    result.get("success") is not True
+                    or result.get("request_accepted") is not True
+                    or not isinstance(response_id, str)
+                    or not UUID_PATTERN.fullmatch(response_id)
+                    or (self.id and response_id != self.id)
+                    or (not self.id and result.get("workflow_run_id") != self._run_id)
+                    or result.get("status")
+                    not in (
+                        "queued",
+                        "starting",
+                        "running",
+                        "verifying",
+                        "stopping",
+                        "validating",
+                        "completed",
+                        "failed",
+                        "cancelled",
+                        "timeout",
+                    )
+                ):
+                    raise VerifyError(
+                        "ACTION_UNCERTAIN", "Revyl did not acknowledge the stop request."
+                    )
+                if not self.id:
+                    self.id = response_id
+                    self.viewer_url += quote(response_id, safe="")
+                self._cleanup_status = "acknowledged"
+                self._log("stop acknowledged")
             except VerifyError as error:
+                self._cleanup_status = "unconfirmed"
                 self._close_error = error
                 raise
             except BaseException:
+                self._cleanup_status = "unconfirmed"
                 self._close_error = VerifyError(
                     "ACTION_UNCERTAIN", "Session stop was interrupted; its outcome is unconfirmed."
                 )
                 raise
             finally:
+                if self._close_error:
+                    self._attach_failure(self._close_error)
+                    self._log("stop unconfirmed")
                 untrack(self)
 
     def _computer_only(self) -> NoReturn:

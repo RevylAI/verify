@@ -170,7 +170,7 @@ def test_cancelled_open_releases_after_event_loop_shutdown(fake: FakeRevyl) -> N
     def handler(request: Request) -> Reply | None:
         if "/worker-connection/" in request.path:
             entered.set()
-            assert release.wait(3)
+            assert release.wait(10)
         return None
 
     fake.handler = handler
@@ -186,19 +186,20 @@ def test_cancelled_open_releases_after_event_loop_shutdown(fake: FakeRevyl) -> N
         opening.cancel()
         with pytest.raises(asyncio.CancelledError):
             await opening
-        timer = threading.Timer(0.1, release.set)
+        timer = threading.Timer(5, release.set)
         timers.append(timer)
         timer.start()
 
     try:
         asyncio.run(run())
-        assert release.is_set()
         deadline = time.monotonic() + 3
         while not fake.calls("POST", STOP):
             assert time.monotonic() < deadline
             time.sleep(0.005)
+        assert not release.is_set()
     finally:
         release.set()
         for timer in timers:
+            timer.cancel()
             timer.join(3)
     assert len(fake.calls("POST", STOP)) == 1
