@@ -1069,12 +1069,16 @@ def test_interrupted_cancellation_caches_uncertainty_without_stopping_or_replayi
     monkeypatch.setattr(Cancellation, "cancel", interrupt)
     with pytest.raises(KeyboardInterrupt):
         close_session(session)
+    assert session.closed and attempts == 1
+    if platform in COMPUTER_PLATFORMS:
+        close_session(session)
+        assert len(computer_stops(computer_api)) == 1
+        return
     with pytest.raises(VerifyError) as repeated:
         close_session(session)
     assert repeated.value.code == "ACTION_UNCERTAIN"
     assert_identity(repeated.value, platform, session.id)
     assert repeated.value.cleanup_status == "unconfirmed"
-    assert session.closed and attempts == 1
     assert not device_stops(device_api)
     assert not computer_stops(computer_api)
 

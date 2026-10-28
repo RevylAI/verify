@@ -74,7 +74,7 @@ Missing files and access denials throw `NOT_FOUND` and `ACCESS_DENIED`. An opera
 
 ## Lifecycle and transport
 
-Use `attach(computerId)` to take cleanup ownership of an existing active computer without creating one. `computer.open(target)` starts Web/iOS children on Mac and Android on Linux; Web on Linux depends on runtime availability and currently has a runtime limitation. A child requires an existing app/build pair, inherits the parent's client and expiry, and is closed before its parent. See [the hosted API](api.md#computeropentarget) for arguments, localhost navigation, and cleanup semantics. These are app sessions, not natural-language control of the computer desktop itself.
+Use `attach(computerId)` to take cleanup ownership of an existing active computer without creating one. `computer.open(target)` starts Web/iOS children on Mac and Android on Linux; Web on Linux depends on runtime availability and currently has a runtime limitation. A child requires an existing app/build pair and inherits the parent's client and expiry. Parent close attempts child cleanup for at most five seconds before requesting computer release; the server also stops remaining children. See [the hosted API](api.md#computeropentarget) for arguments, localhost navigation, and cleanup semantics. These are app sessions, not natural-language control of the computer desktop itself.
 
 Verify mints a session UUID, creates `/api/v1/computer-runs` with `os: 'macos'` for `platform: 'mac'` or `os: 'linux'` for `platform: 'linux'`, then polls `GET /computer-runs/{id}/report` until `state: 'active'`, which means the owner route is ready. `starting` alone is not readiness. The public Mac target spelling is `mac`, not `macos`.
 

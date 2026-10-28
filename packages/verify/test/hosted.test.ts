@@ -1,9 +1,9 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { attach, open } from '../src/index.js';
 import { ComputerSession } from '../src/computer-session.js';
-import { DeviceSession, type Session } from '../src/session.js';
+import { DeviceSession, type OpenedSession, type Session } from '../src/session.js';
 import { validateTarget, type ResolvedDeviceTarget } from '../src/config.js';
-import { APP_ID, BUILD_ID, FakeRevyl, json, png, stepResult } from './helpers/fake-revyl.js';
+import { APP_ID, BUILD_ID, FakeRevyl, fakeAndroid, json, png, stepResult } from './helpers/fake-revyl.js';
 
 const COMPUTER_ID = '12345678-1234-4234-8234-123456789abc';
 const sessions: Session[] = [];
@@ -96,6 +96,7 @@ describe('attached computers and hosted children', () => {
     ['computer_not_running', 409, 'SESSION_ENDED'],
     ['computer_cannot_host_platform', 409, 'NOT_AVAILABLE_ON_PLATFORM'],
     ['computer_runtime_unavailable', 503, 'NOT_AVAILABLE_ON_PLATFORM'],
+    ['web_runtime_not_configured', 503, 'NOT_AVAILABLE_ON_PLATFORM'],
     ['computer_not_found', 404, 'NOT_FOUND'],
     ['web_build_required', 422, 'INVALID_ARGUMENT'],
     ['web_session_conflict', 409, 'SESSION_BUSY'],
@@ -182,9 +183,77 @@ describe('attached computers and hosted children', () => {
     const childId = fake.calls('POST', /\/start_device$/)[0]?.body.session_id;
     expect(fake.calls('POST', /\/stop$/).map((call) => call.path)).toEqual([`/api/v1/execution/device/sessions/${childId}/stop`, `/api/v1/computer-runs/${COMPUTER_ID}/stop`]);
   });
+
+  it('stops the parent after five seconds even when a child stop is still pending', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const fake = runtime().on('POST', /\/device\/sessions\/[^/]+\/stop$/, async () => {
+      await gate;
+      return json({ success: true });
+    });
+    const parent = await computer(fake);
+    const child = await parent.open(web);
+    const started = performance.now();
+    try {
+      await parent.close();
+      expect(performance.now() - started).toBeLessThan(8_000);
+      expect(fake.calls('POST', /\/stop$/).map((call) => call.path)).toEqual([`/api/v1/execution/device/sessions/${child.id}/stop`, `/api/v1/computer-runs/${COMPUTER_ID}/stop`]);
+    } finally {
+      release();
+      await child.close();
+    }
+  }, 10_000);
+
+  it('bounds the combined pending-start and child-stop phase before stopping the parent', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const fake = runtime().on('POST', /\/start_device$/, async ({ body }) => {
+      await gate;
+      return json({ session_id: body.session_id, workflow_run_id: 'child-run' });
+    });
+    const parent = await computer(fake);
+    const pending = expect(parent.open(web)).rejects.toMatchObject({ code: 'TIMEOUT' });
+    await vi.waitFor(() => expect(fake.calls('POST', /\/start_device$/)).toHaveLength(1));
+    const started = performance.now();
+    try {
+      await parent.close();
+      expect(performance.now() - started).toBeLessThan(8_000);
+      expect(fake.calls('POST', /\/computer-runs\/[^/]+\/stop$/)).toHaveLength(1);
+    } finally {
+      release();
+      await pending;
+    }
+  }, 10_000);
 });
 
 describe('safe startup refusal and navigation', () => {
+  it('keeps legacy Session implementations valid while open returns the extended API', () => {
+    expectTypeOf<Omit<OpenedSession, 'report' | 'navigate' | 'open'>>().toMatchTypeOf<Session>();
+    expectTypeOf<Awaited<ReturnType<typeof open>>>().toMatchTypeOf<OpenedSession>();
+  });
+
+  it('rejects an unknown native session ID before requesting a report', async () => {
+    const fake = fakeAndroid(new FakeRevyl())
+      .on('POST', /\/start_device$/, () => json({ workflow_run_id: 'run-1' }))
+      .on('POST', /\/status\/cancel\/run-1$/, () => json({ success: true }));
+    const session = await DeviceSession.start(fake.client(), validateTarget({ platform: 'android', app: { appId: APP_ID } }) as ResolvedDeviceTarget, { stepTimeout: 1000, log: undefined });
+    sessions.push(session);
+    const requests = fake.requests.length;
+    await expect(session.report()).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(fake.requests).toHaveLength(requests);
+  });
+
+  it.each([{ detail: 'web_app_required' }, { detail: { error: 'web_app_required', message: 'private URL or token' } }])('retains safe start diagnostics without exposing server messages', async (body) => {
+    const fake = runtime().on('POST', /\/start_device$/, () => json(body, 422));
+    await expect(DeviceSession.start(fake.client(), validateTarget(web) as ResolvedDeviceTarget, { stepTimeout: 1000, log: undefined })).rejects.toMatchObject({ code: 'API_ERROR', reason: undefined, httpStatus: 422, message: expect.stringContaining('web_app_required') });
+    expect(fake.requests).toHaveLength(1);
+  });
+
+  it('does not restore raw startup payloads as diagnostics', async () => {
+    const fake = runtime().on('POST', /\/start_device$/, () => json({ detail: 'private URL or token', message: 'private URL or token' }, 422));
+    await expect(DeviceSession.start(fake.client(), validateTarget(web) as ResolvedDeviceTarget, { stepTimeout: 1000, log: undefined })).rejects.toMatchObject({ code: 'API_ERROR', reason: undefined, message: expect.not.stringContaining('private URL or token') });
+  });
+
   it.each([{ detail: 'web_runtime_unavailable' }, { detail: { error: 'web_runtime_unavailable', message: 'private' } }])('retains web startup capacity while keeping API_ERROR', async (body) => {
     const fake = runtime().on('POST', /\/start_device$/, () => json(body, 409));
     await expect(DeviceSession.start(fake.client(), validateTarget(web) as ResolvedDeviceTarget, { stepTimeout: 1000, log: undefined })).rejects.toMatchObject({ code: 'API_ERROR', reason: 'web_runtime_unavailable', httpStatus: 409, message: expect.not.stringContaining('private') });

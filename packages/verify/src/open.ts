@@ -2,7 +2,7 @@ import { RevylClient } from './api/client.js';
 import { missingCredentialsMessage, resolveCredentials } from './auth.js';
 import { DEFAULT_STEP_TIMEOUT_MS, loadConfig, validateTarget, type ResolvedTarget, type TargetConfig } from './config.js';
 import { VerifyError } from './errors.js';
-import { DeviceSession, type Session } from './session.js';
+import { DeviceSession, type OpenedSession } from './session.js';
 import { ComputerSession } from './computer-session.js';
 
 export interface OpenOptions {
@@ -24,7 +24,7 @@ export async function attach(computerId: string, options: Pick<OpenOptions, 'log
  * Starts a Revyl cloud browser, device, or computer. Mobile first-screen readiness is best-effort.
  * Pass a target name from verify.config.ts, such as open('web'), or a target object.
  */
-export async function open(target: string | TargetConfig, options: OpenOptions = {}): Promise<Session> {
+export async function open(target: string | TargetConfig, options: OpenOptions = {}): Promise<OpenedSession> {
   let resolved: ResolvedTarget | undefined;
   let stepTimeout = DEFAULT_STEP_TIMEOUT_MS;
   if (typeof target === 'string') {

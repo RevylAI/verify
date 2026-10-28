@@ -654,6 +654,8 @@ class Session:
         return save_screenshot(response.body, path)
 
     def report(self) -> dict[str, Json]:
+        if not self.id:
+            raise VerifyError("NOT_FOUND", "No session ID is available to read its report.")
         return self._client.json(
             "GET",
             "/api/v1/execution/device-sessions/" + quote(self.id, safe=""),
@@ -662,7 +664,14 @@ class Session:
         )
 
     def close(self) -> None:
-        with self._close_lock:
+        self._close_with_deadline(None)
+
+    def _close_with_deadline(self, deadline: Deadline | None) -> None:
+        if deadline is None:
+            self._close_lock.acquire()
+        elif not self._close_lock.acquire(timeout=deadline.remaining()):
+            raise VerifyError("TIMEOUT", "Session cleanup exceeded its deadline.")
+        try:
             if self._closed:
                 if self._close_error:
                     raise self._close_error
@@ -679,7 +688,7 @@ class Session:
                     raise VerifyError(
                         "ACTION_UNCERTAIN", "No session identity is available to request cleanup."
                     )
-                result = self._client.json("POST", path, deadline=Deadline(30))
+                result = self._client.json("POST", path, deadline=deadline or Deadline(30))
                 response_id = result.get("session_id")
                 if (
                     result.get("success") is not True
@@ -725,6 +734,8 @@ class Session:
                     self._attach_failure(self._close_error)
                     self._log("stop unconfirmed")
                 untrack(self)
+        finally:
+            self._close_lock.release()
 
     def _computer_only(self) -> NoReturn:
         raise VerifyError(

@@ -115,9 +115,6 @@ export interface Session {
   readonly closed: boolean;
   readonly expiresAt?: Date;
   recording(): Promise<ComputerRecording | null>;
-  report(): Promise<Record<string, unknown>>;
-  navigate(url: string): Promise<void>;
-  open(target: HostedTargetConfig): Promise<Session>;
   /** Asks Revyl's agent to do something on the app. Browsers and devices only. */
   instruction(text: string, options?: StepOptions): Promise<StepResult>;
   /** Asks Revyl's agent whether something holds on screen. Browsers and devices only. */
@@ -139,6 +136,12 @@ export interface Session {
   /** Stops the session on Revyl. Safe to call more than once. */
   close(): Promise<void>;
   [Symbol.asyncDispose](): Promise<void>;
+}
+
+export interface OpenedSession extends Session {
+  report(): Promise<Record<string, unknown>>;
+  navigate(url: string): Promise<void>;
+  open(target: HostedTargetConfig): Promise<OpenedSession>;
 }
 
 export interface SessionOptions {
@@ -283,7 +286,7 @@ export class DeviceSession implements Session {
         const code = response.status === 401 || response.status === 403 ? 'AUTH_REJECTED'
           : reason === 'computer_not_found' || response.status === 404 ? 'NOT_FOUND'
           : reason === 'computer_not_running' ? 'SESSION_ENDED'
-          : reason === 'computer_cannot_host_platform' || reason === 'computer_runtime_unavailable' || reason === 'web_runtime_unavailable' || reason === 'runtime_unavailable' || reason === 'not_available_on_platform' ? 'NOT_AVAILABLE_ON_PLATFORM'
+          : reason === 'computer_cannot_host_platform' || reason === 'computer_runtime_unavailable' || reason === 'web_runtime_unavailable' || reason === 'web_runtime_not_configured' || reason === 'runtime_unavailable' || reason === 'not_available_on_platform' ? 'NOT_AVAILABLE_ON_PLATFORM'
           : reason === 'computer_at_capacity' || reason === 'computer_limit' ? 'COMPUTER_LIMIT'
           : response.status === 422 || response.status === 400 ? 'INVALID_ARGUMENT'
           : response.status === 409 ? 'SESSION_BUSY'
@@ -352,6 +355,7 @@ export class DeviceSession implements Session {
   }
 
   async report(): Promise<Record<string, unknown>> {
+    if (!this.id) throw new VerifyError('NOT_FOUND', 'Cannot report a session without a known session ID.');
     const report: unknown = await this.client.getDeviceSession(this.id);
     if (!report || typeof report !== 'object' || Array.isArray(report)) throw new VerifyError('API_ERROR', 'Revyl returned an invalid session report.');
     return report as Record<string, unknown>;

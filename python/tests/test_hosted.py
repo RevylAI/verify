@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
@@ -521,6 +522,131 @@ def test_child_close_failure_does_not_prevent_parent_stop(hosted: HostedAPI) -> 
     assert "mac: child cleanup unconfirmed; stopping parent" in logs
     assert parent._cleanup_status == "confirmed"
     assert len(hosted.fake.calls("POST", hosted.path("/stop"))) == 1
+
+
+def test_slow_child_closes_share_one_budget_before_parent_stop(
+    hosted: HostedAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from revyl_verify import _computer
+
+    assert _computer._CHILD_CLEANUP_SECONDS == 5
+    monkeypatch.setattr(_computer, "_CHILD_CLEANUP_SECONDS", 0.2)
+    parent = hosted.attach()
+    children = [parent.open(Target("web", app_id=APP_ID, build_id=BUILD_ID)) for _ in range(2)]
+    release = threading.Event()
+
+    def respond(request: Request) -> Reply | None:
+        if request.path.startswith("/api/v1/execution/device/sessions/"):
+            release.wait(3)
+        return None
+
+    hosted.handler = respond
+    started = time.monotonic()
+    try:
+        parent.close()
+        assert time.monotonic() - started < 1
+        assert not release.is_set()
+        assert parent._cleanup_status == "confirmed"
+        assert len(hosted.fake.calls("POST", hosted.path("/stop"))) == 1
+        child_stops = [
+            request.path
+            for request in hosted.fake.requests
+            if request.path.startswith("/api/v1/execution/device/sessions/")
+        ]
+        assert child_stops == [f"/api/v1/execution/device/sessions/{children[0].id}/stop"]
+    finally:
+        release.set()
+
+
+def test_parent_stop_does_not_wait_forever_for_child_close_lock(
+    hosted: HostedAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("revyl_verify._computer._CHILD_CLEANUP_SECONDS", 0.2)
+    parent = hosted.attach()
+    child = parent.open(Target("web", app_id=APP_ID, build_id=BUILD_ID))
+    child._close_lock.acquire()
+    try:
+        started = time.monotonic()
+        parent.close()
+        assert time.monotonic() - started < 1
+        assert parent._cleanup_status == "confirmed"
+        assert len(hosted.fake.calls("POST", hosted.path("/stop"))) == 1
+        assert not child.closed
+    finally:
+        child._close_lock.release()
+        child.close()
+
+
+def test_pending_start_join_budget_still_attempts_parent_stop(
+    hosted: HostedAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("revyl_verify._computer._CHILD_CLEANUP_SECONDS", 0.2)
+    parent = hosted.attach()
+    entered, release = threading.Event(), threading.Event()
+    failures: list[BaseException] = []
+
+    def respond(request: Request) -> Reply | None:
+        if request.path == START:
+            entered.set()
+            release.wait(3)
+        elif request.path.startswith("/api/v1/execution/device/sessions/"):
+            release.wait(3)
+        return None
+
+    def start_child() -> None:
+        try:
+            parent.open(Target("web", app_id=APP_ID, build_id=BUILD_ID))
+        except BaseException as error:
+            failures.append(error)
+
+    hosted.handler = respond
+    opening = threading.Thread(target=start_child)
+    opening.start()
+    try:
+        assert entered.wait(2)
+        started = time.monotonic()
+        parent.close()
+        assert time.monotonic() - started < 1
+        assert not release.is_set()
+        assert len(hosted.fake.calls("POST", hosted.path("/stop"))) == 1
+        assert parent._cleanup_status == "confirmed"
+    finally:
+        release.set()
+        opening.join(3)
+    assert not opening.is_alive() and len(failures) == 1
+
+
+def test_interrupted_child_join_attempts_parent_stop_before_reraising(
+    hosted: HostedAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    parent = hosted.attach()
+    parent._child_starts = 1
+
+    def interrupt(timeout: float | None = None) -> bool:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(parent._child_condition, "wait", interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        parent.close()
+    assert len(hosted.fake.calls("POST", hosted.path("/stop"))) == 1
+    assert parent._cleanup_status == "confirmed"
+    parent.close()
+
+
+@pytest.mark.parametrize("asynchronous", [False, True])
+def test_report_without_known_id_is_not_found_without_io(
+    hosted: HostedAPI, asynchronous: bool
+) -> None:
+    from revyl_verify._transport import Client
+
+    session = verify.Session(Client(hosted.fake.url), "", "run-1", "ios", "", 30)
+    with pytest.raises(VerifyError) as caught:
+        if asynchronous:
+            asyncio.run(verify.AsyncSession(session).report())
+        else:
+            session.report()
+    assert caught.value.code == "NOT_FOUND"
+    assert not hosted.fake.requests
 
 
 def test_async_attach_child_navigation_and_close(hosted: HostedAPI) -> None:

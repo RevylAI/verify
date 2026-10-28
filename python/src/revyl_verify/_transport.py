@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 CleanupStatus = Literal["not_attempted", "not_required", "acknowledged", "confirmed", "unconfirmed"]
 RefusalReason = Literal[
     "web_runtime_unavailable",
+    "web_runtime_not_configured",
     "computer_limit",
     "runtime_unavailable",
     "computer_runtime_unavailable",
@@ -338,6 +339,7 @@ def http_error(response: Response, *, hosted: bool = False) -> VerifyError:
     if hosted and response.status not in (401, 403):
         if reason in {
             "web_runtime_unavailable",
+            "web_runtime_not_configured",
             "runtime_unavailable",
             "computer_runtime_unavailable",
             "computer_cannot_host_platform",

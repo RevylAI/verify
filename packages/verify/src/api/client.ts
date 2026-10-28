@@ -233,7 +233,7 @@ export function responseErrorCode(response: RawResponse): string | undefined {
 }
 
 export function apiError(method: string, path: string, response: RawResponse): VerifyError {
-  const detail = path === '/api/v1/execution/start_device' ? responseRefusalReason(response) : responseDetail(response);
+  const detail = path === '/api/v1/execution/start_device' ? responseKnownDetail(response, START_ERROR_DETAILS) : responseDetail(response);
   const suffix = detail ? `: ${detail}` : '';
   if (response.status === 401 || response.status === 403) {
     return new VerifyError(
@@ -246,14 +246,29 @@ export function apiError(method: string, path: string, response: RawResponse): V
 }
 
 const REFUSAL_REASONS = new Set<RefusalReason>([
-  'web_runtime_unavailable', 'computer_limit', 'runtime_unavailable', 'computer_runtime_unavailable',
+  'web_runtime_unavailable', 'web_runtime_not_configured', 'computer_limit', 'runtime_unavailable', 'computer_runtime_unavailable',
   'computer_at_capacity', 'computer_not_running', 'computer_cannot_host_platform', 'computer_not_found',
   'web_build_required', 'web_build_not_supported', 'ios_build_required', 'ios_build_not_supported',
   'android_build_required', 'android_build_not_supported', 'web_session_conflict', 'ios_session_conflict',
   'android_session_conflict', 'not_available_on_platform',
 ]);
 
+const START_ERROR_DETAILS = new Set<string>([
+  ...REFUSAL_REASONS,
+  'web_start_actor_invalid', 'web_app_required', 'web_app_not_found', 'web_idle_timeout_invalid',
+  'web_preview_overrides_unsupported', 'web_env_override_invalid', 'web_env_override_secret',
+  'web_sign_in_config_invalid', 'web_sign_in_override_not_secret', 'web_env_overrides_not_supported',
+  'web_build_selection_invalid', 'web_build_not_found', 'web_build_invalid', 'web_billing_not_configured',
+  'web_concurrency_unavailable', 'web_worker_unavailable', 'web_session_fence_conflict',
+  'web_callback_conflict', 'web_start_in_progress', 'web_start_unconfirmed', 'web_session_inputs_unavailable',
+  'sign_in_secret_not_found', 'sign_in_secret_unavailable', 'proof_sign_in_not_configured',
+]);
+
 export function responseRefusalReason(response: RawResponse): RefusalReason | undefined {
+  return responseKnownDetail(response, REFUSAL_REASONS);
+}
+
+function responseKnownDetail<T extends string>(response: RawResponse, codes: ReadonlySet<T>): T | undefined {
   try {
     const parsed: unknown = JSON.parse(new TextDecoder().decode(response.body));
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
@@ -261,7 +276,7 @@ export function responseRefusalReason(response: RawResponse): RefusalReason | un
     const values: unknown[] = [record.detail];
     if (record.detail && typeof record.detail === 'object') values.push((record.detail as Record<string, unknown>).error);
     values.push(record.error);
-    return values.find((value): value is RefusalReason => typeof value === 'string' && REFUSAL_REASONS.has(value as RefusalReason));
+    return values.find((value): value is T => typeof value === 'string' && codes.has(value as T));
   } catch {
     return undefined;
   }

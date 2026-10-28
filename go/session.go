@@ -441,6 +441,12 @@ func (s *Session) Close(ctx context.Context) error {
 }
 
 func (s *Session) closeChildren(ctx context.Context) error {
+	budget := 5 * time.Second
+	if deadline, ok := ctx.Deadline(); ok {
+		budget = min(budget, max(time.Until(deadline)/2, 0))
+	}
+	ctx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
 	done := make(chan struct{})
 	go func() {
 		s.childOpens.Wait()
