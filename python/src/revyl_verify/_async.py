@@ -9,7 +9,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import TypeVar
 
-from ._cleanup import _close
+from ._cleanup import _close, install_signal_cleanup
 from ._models import (
     ComputerProcess,
     ComputerRecording,
@@ -20,7 +20,7 @@ from ._models import (
     Target,
 )
 from ._session import Session
-from ._transport import Json
+from ._transport import Cancellation, Json, VerifyError
 
 T = TypeVar("T")
 
@@ -62,7 +62,14 @@ class AsyncSession:
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        await self.close()
+        try:
+            await self.close()
+        except BaseException as cleanup_error:
+            if exc is None:
+                raise
+            if isinstance(exc, VerifyError):
+                self._session._attach_failure(exc)
+            raise exc.with_traceback(traceback) from cleanup_error
 
     async def _call(self, call: Callable[[], T]) -> T:
         task = asyncio.create_task(asyncio.to_thread(call))
@@ -129,15 +136,25 @@ async def async_open(
     backend_url: str | None = None,
     app_url: str | None = None,
     step_timeout: float = 180,
+    log: Callable[[str], None] | None = None,
 ) -> AsyncSession:
     from . import open
 
+    install_signal_cleanup()
     abandoned = threading.Event()
+    cancellation = Cancellation()
     lock = threading.Lock()
     created: list[Session] = []
 
     def start() -> Session:
-        session = open(target, backend_url=backend_url, app_url=app_url, step_timeout=step_timeout)
+        session = open(
+            target,
+            backend_url=backend_url,
+            app_url=app_url,
+            step_timeout=step_timeout,
+            log=log,
+            _cancellation=cancellation,
+        )
         with lock:
             if not abandoned.is_set():
                 created.append(session)
@@ -149,6 +166,7 @@ async def async_open(
     try:
         session = await asyncio.shield(task)
     except asyncio.CancelledError:
+        cancellation.cancel()
         with lock:
             abandoned.set()
             if created:

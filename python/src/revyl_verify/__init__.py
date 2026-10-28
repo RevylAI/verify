@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 
 from ._async import AsyncSession, async_open
-from ._cleanup import track
+from ._cleanup import install_signal_cleanup
 from ._computer import ComputerSession
 from ._models import (
     ComputerProcess,
@@ -17,7 +18,7 @@ from ._models import (
     Viewport,
 )
 from ._session import Session
-from ._transport import VerifyError, origin, seconds
+from ._transport import Cancellation, CleanupStatus, VerifyError, origin, seconds
 
 __version__ = "0.1.0"
 __all__ = [
@@ -25,6 +26,7 @@ __all__ = [
     "ComputerProcess",
     "ComputerRecording",
     "ComputerSession",
+    "CleanupStatus",
     "ExecResult",
     "FileStat",
     "Platform",
@@ -45,17 +47,21 @@ def open(
     backend_url: str | None = None,
     app_url: str | None = None,
     step_timeout: float = 180,
+    log: Callable[[str], None] | None = None,
+    _cancellation: Cancellation | None = None,
 ) -> Session:
     from ._transport import Client
 
     if not isinstance(target, Target):
         raise VerifyError("INVALID_ARGUMENT", "open() requires a Target value.")
     target.validate()
+    install_signal_cleanup()
     seconds(step_timeout, 1, 3600, "step_timeout")
+    if log is not None and not callable(log):
+        raise VerifyError("INVALID_ARGUMENT", "log must be a callable or None.")
     client = Client(backend_url)
     viewer = origin(app_url or os.environ.get("REVYL_APP_URL") or "https://app.revyl.ai", app=True)
     session = (ComputerSession if target.platform in ("mac", "linux") else Session).start(
-        client, viewer, target, step_timeout
+        client, viewer, target, step_timeout, log, _cancellation
     )
-    track(session)
     return session

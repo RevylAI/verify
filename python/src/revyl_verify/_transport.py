@@ -16,10 +16,15 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TypeAlias, cast
+from typing import TYPE_CHECKING, Literal, TypeAlias, cast
 from urllib.parse import urlsplit
 
 from . import _cleanup
+
+if TYPE_CHECKING:
+    from ._models import Platform
+
+CleanupStatus = Literal["not_attempted", "not_required", "acknowledged", "confirmed", "unconfirmed"]
 
 Json: TypeAlias = "None | bool | int | float | str | list[Json] | dict[str, Json]"
 
@@ -29,6 +34,12 @@ class VerifyError(Exception):
         self.code = code
         self.message = message
         self.result = result
+        self.platform: Platform | None = None
+        self.session_id: str | None = None
+        self.workflow_run_id: str | None = None
+        self.viewer_url: str | None = None
+        self.cleanup_status: CleanupStatus = "not_attempted"
+        self.cleanup_error: VerifyError | None = None
         super().__init__(f"{code}: {message}")
 
 

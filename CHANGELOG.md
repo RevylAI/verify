@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Preserve Python startup session identity, viewer links and separate cleanup outcomes on typed errors; add optional lifecycle logging to sync/async opening. Clean up identifiable malformed or uncertain starts, interrupt cancelled async startup, validate device stop acknowledgments, and preserve original failures when cleanup also fails.
+
 - Prepare Python SDK 0.1.0 (`revyl-verify`, import `revyl_verify`) for Python ≥3.10, with typed sync and thread-adapted async sessions, seconds-based timeouts, web/mobile steps and early-access computer operations. Include fake-server coverage, wheel/sdist checks and an isolated installed-wheel smoke; Python has not been published or verified live. Its independent `py/v*` release workflow validates without publishing on dispatch, skips exact published versions, and requires administrator-enabled, protected-environment PyPI trusted publishing for new tag releases.
 
 - Add a standard-library-only Go SDK for web, iOS, Android, and early-access Mac and Linux computers. Computer commands, binary files, process handles, screenshots, recording metadata, and confirmed-release cleanup require an enabled staging organization and are not yet available in production. Capacity refusals have a distinct `COMPUTER_LIMIT` code; no start or operation is automatically replayed.

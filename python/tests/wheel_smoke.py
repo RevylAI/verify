@@ -79,7 +79,12 @@ def main() -> None:
                     },
                 }
             elif self.command == "POST" and self.path == stop:
-                response = {"success": True}
+                response = {
+                    "success": True,
+                    "request_accepted": True,
+                    "session_id": session_id,
+                    "status": "stopping",
+                }
             else:
                 errors.append(f"Unexpected {self.command} {self.path}")
                 response, status = {}, 599
