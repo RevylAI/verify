@@ -728,8 +728,9 @@ def test_async_cancelled_creation_never_closes_parent(hosted: HostedAPI, phase: 
 
 
 @pytest.mark.parametrize("envelope", ["detail", "nested", "error"])
+@pytest.mark.parametrize("asynchronous", [False, True])
 def test_ordinary_web_capacity_preserves_code_and_safe_reason(
-    hosted: HostedAPI, envelope: str
+    hosted: HostedAPI, envelope: str, asynchronous: bool
 ) -> None:
     reason = "web_runtime_unavailable"
     body: dict[str, Json] = (
@@ -739,11 +740,45 @@ def test_ordinary_web_capacity_preserves_code_and_safe_reason(
     )
     hosted.handler = lambda request: Reply(409, body) if request.path == START else None
     with pytest.raises(VerifyError) as caught:
-        hosted.fake.open(Target("web", app_id=APP_ID, build_id=BUILD_ID))
+        target = Target("web", app_id=APP_ID, build_id=BUILD_ID)
+        if asynchronous:
+            asyncio.run(verify.async_open(target, backend_url=hosted.fake.url))
+        else:
+            hosted.fake.open(target)
     assert caught.value.code == "API_ERROR"
     assert caught.value.reason == reason and caught.value.http_status == 409
     assert "private" not in str(caught.value)
-    assert len(hosted.fake.calls("POST", START)) == 1
+    assert caught.value.cleanup_status == "not_required"
+    assert [(request.method, request.path) for request in hosted.fake.requests] == [("POST", START)]
+
+
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.parametrize("phase", ["unknown_start_conflict", "readiness"])
+def test_ordinary_web_uncertain_or_allocated_failure_keeps_cleanup(
+    hosted: HostedAPI, asynchronous: bool, phase: str
+) -> None:
+    def respond(request: Request) -> Reply | None:
+        if phase == "unknown_start_conflict" and request.path == START:
+            return Reply(409, {"detail": "unknown conflict"})
+        if phase == "readiness" and request.path.startswith("/api/v1/execution/device-sessions/"):
+            return Reply(409, {"detail": {"error": "web_runtime_unavailable"}})
+        return None
+
+    hosted.handler = respond
+    with pytest.raises(VerifyError) as caught:
+        target = Target("web", app_id=APP_ID, build_id=BUILD_ID)
+        if asynchronous:
+            asyncio.run(verify.async_open(target, backend_url=hosted.fake.url))
+        else:
+            hosted.fake.open(target)
+    assert caught.value.code == "API_ERROR"
+    assert caught.value.cleanup_status == "acknowledged"
+    starts = hosted.fake.calls("POST", START)
+    assert len(starts) == 1
+    session_id = starts[0].body["session_id"]
+    assert (
+        len(hosted.fake.calls("POST", f"/api/v1/execution/device/sessions/{session_id}/stop")) == 1
+    )
 
 
 @pytest.mark.parametrize(

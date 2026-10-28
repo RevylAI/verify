@@ -254,10 +254,12 @@ describe('safe startup refusal and navigation', () => {
     await expect(DeviceSession.start(fake.client(), validateTarget(web) as ResolvedDeviceTarget, { stepTimeout: 1000, log: undefined })).rejects.toMatchObject({ code: 'API_ERROR', reason: undefined, message: expect.not.stringContaining('private URL or token') });
   });
 
-  it.each([{ detail: 'web_runtime_unavailable' }, { detail: { error: 'web_runtime_unavailable', message: 'private' } }])('retains web startup capacity while keeping API_ERROR', async (body) => {
+  it.each([{ detail: 'web_runtime_unavailable' }, { detail: { error: 'web_runtime_unavailable', message: 'private' } }, { error: 'web_runtime_unavailable' }])('retains web startup capacity while keeping API_ERROR', async (body) => {
     const fake = runtime().on('POST', /\/start_device$/, () => json(body, 409));
     await expect(DeviceSession.start(fake.client(), validateTarget(web) as ResolvedDeviceTarget, { stepTimeout: 1000, log: undefined })).rejects.toMatchObject({ code: 'API_ERROR', reason: 'web_runtime_unavailable', httpStatus: 409, message: expect.not.stringContaining('private') });
     expect(fake.requests).toHaveLength(1);
+    expect(fake.calls('POST', /\/stop$/)).toHaveLength(0);
+    expect(fake.calls('POST', /\/status\/cancel\//)).toHaveLength(0);
   });
 
   it('navigates a normal web session without retrying a refused mutation', async () => {

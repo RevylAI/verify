@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Treat ordinary Web `409 web_runtime_unavailable` admission refusals as definite pre-dispatch failures: preserve `API_ERROR` plus safe reason/status details and do not send a stop request. Allocated or otherwise uncertain Web failures retain cleanup.
+
 - Bound parent computer cleanup's child phase to five seconds so slow child stops cannot prevent requesting parent release. Recognize `web_runtime_not_configured` as a definite hosted refusal, reject reports without a known session ID locally, preserve safe TypeScript startup diagnostics, and keep the original TypeScript `Session` interface compatible through the extended `OpenedSession` interface.
 
 - Add public computer attachment, computer-hosted child sessions and deterministic Web navigation in TypeScript, Go and Python. Child sessions reuse the parent's authenticated client and expire with it; parent close attempts bounded child cleanup before requesting computer release. Initial hosted Web builds remain HTTPS; localhost is reached by navigation after start, subject to runtime availability.

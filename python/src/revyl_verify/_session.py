@@ -248,13 +248,17 @@ class Session:
                 from ._transport import http_error
 
                 error = http_error(response, hosted=hosted)
-                refused = refused or (
-                    hosted
-                    and (
-                        (response.status == 503 and error.reason is not None)
-                        or (400 <= response.status < 500 and response.status != 408)
-                    )
-                )
+                if (
+                    target.platform == "web"
+                    and response.status == 409
+                    and error.reason == "web_runtime_unavailable"
+                ):
+                    refused = True
+                if hosted and (
+                    (response.status == 503 and error.reason is not None)
+                    or (400 <= response.status < 500 and response.status != 408)
+                ):
+                    refused = True
                 raise error
             start = obj(response.json())
             session_id, run_id = start.get("session_id"), start.get("workflow_run_id")
