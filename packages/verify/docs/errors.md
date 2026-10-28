@@ -42,6 +42,7 @@ try {
 | `CONFIG_INVALID` | The config failed validation or did not load | The message names the exact option and the rule |
 | `AUTH_MISSING` | No `REVYL_API_KEY` and no Revyl CLI login | Set `REVYL_API_KEY` or run `revyl auth login` |
 | `AUTH_REJECTED` | Revyl rejected the credentials | Create a new API key, or log in again |
+| `EDGE_BLOCKED` | An HTTP 403 has a `text/html` content type and nonempty `cf-ray`, without a valid JSON body | Check network access or contact support; Verify does not retry the request |
 | `API_ERROR` | Revyl returned an unexpected response | Try again; if it persists, report it with the session link |
 | `SESSION_START_FAILED` | The browser, device, or computer did not start | Computer `no_host` reports the 120-second unclaimed-start context; `device_limit` reports queued-work/concurrency context. Inspect the session and cleanup before starting again. |
 | `SESSION_ENDED` | The session was closed, stopped, or expired | Close explicitly; computer expiry does not prove release |
@@ -57,5 +58,7 @@ try {
 | `VALIDATION_FAILED` | The validation did not hold | The message has Revyl's reason; watch the recording at the session link |
 | `STEP_FAILED` | Revyl could not run the step to an outcome: it errored, it was cancelled on Revyl, or a validation came back without a verdict. This says nothing about your app, and `soft` does not cover it. | Watch the session at the link, then run the step again |
 | `TIMEOUT` | A step, a session start, or a request ran out of time | Inspect the session before retrying; computer starts require staging enablement. The default 10-minute start timeout is separate from the 120-second unclaimed-start failure. See [computer availability](computers.md#availability-and-errors). |
+
+`EDGE_BLOCKED` does not require Cloudflare branding in the HTML body. A `cf-ray` header alone is not proof of a block: any syntactically valid JSON body retains its existing error mapping, even if the content type is incorrectly `text/html`. HTTP 401 is unchanged. Edge-block errors include `httpStatus` but never copy the response body or ray ID into the error.
 
 Computer operations use `TIMEOUT` for bounded runtime with confirmed termination, and `ACTION_UNCERTAIN` when termination, execution, or cleanup is unconfirmed. An observed successful operation can return its result while logging pending/failed evidence. Timeout never proves rollback, and failed evidence does not prove the command never ran. Never automatically retry a mutation with a fresh request id; inspect the computer first. See [computers.md](computers.md).

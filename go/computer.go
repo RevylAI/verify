@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"net/url"
 	"os"
@@ -142,7 +143,7 @@ func startComputer(ctx context.Context, c *client, viewer string, target Target,
 		s.computerLog("ready")
 		return s, nil
 	}
-	if !createAcknowledged && (errors.Is(err, ErrAuthRejected) || errors.Is(err, ErrNotAvailableOnPlatform) || errors.Is(err, ErrInvalidArgument) || errors.Is(err, ErrComputerLimit)) {
+	if !createAcknowledged && (errors.Is(err, ErrAuthRejected) || errors.Is(err, ErrEdgeBlocked) || errors.Is(err, ErrNotAvailableOnPlatform) || errors.Is(err, ErrInvalidArgument) || errors.Is(err, ErrComputerLimit)) {
 		stop()
 	} else {
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), computerObservationTimeout)
@@ -247,6 +248,8 @@ func (s *Session) computerRequest(ctx context.Context, method, suffix string, bo
 	}
 	code := ErrAPI
 	switch {
+	case r.status == 401 || r.status == 403:
+		code = ErrAuthRejected
 	case detail == "run_closed":
 		code = ErrSessionEnded
 	case detail == "inaccessible" || detail == "invalid_handle":
@@ -255,8 +258,6 @@ func (s *Session) computerRequest(ctx context.Context, method, suffix string, bo
 		code = ErrActionUncertain
 	case detail == "invalid_request" || r.status == 422:
 		code = ErrInvalidArgument
-	case r.status == 401 || r.status == 403:
-		code = ErrAuthRejected
 	case detail == "start_failed":
 		code = ErrSessionStartFailed
 	case r.status == 409 || detail == "operation_limit":
@@ -373,7 +374,21 @@ func (s *Session) computerOperation(ctx context.Context, command map[string]any,
 			err = &Error{Code: ErrActionUncertain, Message: fmt.Sprintf("Computer operation %s stopped being observed; its outcome is unconfirmed. See %s", operationID, s.viewer), Cause: ctx.Err()}
 		}
 	}()
-	r, err := s.computerRequest(ctx, "POST", "/operations", map[string]any{"computer_session_id": s.id, "request_id": requestID, "command": command})
+	wireCommand := maps.Clone(command)
+	switch command["kind"] {
+	case "exec":
+		argv := command["argv"].([]string)
+		encoded := make([]string, len(argv))
+		for i, arg := range argv {
+			encoded[i] = base64.URLEncoding.EncodeToString([]byte(arg))
+		}
+		wireCommand["argv_b64"] = encoded
+		delete(wireCommand, "argv")
+	case "file_read", "file_write", "file_stat":
+		wireCommand["path_b64"] = base64.URLEncoding.EncodeToString([]byte(command["path"].(string)))
+		delete(wireCommand, "path")
+	}
+	r, err := s.computerRequest(ctx, "POST", "/operations", map[string]any{"computer_session_id": s.id, "request_id": requestID, "command": wireCommand})
 	if err != nil {
 		return result, err
 	}

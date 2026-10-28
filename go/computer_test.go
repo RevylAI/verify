@@ -368,7 +368,7 @@ func TestComputerLifecycleAndExec(t *testing.T) {
 	if len(calls) != 1 {
 		t.Fatal("exec submission count is not one")
 	}
-	want := map[string]any{"kind": "exec", "argv": []any{"printf", "%s", "a b"}, "stdin": "aW5wdXQ=", "timeout_ms": float64(300000)}
+	want := map[string]any{"kind": "exec", "argv_b64": []any{"cHJpbnRm", "JXM=", "YSBi"}, "stdin": "aW5wdXQ=", "timeout_ms": float64(300000)}
 	if !reflectMaps(calls[0].Body["command"].(map[string]any), want) || calls[0].Header.Get("Prefer") != "respond-async" {
 		t.Fatalf("incorrect exec command: %#v", calls[0].Body)
 	}
@@ -529,7 +529,7 @@ func TestComputerFilesProcessesAndScreenshot(t *testing.T) {
 		}
 	}
 	write := calls[1].Body["command"].(map[string]any)
-	if write["data"] != "AP8B" || write["path"] != "dir/a" {
+	if write["data"] != "AP8B" || write["path_b64"] != "ZGlyL2E=" {
 		t.Fatal("write did not encode bytes or preserve relative path")
 	}
 	handle := calls[4].Body["command"].(map[string]any)["handle"].(map[string]any)

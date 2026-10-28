@@ -30,6 +30,7 @@ from ._transport import (
     Response,
     VerifyError,
     decode_bytes,
+    edge_blocked_error,
     obj,
     refusal_reason,
     timestamp,
@@ -320,6 +321,7 @@ class ComputerSession(Session):
                 and error.code
                 in {
                     "AUTH_REJECTED",
+                    "EDGE_BLOCKED",
                     "NOT_AVAILABLE_ON_PLATFORM",
                     "INVALID_ARGUMENT",
                     "COMPUTER_LIMIT",
@@ -363,6 +365,9 @@ class ComputerSession(Session):
             ) from None
         if 200 <= response.status < 300:
             return response
+        blocked = edge_blocked_error(response)
+        if blocked is not None:
+            raise blocked
         reason = refusal_reason(response)
         detail = reason or _detail(response)
         if suffix == "/recording" and response.status == 404 and detail == "recording_unavailable":
@@ -393,7 +398,9 @@ class ComputerSession(Session):
                 http_status=response.status,
             )
         code = "API_ERROR"
-        if detail == "run_closed":
+        if response.status in {401, 403}:
+            code = "AUTH_REJECTED"
+        elif detail == "run_closed":
             code = "SESSION_ENDED"
         elif detail in {"inaccessible", "invalid_handle"}:
             code = "NOT_FOUND"
@@ -401,8 +408,6 @@ class ComputerSession(Session):
             code = "ACTION_UNCERTAIN"
         elif detail == "invalid_request" or response.status == 422:
             code = "INVALID_ARGUMENT"
-        elif response.status in {401, 403}:
-            code = "AUTH_REJECTED"
         elif detail == "start_failed":
             code = "SESSION_START_FAILED"
         elif response.status == 409 or detail == "operation_limit":
@@ -455,6 +460,23 @@ class ComputerSession(Session):
         request_id = str(uuid.uuid4())
         operation_id = str(uuid.uuid5(uuid.UUID(self.id), request_id))
         deadline = self._observation_deadline(310)
+        wire_command = command.copy()
+        if command["kind"] == "exec":
+            arguments = command["argv"]
+            assert isinstance(arguments, list)
+            encoded: list[Json] = []
+            for argument in arguments:
+                assert isinstance(argument, str)
+                encoded.append(base64.urlsafe_b64encode(argument.encode("utf-8")).decode("ascii"))
+            wire_command["argv_b64"] = encoded
+            del wire_command["argv"]
+        elif command["kind"] in ("file_read", "file_write", "file_stat"):
+            path = command["path"]
+            assert isinstance(path, str)
+            wire_command["path_b64"] = base64.urlsafe_b64encode(path.encode("utf-8")).decode(
+                "ascii"
+            )
+            del wire_command["path"]
         try:
             response = self._request(
                 "POST",
@@ -462,7 +484,7 @@ class ComputerSession(Session):
                 {
                     "computer_session_id": self.id,
                     "request_id": request_id,
-                    "command": command,
+                    "command": wire_command,
                 },
                 deadline,
             )

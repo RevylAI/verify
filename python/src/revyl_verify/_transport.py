@@ -226,6 +226,8 @@ def _connect(host: str, port: int, secure: bool, deadline: Deadline) -> socket.s
 class Response:
     status: int
     body: bytes
+    content_type: str = ""
+    cf_ray: str = ""
 
     def json(self) -> Json:
         try:
@@ -335,7 +337,32 @@ def refusal_reason(response: Response) -> RefusalReason | None:
     return None
 
 
+def edge_blocked_error(response: Response) -> VerifyError | None:
+    if (
+        response.status != 403
+        or response.content_type.split(";", 1)[0].strip().lower() != "text/html"
+        or not response.cf_ray.strip()
+    ):
+        return None
+    try:
+        json.loads(response.body, parse_int=str, parse_float=str, parse_constant=_invalid_constant)
+        return None
+    except RecursionError:
+        return None
+    except (ValueError, UnicodeError):
+        pass
+    return VerifyError(
+        "EDGE_BLOCKED",
+        "Revyl request was blocked at the network edge (HTTP 403). "
+        "Check network access or contact support. Verify will not retry this request.",
+        http_status=response.status,
+    )
+
+
 def http_error(response: Response, *, hosted: bool = False) -> VerifyError:
+    blocked = edge_blocked_error(response)
+    if blocked is not None:
+        return blocked
     reason = refusal_reason(response)
     code = "AUTH_REJECTED" if response.status in (401, 403) else "API_ERROR"
     if hosted and response.status not in (401, 403):
@@ -480,7 +507,12 @@ class Client:
                     raise VerifyError(
                         "API_ERROR", "Revyl response exceeds the response size limit."
                     )
-            return Response(response.status, b"".join(chunks))
+            return Response(
+                response.status,
+                b"".join(chunks),
+                response.getheader("Content-Type", ""),
+                response.getheader("Cf-Ray", ""),
+            )
         except TimeoutError:
             raise VerifyError("TIMEOUT", "Revyl HTTP client timed out.") from None
         except (OSError, http.client.HTTPException, ValueError):

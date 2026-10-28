@@ -29,8 +29,10 @@ type client struct {
 }
 
 type response struct {
-	status int
-	body   []byte
+	status      int
+	body        []byte
+	contentType string
+	cfRay       string
 }
 
 func newClient(options OpenOptions) (*client, string, error) {
@@ -206,7 +208,7 @@ func (c *client) sendOnce(ctx context.Context, method, path string, body []byte,
 	if int64(len(data)) > maxBytes {
 		return response{}, failure(ErrAPI, "Revyl response exceeds the response size limit.")
 	}
-	return response{status: r.StatusCode, body: data}, nil
+	return response{status: r.StatusCode, body: data, contentType: r.Header.Get("Content-Type"), cfRay: r.Header.Get("Cf-Ray")}, nil
 }
 
 func decode(r response, into any) error {

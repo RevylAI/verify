@@ -1,8 +1,11 @@
 package verify
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"strings"
 )
 
 type Code string
@@ -41,6 +44,7 @@ const (
 	ErrConfigInvalid          Code = "CONFIG_INVALID"
 	ErrAuthMissing            Code = "AUTH_MISSING"
 	ErrAuthRejected           Code = "AUTH_REJECTED"
+	ErrEdgeBlocked            Code = "EDGE_BLOCKED"
 	ErrAPI                    Code = "API_ERROR"
 	ErrSessionStartFailed     Code = "SESSION_START_FAILED"
 	ErrSessionEnded           Code = "SESSION_ENDED"
@@ -114,6 +118,34 @@ func refusalReason(r response) RefusalReason {
 	return ""
 }
 
+func isJSONBody(body []byte) bool {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	depth := 0
+	seen := false
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			return err == io.EOF && seen && depth == 0
+		}
+		if depth == 0 && seen {
+			return false
+		}
+		seen = true
+		if delimiter, ok := token.(json.Delim); ok {
+			switch delimiter {
+			case '{', '[':
+				depth++
+			case '}', ']':
+				depth--
+			}
+		}
+	}
+}
+
 func responseFailure(r response, code Code, message string) error {
+	if r.status == 403 && strings.EqualFold(strings.TrimSpace(strings.SplitN(r.contentType, ";", 2)[0]), "text/html") && strings.TrimSpace(r.cfRay) != "" && !isJSONBody(r.body) {
+		return &Error{Code: ErrEdgeBlocked, HTTPStatus: r.status, Message: "Revyl request was blocked at the network edge (HTTP 403). Check network access or contact support. Verify will not retry this request."}
+	}
 	return &Error{Code: code, Reason: refusalReason(r), HTTPStatus: r.status, Message: message}
 }

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { RevylClient, responseDetail, responseErrorCode, responseRefusalReason, sessionViewerUrl, type RawResponse } from './api/client.js';
+import { RevylClient, edgeBlockedError, responseDetail, responseErrorCode, responseRefusalReason, sessionViewerUrl, type RawResponse } from './api/client.js';
 import type { ComputerCommand, ComputerCommandResponse, ComputerPlatform, ComputerRecordingResponse, ComputerReport, ComputerResult, ComputerScreenshot } from './api/types.js';
 import { trackSession, untrackSession } from './cleanup.js';
 import { validateHostedTarget, type HostedTargetConfig, type ResolvedComputerTarget } from './config.js';
@@ -61,7 +61,7 @@ export class ComputerSession implements Session {
       return session;
     } catch (error) {
       const timedOut = signal.aborted;
-      if (!createAcknowledged && isVerifyError(error) && ['AUTH_REJECTED', 'NOT_AVAILABLE_ON_PLATFORM', 'INVALID_ARGUMENT', 'COMPUTER_LIMIT'].includes(error.code)) {
+      if (!createAcknowledged && isVerifyError(error) && ['AUTH_REJECTED', 'EDGE_BLOCKED', 'NOT_AVAILABLE_ON_PLATFORM', 'INVALID_ARGUMENT', 'COMPUTER_LIMIT'].includes(error.code)) {
         session.lifetime.abort();
         untrackSession(session);
       } else {
@@ -281,8 +281,16 @@ export class ComputerSession implements Session {
     const requestId = randomUUID();
     const operationId = computerOperationId(this.id, requestId);
     const signal = this.observationSignal(310_000);
+    let wireCommand: unknown = command;
+    if (command.kind === 'exec') {
+      const { argv, ...fields } = command;
+      wireCommand = { ...fields, argv_b64: argv.map(encodeWireText) };
+    } else if (command.kind === 'file_read' || command.kind === 'file_write' || command.kind === 'file_stat') {
+      const { path, ...fields } = command;
+      wireCommand = { ...fields, path_b64: encodeWireText(path) };
+    }
     try {
-      let response = await this.request('POST', '/operations', { computer_session_id: this.id, request_id: requestId, command }, signal);
+      let response = await this.request('POST', '/operations', { computer_session_id: this.id, request_id: requestId, command: wireCommand }, signal);
       for (;;) {
         if (signal.aborted) throw signal.reason;
         if (response.status !== 202) {
@@ -330,6 +338,8 @@ export class ComputerSession implements Session {
       throw error;
     }
     if (response.status >= 200 && response.status < 300) return response;
+    const blocked = edgeBlockedError(response);
+    if (blocked) throw blocked;
     if (suffix === '/recording' && response.status === 404 && responseErrorCode(response) === 'recording_unavailable') return response;
     const detail = responseRefusalReason(response) ?? responseDetail(response);
     const refusal = { reason: responseRefusalReason(response), httpStatus: response.status };
@@ -344,11 +354,11 @@ export class ComputerSession implements Session {
     }
     if (response.status === 429 && detail === 'computer_limit') throw new VerifyError('COMPUTER_LIMIT', `${COMPUTER_CAPACITY} See ${this.viewerUrl}`, refusal);
     let code: VerifyErrorCode = 'API_ERROR';
-    if (detail === 'run_closed') code = 'SESSION_ENDED';
+    if (response.status === 401 || response.status === 403) code = 'AUTH_REJECTED';
+    else if (detail === 'run_closed') code = 'SESSION_ENDED';
     else if (detail === 'inaccessible' || detail === 'invalid_handle') code = 'NOT_FOUND';
     else if (detail === 'operation_not_found' || detail === 'owner_unavailable') code = 'ACTION_UNCERTAIN';
     else if (detail === 'invalid_request' || response.status === 422) code = 'INVALID_ARGUMENT';
-    else if (response.status === 401 || response.status === 403) code = 'AUTH_REJECTED';
     else if (detail === 'start_failed') code = 'SESSION_START_FAILED';
     else if (response.status === 409 || detail === 'operation_limit') code = 'SESSION_BUSY';
     else if (suffix.startsWith('/operations/') && response.status >= 500) code = 'ACTION_UNCERTAIN';
@@ -394,6 +404,10 @@ function operationTimeout(options: OperationOptions): number {
   const timeout = options.timeout ?? 30_000;
   if (!Number.isInteger(timeout) || timeout < 1 || timeout > 300_000) throw new VerifyError('INVALID_ARGUMENT', 'Computer operation timeout must be an integer from 1 to 300000 ms.');
   return timeout;
+}
+
+function encodeWireText(value: string): string {
+  return Buffer.from(value, 'utf8').toString('base64').replaceAll('+', '-').replaceAll('/', '_');
 }
 
 function guestPath(path: string): string {
