@@ -1,0 +1,39 @@
+{
+  "name": "revyl-verify",
+  "version": "0.2.0",
+  "description": "Unscoped alias for @revyl/verify, with the same API and CLI.",
+  "homepage": "https://github.com/RevylAI/verify#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RevylAI/verify.git",
+    "directory": "packages/revyl-verify"
+  },
+  "license": "Apache-2.0",
+  "author": "Revyl <support@revyl.ai>",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "revyl-verify": "./cli.js"
+  },
+  "files": ["index.js", "index.d.ts", "cli.js", "README.md", "LICENSE"],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "dependencies": {
+    "@revyl/verify": "0.2.0"
+  },
+  "scripts": {
+    "prepack": "cp ../../LICENSE LICENSE && chmod +x cli.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

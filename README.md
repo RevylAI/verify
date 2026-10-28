@@ -39,6 +39,8 @@ Use Node.js ≥22.18:
 npm install --save-dev @revyl/verify
 ```
 
+The unscoped `revyl-verify` package is an alias with the same API and CLI, for example `npx revyl-verify init --platform ios`.
+
 ### Go
 
 Use Go ≥1.26.9 in an existing Go module:
