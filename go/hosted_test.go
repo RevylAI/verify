@@ -930,6 +930,9 @@ func TestLegacyErrorsExposeOnlyAllowlistedReasons(t *testing.T) {
 			if !errors.As(err, &sdkError) || sdkError.Reason != tc.reason || sdkError.HTTPStatus != tc.status || strings.Contains(err.Error(), "private") {
 				t.Fatalf("legacy error changed or leaked content: %v", err)
 			}
+			if len(f.requests) != 1 || f.requests[0].Method != "POST" || f.requests[0].Path != startPath {
+				t.Fatal("ordinary Web refusal retried creation or sent cleanup")
+			}
 		})
 	}
 	for _, tc := range []struct {
