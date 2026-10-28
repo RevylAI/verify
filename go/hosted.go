@@ -113,7 +113,8 @@ func (s *Session) Open(ctx context.Context, target Target) (*Session, error) {
 		request["is_simulation"] = true
 	}
 	r, err := s.client.send(ctx, http.MethodPost, "/api/v1/execution/start_device", request, false, 2*time.Minute, false)
-	if err == nil && ((r.status >= 400 && r.status < 500 && r.status != 408) || (r.status == 503 && refusalReason(r) != "")) {
+	reason := refusalReason(r)
+	if err == nil && ((r.status >= 400 && r.status < 500 && r.status != 408) || (r.status == 503 && reason != "" && reason != ReasonRequestTimeout && reason != ReasonProtocolError)) {
 		return nil, hostedStartError(r)
 	}
 	s.mu.Lock()
@@ -208,6 +209,10 @@ func (s *Session) Navigate(ctx context.Context, rawURL string) error {
 	}
 	r, err := s.worker(ctx, http.MethodPost, "open_url", map[string]string{"url": rawURL}, false, 30*time.Second)
 	if err != nil {
+		var sdkError *Error
+		if errors.As(err, &sdkError) && sdkError.Code == ErrActionUncertain && sdkError.Reason == ReasonRequestTimeout {
+			sdkError.Message = "Web navigation did not confirm within the action budget and may still complete. The session is still open; Verify did not replay the request. See " + s.viewer
+		}
 		return err
 	}
 	var result map[string]json.RawMessage

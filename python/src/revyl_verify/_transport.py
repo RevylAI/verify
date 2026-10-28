@@ -45,6 +45,8 @@ RefusalReason = Literal[
     "ios_session_conflict",
     "android_session_conflict",
     "not_available_on_platform",
+    "request_timeout",
+    "protocol_error",
 ]
 
 Json: TypeAlias = "None | bool | int | float | str | list[Json] | dict[str, Json]"

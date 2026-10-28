@@ -837,6 +837,74 @@ func TestNavigateDoesNotRetryAndValidatesSuccess(t *testing.T) {
 	}
 }
 
+func TestNavigateUncertaintyKeepsHostedSessionOpen(t *testing.T) {
+	for _, tc := range []struct {
+		reason verify.RefusalReason
+		status int
+	}{
+		{verify.ReasonRequestTimeout, 504},
+		{verify.ReasonProtocolError, 502},
+	} {
+		t.Run(string(tc.reason), func(t *testing.T) {
+			f := newHostedFake(t, func(w http.ResponseWriter, r *http.Request, _ map[string]any) bool {
+				if r.URL.Path == proxyPath+"open_url" {
+					writeJSON(w, tc.status, map[string]any{
+						"success": false, "action": "navigate", "error": tc.reason, "code": tc.reason,
+						"failure_stage": "input", "input_dispatched": true, "execution_uncertain": true,
+						"message": "private origin response",
+					})
+					return true
+				}
+				return false
+			})
+			parent := f.open(verify.Target{Platform: verify.Mac})
+			session, err := parent.Open(context.Background(), verify.Target{Platform: verify.Web, AppID: appID, BuildID: buildID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = session.Navigate(context.Background(), "http://localhost:3000/private")
+			requireCode(t, err, verify.ErrActionUncertain)
+			var sdkError *verify.Error
+			if !errors.As(err, &sdkError) || sdkError.Reason != tc.reason || sdkError.HTTPStatus != tc.status || strings.Contains(err.Error(), "private") {
+				t.Fatalf("navigation error lost safe uncertainty: %v", err)
+			}
+			if tc.reason == verify.ReasonRequestTimeout && (!strings.Contains(err.Error(), "did not confirm within the action budget") || !strings.Contains(err.Error(), "may still complete") || !strings.Contains(err.Error(), "session is still open")) {
+				t.Fatalf("timeout message lost navigation state: %v", err)
+			}
+			if len(f.calls("POST", proxyPath+"open_url")) != 1 {
+				t.Fatal("uncertain navigation was replayed")
+			}
+			if len(f.calls("POST", "/api/v1/execution/device/sessions/"+session.ID()+"/stop")) != 0 {
+				t.Fatal("uncertain navigation closed the child")
+			}
+			if _, err := session.Screenshot(context.Background()); err != nil {
+				t.Fatalf("child is no longer usable: %v", err)
+			}
+		})
+	}
+}
+
+func TestTransientReasonsPreserveHostedStartupCleanup(t *testing.T) {
+	for _, reason := range []verify.RefusalReason{verify.ReasonRequestTimeout, verify.ReasonProtocolError} {
+		t.Run(string(reason), func(t *testing.T) {
+			f := newHostedFake(t, func(w http.ResponseWriter, r *http.Request, _ map[string]any) bool {
+				if r.URL.Path == startPath {
+					writeJSON(w, 503, map[string]any{"error": reason})
+					return true
+				}
+				return false
+			})
+			parent := f.open(verify.Target{Platform: verify.Mac})
+			_, err := parent.Open(context.Background(), verify.Target{Platform: verify.Web, AppID: appID, BuildID: buildID})
+			requireCode(t, err, verify.ErrActionUncertain)
+			childID := f.calls("POST", startPath)[0].Body["session_id"].(string)
+			if len(f.calls("POST", "/api/v1/execution/device/sessions/"+childID+"/stop")) != 1 {
+				t.Fatal("transient reason skipped ambiguous-start cleanup")
+			}
+		})
+	}
+}
+
 func TestReportsValidateObjectsAndRemainReadableAfterClose(t *testing.T) {
 	for _, platform := range []verify.Platform{verify.Web, verify.IOS, verify.Android, verify.Mac, verify.Linux} {
 		t.Run(string(platform), func(t *testing.T) {
