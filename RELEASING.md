@@ -1,12 +1,14 @@
 # Releasing Verify
 
-Publishing, pushing tags, and configuring npm or GitHub are human-maintainer actions. Preparing this repository does not authorize any of them.
+Publishing, pushing tags, and configuring npm, PyPI or GitHub are human-maintainer actions. Preparing this repository does not authorize any of them.
 
 ## Current release path
 
 `@revyl/verify@0.1.0` was published manually from Anam's Mac, without provenance. The package already exists; no scope-claim or first-publication bootstrap is needed. The default path for 0.2.0 is another reviewed, interactive publication from that Mac. As of this release preparation, GitHub has no configured `NPM_TOKEN` or trusted-publishing environment for this repository. The connected GitHub App cannot administer repository settings, so Anam or another repository administrator must configure the optional CI path below.
 
 The TypeScript package version is 0.2.0. The Go module has an independent version and uses `go/v*` tags. Neither merging code nor updating this guide publishes either SDK.
+
+Python is independently versioned at 0.1.0 and uses `py/v*` tags. Its distribution is `revyl-verify`, not the existing `revyl` CLI package. It is prepared in source, not published or live-verified; see [Python release preparation](#python-distribution-release-pyv010).
 
 The root README is the maintained landing page. `prepack` generates the npm README with version-pinned repository and badge links; do not edit `packages/verify/README.md` directly. After the public Verify guide is deployed and `https://docs.revyl.com/verify` resolves successfully, replace the Documentation section's repository-documentation link with that page and regenerate the package README. After the agent-platform example merges into the release tree, add its example link too; do not link an absent directory.
 
@@ -69,6 +71,53 @@ This is an alternative to publishing from the Mac, not a prerequisite for it. An
 Release checks the exact tag/version match and that the tagged commit belongs to `main`. Its unauthenticated, time-bounded lookup skips publication only when the public npm registry returns the exact package/version. A 404 proceeds only with the explicit administrator opt-in; other HTTP errors, malformed responses and transport failures fail validation. The publish job also checks the opt-in before running. Authentication, provenance or publish failures remain failed jobs; there is no catch-all success. A race with another publisher can still fail at npm: inspect the registry instead of retrying blindly. Manual workflow runs never publish; ordinary branch/PR pushes never publish. An already-published version skips the publish job but still runs validation, even without the CI opt-in, so the Mac-first path remains usable. This is not permission to rewrite tags or change published bytes.
 
 References: [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/), [npm provenance](https://docs.npmjs.com/generating-provenance-statements/), [GitHub environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
+
+## Python distribution release: py/v0.1.0
+
+This is preparation only: no PyPI settings, tags or publication are authorized by this guide. Python fake-server and installed-wheel tests do not prove live behavior. Review `python/README.md`, including thread-adapted async cancellation limits and staging-only computer availability, before approving a release.
+
+### Prepare and validate
+
+Use a clean checkout of the approved `main` revision and Python ≥3.10. From `python/`, with no stale files in `dist/`, run:
+
+```bash
+uv sync --frozen
+uv run --frozen ruff check .
+uv run --frozen ruff format --check .
+uv run --frozen mypy
+uv run --frozen pytest
+uv build
+uv run --frozen python -m twine check --strict dist/*
+uv run --frozen python scripts/check_package.py
+uv run --frozen python scripts/check_release.py py/v0.1.0
+uv run --frozen python scripts/check_release.py --registry
+```
+
+The artifact check compares wheel and sdist file allowlists, metadata, license and `py.typed`, installs the wheel into a fresh venv and runs the loopback fake-server smoke without pytest or a source import. It also extracts the sdist and runs its tests with an independent locked dev environment; repository-only workflow and canonical Go fixture parity checks skip outside the repository. `uv build` builds the wheel through the sdist. Inspect both distributions. The registry check is read-only: only an explicit 404 means absent; HTTP errors, redirects, malformed metadata, timeouts and transport failures fail closed. An exact existing package/version with published files skips publication, even without CI opt-in. Never reuse a published version or move an existing tag.
+
+In **Actions → Release Python → Run workflow**, select the reviewed revision. Dispatch runs validation only, without publish credentials or OIDC permission. It checks the exact registry version and skips the publication metadata/dry-run equivalent when that version already exists. `twine check --strict` is a local metadata check, not a PyPI authorization test or publication. Normal PR/branch pushes run CI, never publish.
+
+### Administrator setup (separate approval required)
+
+1. In GitHub **RevylAI/verify → Settings → Environments**, create `pypi`. Configure required reviewers and tag deployment rules limited to `py/v*` before enabling publication. Naming an environment in YAML is not protection: GitHub can otherwise create it unprotected.
+2. In PyPI, configure the `revyl-verify` project's **Publishing → Add a new publisher → GitHub** (or a pending publisher before first publication). Use owner `RevylAI`, repository `verify`, workflow filename `release-python.yml` and environment `pypi`. Confirm package-name ownership and account permissions; the existing `revyl` CLI is a different project and does not grant ownership of `revyl-verify` automatically. Use trusted publishing, not a long-lived API token.
+3. Protect `py/v*` tags against unauthorized creation, changes and deletion in GitHub rulesets. Review the source revision and public package contents before any approved tag push.
+4. Only after checking the environment, tag protection and PyPI trusted publisher, set repository Actions variable `VERIFY_PYPI_PUBLISH_ENABLED` to exactly `true`. This is an administrator attestation, **not an automatic audit** of those protections. Delete it or set it to `false` if any protection is removed. An absent version on a tag fails validation without this opt-in; dispatch never needs it and never publishes.
+
+### Approved publication
+
+After separate release/tag approval, from the repository root at the checked `main` revision:
+
+```bash
+git tag -a py/v0.1.0 -m 'Verify Python SDK 0.1.0'
+git push origin py/v0.1.0
+```
+
+The `py/v*` workflow checks the exact manifest/tag match and that the commit belongs to `origin/main`. It builds/tests/checks the distributions, uploads the exact validated artifacts, then waits for the `pypi` environment approval. The publish job has OIDC permission, uses `pypa/gh-action-pypi-publish`, and publishes those artifacts without rebuilding. It runs only for an absent exact version and explicit administrator opt-in. It does not use `skip-existing`: a racing publisher or failed publication remains a failure to investigate, not permission to silently replace bytes. npm's `v*` workflow and Go's `go/v*` lifecycle are unaffected.
+
+After publication, inspect `https://pypi.org/pypi/revyl-verify/0.1.0/json`, compare filenames and SHA-256 hashes to the reviewed artifacts, verify the PyPI attestations, and install `revyl-verify==0.1.0` in a clean consumer venv. Run the fake-server smoke against that installed distribution. Update publication status in the Python/root READMEs only after verification; a green dry run is not a release. Live cloud proof still requires separate workload approval.
+
+References: [PyPI trusted publishing](https://docs.pypi.org/trusted-publishers/), [GitHub environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
 
 ## Go module release: go/v0.1.0
 

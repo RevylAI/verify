@@ -1,0 +1,73 @@
+[build-system]
+requires = ["hatchling>=1.27.0,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "revyl-verify"
+version = "0.1.0"
+description = "Cloud browsers, mobile devices and computers from Python with Revyl"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Revyl", email = "support@revyl.ai" }]
+dependencies = ["Pillow>=11.0"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3.15",
+  "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/RevylAI/verify"
+Documentation = "https://github.com/RevylAI/verify/tree/main/python"
+Repository = "https://github.com/RevylAI/verify"
+Issues = "https://github.com/RevylAI/verify/issues"
+
+[dependency-groups]
+dev = [
+  "mypy>=1.15",
+  "pytest>=8.3",
+  "ruff>=0.11",
+  "tomli>=2.2",
+  "twine>=6.1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/revyl_verify"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src/revyl_verify/**/*.py",
+  "/src/revyl_verify/py.typed",
+  "/tests/**/*.py",
+  "/tests/fixtures/*.json",
+  "/scripts/*.py",
+  "/README.md",
+  "/LICENSE",
+  "/pyproject.toml",
+  "/uv.lock",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["src", "scripts", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

@@ -6,13 +6,13 @@ Open a Revyl cloud browser or mobile device for instruction and validation steps
 
 Use Go 1.26.9 or later and a Revyl account. Set `REVYL_API_KEY` through your shell or CI secret manager, or sign in with `revyl auth login`. A usable stored login marked `local_auth_override` takes precedence over the environment key; otherwise the environment key wins.
 
-The module is merged into `main` in the repository's `go/` subdirectory. Install it with:
+The module lives in the repository's `go/` subdirectory. Install the tagged release with:
 
 ```sh
-go get github.com/RevylAI/verify/go@main
+go get github.com/RevylAI/verify/go@v0.1.0
 ```
 
-There is no Go release tag yet. `@main` resolves to a pseudo-version; commit the resulting `go.mod` and `go.sum` in your app to pin it. A future submodule release must use the repository tag `go/v0.1.0`, after which installation will be `go get github.com/RevylAI/verify/go@v0.1.0`. The npm version does not version this Go module.
+Go releases use independent repository tags such as `go/v0.1.0`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
 
 ## Core API
 

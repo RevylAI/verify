@@ -1,0 +1,89 @@
+name: Release Python
+
+on:
+  push:
+    tags: ['py/v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-python-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      published: ${{ steps.registry.outputs.published }}
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.15'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.13.4'
+      - run: uv sync --frozen
+      - name: Validate release tag
+        if: github.event_name == 'push'
+        run: |
+          uv run --frozen python scripts/check_release.py "$GITHUB_REF_NAME"
+          git merge-base --is-ancestor HEAD origin/main
+      - name: Check exact PyPI version and publication opt-in
+        id: registry
+        env:
+          VERIFY_PYPI_PUBLISH_ENABLED: ${{ vars.VERIFY_PYPI_PUBLISH_ENABLED }}
+          RELEASE_EVENT: ${{ github.event_name }}
+        run: |
+          args=(--registry)
+          if [ "$RELEASE_EVENT" = push ]; then args+=(--require-enabled); fi
+          uv run --frozen python scripts/check_release.py "${args[@]}"
+      - run: uv run --frozen ruff check .
+      - run: uv run --frozen ruff format --check .
+      - run: uv run --frozen mypy
+      - run: uv run --frozen pytest
+      - run: uv build
+      - run: uv run --frozen python scripts/check_package.py
+      - name: Check publication metadata (validation only)
+        if: steps.registry.outputs.published == 'false'
+        run: uv run --frozen python -m twine check --strict dist/*
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push'
+        with:
+          name: python-package-${{ github.sha }}
+          path: python/dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/py/v') && needs.validate.outputs.published == 'false' && vars.VERIFY_PYPI_PUBLISH_ENABLED == 'true'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-package-${{ github.sha }}
+          path: dist
+      - name: Require public source for attestations
+        env:
+          REPOSITORY_VISIBILITY: ${{ github.event.repository.visibility }}
+        run: test "$REPOSITORY_VISIBILITY" = public
+      - name: Publish reviewed distributions with trusted publishing
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          attestations: true
