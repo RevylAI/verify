@@ -24,9 +24,9 @@ This page is for AI coding agents (Claude Code, Cursor, Codex, and others) that 
 
 ## Rules
 
-Mac and Linux computers are early access and not yet available in Revyl production. They work only on Revyl staging for organizations enabled for the requested OS through the optional `REVYL_BACKEND_URL` override with matching staging credentials. Read [availability and errors](computers.md#availability-and-errors) before starting a computer; do not try production or repeat an uncertain start/stop to probe availability.
+Mac and Linux computers are early access. Ask support@revyl.ai about access before starting a computer; do not repeat an uncertain start/stop to probe availability.
 
-For computer work, use structured `exec(['program', 'arg'])`, `readFile`, `writeFile`, `stat`, and run-owned handles from `processes()`/`terminate(id)`. Check command output with ordinary assertions and close in `finally`; screenshots are supported, but instruction/validation are not. Do not fall back to agent steps on computers or shell/file methods on mobile/web. See [computers.md](computers.md) for limits and staging setup. Linux uses inline targets or config entries; Linux init is intentionally unavailable. Starting a computer is a paid external action and needs the same approval as starting a device.
+For computer work, use structured `exec(['program', 'arg'])`, `readFile`, `writeFile`, `stat`, and run-owned handles from `processes()`/`terminate(id)`. Check command output with ordinary assertions and close in `finally`; screenshots are supported, but instruction/validation are not. Do not fall back to agent steps on computers or shell/file methods on mobile/web. See [computers.md](computers.md) for limits. Linux uses inline targets or config entries; Linux init is intentionally unavailable. Starting a computer is a paid external action and needs the same approval as starting a device.
 
 Computers have a hard 60-minute lifetime from create, not from readiness or activity. `expiresAt` is optional on older APIs; expiry does not prevent close. After terminal state and confirmed release, `recording()` can return private signed metadata or null, including after close. Never log or share its signed URL/query. Do not automatically wait for recordings or retry `COMPUTER_LIMIT` starts: queued work (including iOS) or the concurrency limit may be responsible.
 

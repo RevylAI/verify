@@ -30,7 +30,7 @@ signIn: { path: '/__test/sign-in', secret: 'E2E_SIGN_IN_TOKEN', persona: 'admin'
 
 `instruction` and `validation` use the same Revyl endpoints on web as on iOS and Android, and each step shows up in the session's report.
 
-Production is the default. **Optional staging access** is for users with an approved early-access organization and matching credentials; it is not required for normal setup. Get your endpoints from Revyl, set `REVYL_BACKEND_URL` and the matching `REVYL_APP_URL`, and authenticate for that environment. Never mix production and early-access credentials.
+The default Revyl service is used for normal setup. Authenticate with a matching API key or CLI login.
 
 A Revyl backend that does not run steps on web yet answers with `step_output_not_available`, which Verify reports as `NOT_AVAILABLE_ON_PLATFORM`. The same script works there with no change once it does. `open`, `screenshot`, `viewerUrl`, and `close` work on web everywhere.
 

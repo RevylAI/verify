@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
 
 from ._async import AsyncSession, async_attach, async_open
@@ -63,7 +62,7 @@ def open(
     if log is not None and not callable(log):
         raise VerifyError("INVALID_ARGUMENT", "log must be a callable or None.")
     client = Client(backend_url)
-    viewer = origin(app_url or os.environ.get("REVYL_APP_URL") or "https://app.revyl.ai", app=True)
+    viewer = origin(app_url or "https://app.revyl.ai", app=True)
     session = (ComputerSession if target.platform in ("mac", "linux") else Session).start(
         client, viewer, target, step_timeout, log, _cancellation
     )
@@ -89,5 +88,5 @@ def attach(
         raise VerifyError("INVALID_ARGUMENT", "log must be a callable or None.")
     install_signal_cleanup()
     client = Client(backend_url)
-    viewer = origin(app_url or os.environ.get("REVYL_APP_URL") or "https://app.revyl.ai", app=True)
+    viewer = origin(app_url or "https://app.revyl.ai", app=True)
     return ComputerSession.attach(client, viewer, computer_id, step_timeout, log, _cancellation)

@@ -949,7 +949,19 @@ def test_sigterm_cleanup_in_child_respects_existing_handler(
             "signal.signal(signal.SIGTERM, handler)" if custom_handler else "",
             "target = verify.Target(platform='ios', app_id=" + repr(APP_ID) + ")",
             "session = "
-            + ("asyncio.run(verify.async_open(target))" if asynchronous else "verify.open(target)"),
+            + (
+                "asyncio.run(verify.async_open(target, backend_url="
+                + repr(device_api.url)
+                + ", app_url="
+                + repr(VIEWER)
+                + "))"
+                if asynchronous
+                else "verify.open(target, backend_url="
+                + repr(device_api.url)
+                + ", app_url="
+                + repr(VIEWER)
+                + ")"
+            ),
             "assert signal.getsignal(signal.SIGTERM) is handler" if custom_handler else "",
             "signal.raise_signal(signal.SIGTERM)",
             "assert seen == [signal.SIGTERM] and not session.closed" if custom_handler else "",
@@ -960,8 +972,6 @@ def test_sigterm_cleanup_in_child_respects_existing_handler(
         "PATH": os.environ.get("PATH", ""),
         "HOME": str(Path.home()),
         "REVYL_API_KEY": "child-test-key",
-        "REVYL_BACKEND_URL": device_api.url,
-        "REVYL_APP_URL": VIEWER,
         "PYTHONPATH": str(Path(__file__).parents[1] / "src"),
     }
     result = subprocess.run(
@@ -1006,14 +1016,16 @@ def test_sigterm_during_startup_closes_known_resource_before_readiness_returns(
         "import asyncio; import revyl_verify as verify; "
         + ("asyncio.run(verify.async_open(" if asynchronous else "verify.open(")
         + repr(selected).replace("Target(", "verify.Target(")
+        + ", backend_url="
+        + repr(backend)
+        + ", app_url="
+        + repr(VIEWER)
         + ("))" if asynchronous else ")")
     )
     environment = {
         "PATH": os.environ.get("PATH", ""),
         "HOME": str(Path.home()),
         "REVYL_API_KEY": "child-test-key",
-        "REVYL_BACKEND_URL": backend,
-        "REVYL_APP_URL": VIEWER,
         "PYTHONPATH": str(Path(__file__).parents[1] / "src"),
     }
     child = subprocess.Popen(
@@ -1092,7 +1104,8 @@ def test_sigterm_unwinds_sdk_lock_without_deadlocking(
             "import signal",
             "import revyl_verify as verify",
             "from revyl_verify import _cleanup",
-            f"session = verify.open(verify.Target(platform='ios', app_id={APP_ID!r}))",
+            f"session = verify.open(verify.Target(platform='ios', app_id={APP_ID!r}), "
+            f"backend_url={device_api.url!r}, app_url={VIEWER!r})",
             "if " + repr(lock_kind) + " == 'close':",
             "    session._cancellation.cancel = lambda: signal.raise_signal(signal.SIGTERM)",
             "    session.close()",
@@ -1105,8 +1118,6 @@ def test_sigterm_unwinds_sdk_lock_without_deadlocking(
         "PATH": os.environ.get("PATH", ""),
         "HOME": str(Path.home()),
         "REVYL_API_KEY": "child-test-key",
-        "REVYL_BACKEND_URL": device_api.url,
-        "REVYL_APP_URL": VIEWER,
         "PYTHONPATH": str(Path(__file__).parents[1] / "src"),
     }
     result = subprocess.run(

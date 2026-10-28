@@ -9,4 +9,4 @@ npm install
 node verify/checkout.ts
 ```
 
-Production is the default. To use optional staging access, set matching staging credentials and URL overrides as [web.md](../../packages/verify/docs/web.md) shows, with `REVYL_WEB_APP_ID` naming a web app in that environment. Against a backend without web steps, the script stops at its first step with `NOT_AVAILABLE_ON_PLATFORM`.
+The script uses the default Revyl service. `REVYL_WEB_APP_ID` names the web app in Revyl. Against a backend without web steps, the script stops at its first step with `NOT_AVAILABLE_ON_PLATFORM`.

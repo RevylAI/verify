@@ -10,14 +10,16 @@ export interface OpenOptions {
   config?: string;
   /** Where progress lines go: the session link and each step's outcome. Defaults to stderr; false turns them off. */
   log?: false | ((line: string) => void);
+  backendUrl?: string;
+  appUrl?: string;
 }
 
-export async function attach(computerId: string, options: Pick<OpenOptions, 'log'> = {}): Promise<ComputerSession> {
+export async function attach(computerId: string, options: Pick<OpenOptions, 'log' | 'backendUrl' | 'appUrl'> = {}): Promise<ComputerSession> {
   if (typeof computerId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(computerId)) throw new VerifyError('INVALID_ARGUMENT', 'attach() requires a computer session UUID.');
   const credentials = await resolveCredentials();
   if (!credentials) throw new VerifyError('AUTH_MISSING', missingCredentialsMessage());
   const log = options.log === false ? undefined : (options.log ?? ((line: string) => void process.stderr.write(`[verify] ${line}\n`)));
-  return ComputerSession.attach(new RevylClient({ token: credentials.token }), computerId, { stepTimeout: DEFAULT_STEP_TIMEOUT_MS, log });
+  return ComputerSession.attach(new RevylClient({ token: credentials.token, backendUrl: options.backendUrl }), computerId, { stepTimeout: DEFAULT_STEP_TIMEOUT_MS, log, appUrl: options.appUrl });
 }
 
 /**
@@ -43,7 +45,7 @@ export async function open(target: string | TargetConfig, options: OpenOptions =
   const credentials = await resolveCredentials();
   if (!credentials) throw new VerifyError('AUTH_MISSING', missingCredentialsMessage());
   const log = options.log === false ? undefined : (options.log ?? ((line: string) => void process.stderr.write(`[verify] ${line}\n`)));
-  const client = new RevylClient({ token: credentials.token });
-  if (resolved.platform === 'mac' || resolved.platform === 'linux') return ComputerSession.start(client, resolved, { stepTimeout, log });
-  return DeviceSession.start(client, resolved, { stepTimeout, log });
+  const client = new RevylClient({ token: credentials.token, backendUrl: options.backendUrl });
+  if (resolved.platform === 'mac' || resolved.platform === 'linux') return ComputerSession.start(client, resolved, { stepTimeout, log, appUrl: options.appUrl });
+  return DeviceSession.start(client, resolved, { stepTimeout, log, appUrl: options.appUrl });
 }

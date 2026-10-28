@@ -139,10 +139,10 @@ All Python timeout values are seconds. For asyncio, use `async with await async_
 | Web | Yes | — | Yes | Production; selected backend must support web steps |
 | iOS simulator | Yes | — | Yes | Production |
 | Android emulator | Yes | — | Yes | Production |
-| Mac computer | — | Yes | Yes | Staging-only early access; not in production |
-| Linux computer | — | Yes | Yes | Staging-only early access; not in production |
+| Mac computer | — | Yes | Yes | Early access; contact support |
+| Linux computer | — | Yes | Yes | Early access; contact support |
 
-Computers require enablement for your organization and requested OS, plus approved `REVYL_BACKEND_URL`, matching `REVYL_APP_URL` and credentials. They have a hard 60-minute lifetime from create. Mac supports `init --platform mac`; Linux init is unavailable, so use `open({ platform: 'linux' })` or a config target. See [computers](packages/verify/docs/computers.md).
+Computers are early access; ask support@revyl.ai about access. They have a hard 60-minute lifetime from create. Mac supports `init --platform mac`; Linux init is unavailable, so use `open({ platform: 'linux' })` or a config target. See [computers](packages/verify/docs/computers.md).
 
 ## Documentation
 
@@ -153,7 +153,7 @@ Computers require enablement for your organization and requested OS, plus approv
 
 ## Troubleshooting
 
-- **`NOT_AVAILABLE_ON_PLATFORM`:** computer agent steps and device command/file methods are unavailable. Computers also need staging enablement; web steps need backend support. Check the [platform contract](packages/verify/docs/errors.md).
+- **`NOT_AVAILABLE_ON_PLATFORM`:** computer agent steps and device command/file methods are unavailable. Computer access is controlled by Revyl; web steps need backend support. Check the [platform contract](packages/verify/docs/errors.md).
 - **`COMPUTER_LIMIT`:** admission was refused because of queued work or a concurrency limit. Wait for capacity; Verify does not retry creation or stop a definitely refused start.
 - **Blank first screen:** mobile startup makes a bounded, best-effort blank-frame observation, not a rendered/foreground-readiness guarantee. Begin with an instruction that reaches the screen you need. Computer capture retries structured startup screen-not-ready responses for a fixed 30-second window; Linux screenshot retry is tests-only, not proven live.
 - **A report's counters look successful but validation failed:** inspect `effective_status`, `validation_result` and `validations_passed` against `total_validations`, not transport counts. Failed SDK validations throw by default. See [reading the verdict](packages/verify/docs/end-to-end.md#reading-the-verdict).

@@ -23,7 +23,6 @@ const required = [
   'docs/getting-started.md',
   'docs/llms.txt',
   'docs/computers.md',
-  'docs/linux-computers-contract.md',
 ];
 
 const directory = mkdtempSync(join(tmpdir(), 'verify-package-'));

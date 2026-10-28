@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Removed environment overrides.
+
 - **Breaking wire change:** encode computer-operation arguments as `argv_b64` and file paths as `path_b64` using padded URL-safe base64 of UTF-8, without changing public APIs, argument boundaries, or existing stdin/data fields. These SDKs are incompatible with the previous backend contract. Deploy the encoded-only backend before publishing or upgrading to these SDKs; no plaintext fallback or automatic replay is provided.
 
 - Classify HTTP 403 responses with a `text/html` content type and nonempty `cf-ray` as `EDGE_BLOCKED` across TypeScript, Go and Python, unless the body is syntactically valid JSON. Preserve origin authentication errors, omit response content from edge-block messages, and do not retry blocked requests.
@@ -20,13 +22,13 @@
 - Prepare Python SDK 0.1.0 (`revyl-verify`, import `revyl_verify`) for Python ≥3.10, with typed sync and thread-adapted async sessions, seconds-based timeouts, web/mobile steps and early-access computer operations. Include fake-server coverage, wheel/sdist checks and an isolated installed-wheel smoke; Python has not been published or verified live. Its independent `py/v*` release workflow validates without publishing on dispatch, skips exact published versions, and requires administrator-enabled, protected-environment PyPI trusted publishing for new tag releases.
 
 - Add the source-free `revyl-verify` npm alias with matching API, TypeScript types and CLI, pinned to the exact `@revyl/verify` version. Validate and pack both packages; optional CI publication checks each version independently and publishes the scoped package before the alias.
-- Add a standard-library-only Go SDK for web, iOS, Android, and early-access Mac and Linux computers. Computer commands, binary files, process handles, screenshots, recording metadata, and confirmed-release cleanup require an enabled staging organization and are not yet available in production. Capacity refusals have a distinct `COMPUTER_LIMIT` code; no start or operation is automatically replayed.
+- Add a standard-library-only Go SDK for web, iOS, Android, and early-access Mac and Linux computers. Computer commands, binary files, process handles, screenshots, recording metadata, and confirmed-release cleanup require computer access through support@revyl.ai. Capacity refusals have a distinct `COMPUTER_LIMIT` code; no start or operation is automatically replayed.
 
 ## 0.2.0
 
 Prepared for release; see npm for publication status.
 
-- Enable Linux named and inline computer targets with the shared Mac command, file, process, screenshot, and confirmed-release cleanup surface. Both operating systems remain early access on staging for enabled organizations/OSes, not yet available in production.
+- Enable Linux named and inline computer targets with the shared Mac command, file, process, screenshot, and confirmed-release cleanup surface. Both operating systems remain early access; contact support@revyl.ai for access.
 - Add `COMPUTER_LIMIT` for queued work (including iOS) or concurrency admission refusals, without retrying or stopping a definitely refused start. Preserve `SESSION_BUSY` for operation limits.
 - Explain the 120-second unclaimed-start failure without shortening the default 10-minute start timeout.
 - Expose optional `expiresAt` and bound operation/screenshot observation by the hard 60-minute lifetime from create, while keeping explicit close possible.
@@ -47,7 +49,7 @@ Published manually from a maintainer's Mac without provenance.
 - Save screenshots, share session links, and close sessions explicitly or during best-effort process cleanup.
 - Configure named targets and initialize a script with the `verify` or `revyl-verify` command.
 - Use environment credentials or an existing Revyl CLI login, with documentation included in the package.
-- Include **early-access Mac computers, not yet available in Revyl production**, for commands, binary files, process handles, screenshots, and confirmed-release cleanup. Mac works only on Revyl staging for enabled organizations through the optional `REVYL_BACKEND_URL` override and matching credentials; ask support@revyl.ai about access.
+- Include **early-access Mac computers** for commands, binary files, process handles, screenshots, and confirmed-release cleanup. Ask support@revyl.ai about access.
 - Reserve Linux target types and document the future contract; opening Linux is not available in this release.
 
-Requires Node.js 22.18 or later and a Revyl account. There is no bundled test runner or step replay. Mac operations remain covered by source-aligned fake-API tests; a production start never reached active, so it did not prove any operation or confirmed cleanup.
+Requires Node.js 22.18 or later and a Revyl account. There is no bundled test runner or step replay. Mac operations remain covered by source-aligned fake-API tests; the attempted live start never reached active, so it did not prove any operation or confirmed cleanup.

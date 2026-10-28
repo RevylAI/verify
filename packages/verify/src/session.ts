@@ -148,6 +148,7 @@ export interface OpenedSession extends Session {
 export interface SessionOptions {
   stepTimeout: number;
   log: ((line: string) => void) | undefined;
+  appUrl?: string;
 }
 
 export interface HostingParent {
@@ -189,7 +190,7 @@ export class DeviceSession implements Session {
     this.target = target.name;
     this.id = id;
     this.workflowRunId = workflowRunId;
-    this.viewerUrl = sessionViewerUrl(id);
+    this.viewerUrl = sessionViewerUrl(id, undefined, options.appUrl);
   }
 
   static async start(client: RevylClient, target: ResolvedDeviceTarget, options: SessionOptions, parent?: HostingParent): Promise<DeviceSession> {

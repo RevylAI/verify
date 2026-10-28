@@ -22,15 +22,13 @@ describe('initProject', () => {
     expect(output).toContain(`/tree/v${VERSION}/packages/verify/docs`);
     expect(output).not.toContain('/tree/main/');
   });
-  it('prints the staging-only Mac availability note exactly once', async () => {
+  it('prints the Mac availability note exactly once', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'verify-init-cli-'));
     const jiti = pathToFileURL(createRequire(import.meta.url).resolve('jiti')).href;
     const entry = fileURLToPath(new URL('../src/cli/main.ts', import.meta.url));
     const output = execFileSync(process.execPath, ['--input-type=module', '-e', `import { createJiti } from ${JSON.stringify(jiti)}; process.argv = ['node', 'verify', 'init', '--platform', 'mac']; await createJiti(import.meta.url).import(${JSON.stringify(entry)});`], { cwd: dir, encoding: 'utf8' });
-    expect(output.match(/Mac computers are not yet available in Revyl production/g)).toHaveLength(1);
-    expect(output).toContain('only on Revyl staging for enabled organizations');
-    expect(output).toContain('REVYL_BACKEND_URL');
-    expect(output).toContain('computers.md#availability-and-errors');
+    expect(output.match(/Mac computers are early access/g)).toHaveLength(1);
+    expect(output).toContain('support@revyl.ai');
   });
   it('writes a web config, an example script, and ignores screenshots', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'verify-init-'));

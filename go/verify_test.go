@@ -49,8 +49,6 @@ func newFake(t *testing.T) *fakeRevyl {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("REVYL_API_KEY", "test-token")
-	t.Setenv("REVYL_BACKEND_URL", "")
-	t.Setenv("REVYL_APP_URL", "")
 	data, err := os.ReadFile("testdata/device-contract.json")
 	if err != nil {
 		t.Fatal(err)
@@ -733,12 +731,10 @@ func TestInvalidStepArgumentsAndConcurrentStep(t *testing.T) {
 	}
 }
 
-func TestEnvironmentOverridesAndRedirectRejection(t *testing.T) {
-	t.Run("environment", func(t *testing.T) {
+func TestExplicitURLOptionsAndRedirectRejection(t *testing.T) {
+	t.Run("explicit options", func(t *testing.T) {
 		f := newFake(t)
-		t.Setenv("REVYL_BACKEND_URL", f.server.URL)
-		t.Setenv("REVYL_APP_URL", "https://viewer.test/")
-		s, err := verify.Open(context.Background(), verify.Target{Platform: verify.Android, AppID: appID})
+		s, err := verify.Open(context.Background(), verify.Target{Platform: verify.Android, AppID: appID}, verify.OpenOptions{BackendURL: f.server.URL, AppURL: "https://viewer.test/"})
 		if err != nil {
 			t.Fatal(err)
 		}

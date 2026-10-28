@@ -16,7 +16,7 @@ npx @revyl/verify init
 In scripts and CI, pass the answers as flags:
 
 ```bash
-npx @revyl/verify init --platform web --app-id <revyl-app-id> --url https://staging.example.com
+npx @revyl/verify init --platform web --app-id <revyl-app-id> --url https://example.com
 npx @revyl/verify init --platform ios --app-id <revyl-app-id>
 npx @revyl/verify init --platform mac
 ```
@@ -44,9 +44,9 @@ npx @revyl/verify whoami         # checks the credentials without starting a ses
 
 Web and mobile targets need an app. Open the app in Revyl and copy its id into `app.appId`, or set `REVYL_APP_ID`, which the generated config reads. Mac and Linux targets need no app id. Linux init is intentionally unavailable; use `open({ platform: 'linux' })` or add a Linux config target.
 
-- **Web:** set `app.url` to a public HTTPS URL, such as a staging or preview deployment. Revyl's cloud browser cannot reach `localhost`. See [web.md](web.md).
+- **Web:** set `app.url` to a public HTTPS URL. Revyl's cloud browser cannot reach `localhost`. See [web.md](web.md).
 - **iOS and Android:** upload a build to the app in Revyl, for example with `revyl build upload`; each session installs the newest one. See [mobile.md](mobile.md).
-- **Mac and Linux:** early access is not yet available in Revyl production. Both work only on Revyl staging for organizations enabled for the requested OS through the optional `REVYL_BACKEND_URL` override and matching staging credentials. Agent instruction/validation are unavailable. See [computers.md](computers.md#availability-and-errors).
+- **Mac and Linux:** computers are early access; ask support@revyl.ai about access. Agent instruction/validation are unavailable. See [computers.md](computers.md#availability-and-errors).
 
 ## 5. Run the script
 

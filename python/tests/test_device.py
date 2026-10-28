@@ -42,8 +42,6 @@ FIXTURES = cast(
 def isolated_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("REVYL_API_KEY", "test-token")
-    monkeypatch.setenv("REVYL_BACKEND_URL", "http://127.0.0.1:1")
-    monkeypatch.setenv("REVYL_APP_URL", "https://viewer.test")
 
 
 @pytest.mark.parametrize("name", ["device-contract.json", "computer-contract.json"])
@@ -861,8 +859,6 @@ def test_context_exception_and_interpreter_exit_cleanup(fake: FakeRevyl) -> None
         "PATH": os.environ.get("PATH", ""),
         "HOME": os.environ["HOME"],
         "REVYL_API_KEY": "child-test-key",
-        "REVYL_BACKEND_URL": fake.url,
-        "REVYL_APP_URL": "https://viewer.test",
         "PYTHONPATH": str(Path(__file__).parents[1] / "src"),
     }
     result = subprocess.run(

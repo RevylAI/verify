@@ -4,16 +4,15 @@
 
 ## Docs
 
-Both computer operating systems are early access and not yet available in Revyl production. They work only on Revyl staging for organizations enabled for the requested OS using the optional REVYL_BACKEND_URL override and matching staging credentials. Linux init remains intentionally unavailable; use an inline target or config entry. See computers.md#availability-and-errors.
+Both computer operating systems are early access; ask support@revyl.ai about access. Linux init remains intentionally unavailable; use an inline target or config entry. See computers.md#availability-and-errors.
 
 - [Getting started](getting-started.md): install, authenticate, init, run a script
 - [API](api.md): open(), attach(), hosted children, navigate(), report(), agent steps, screenshot(), exec(), file/process methods, close()
 - [Configuration](configuration.md): verify.config.ts targets, environment variables, the init and whoami commands
-- [Web](web.md): Revyl web sessions, URLs and builds, sign-in, steps, and optional staging access
+- [Web](web.md): Revyl web sessions, URLs and builds, sign-in, and steps
 - [Mobile](mobile.md): iOS and Android devices and installing apps
-- [Computers](computers.md#availability-and-errors): staging-only Mac/Linux early access, expiry, capacity errors, recording metadata, and confirmed release
+- [Computers](computers.md#availability-and-errors): Mac/Linux early access, expiry, capacity errors, recording metadata, and confirmed release
 - [Verify working end to end](end-to-end.md): live verification scope, observed outcomes, and limits of the evidence
-- [Linux contract](linux-computers-contract.md): implemented shared requests/responses, readiness, errors, and uncertainty
 - [CI and test runners](ci.md): GitHub Actions, node:test, Vitest, Jest, Playwright Test
 - [Errors](errors.md): every error code and what to do about it
 - [For coding agents](agents.md): the workflow and rules for agents using Verify

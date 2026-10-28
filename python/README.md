@@ -30,7 +30,7 @@ Supply `REVYL_API_KEY` through a secret manager, or use the separately installed
 revyl auth login
 ```
 
-Credential precedence matches the other SDKs: a usable stored CLI login marked `local_auth_override`, then `REVYL_API_KEY`, then another usable CLI login. An expired access token can fall back to its stored API key. Never pass keys in argv, source, screenshots or logs. `REVYL_BACKEND_URL` and `REVYL_APP_URL` override the API and viewer origins; credentials must belong to the selected environment.
+Credential precedence matches the other SDKs: a usable stored CLI login marked `local_auth_override`, then `REVYL_API_KEY`, then another usable CLI login. An expired access token can fall back to its stored API key. Never pass keys in argv, source, screenshots or logs.
 
 ## Quick Start
 
@@ -72,9 +72,9 @@ asyncio.run(main())
 
 `async_open` returns an `AsyncSession`. Its async methods adapt the synchronous implementation through worker threads, rather than introducing another HTTP stack. Cancelling a method schedules best-effort session close; cancelling open interrupts startup and attempts cleanup as soon as an identity is known. Cancellation does not forcibly terminate an in-flight thread or undo a remote operation; do not replay an uncertain mutation. Always close explicitly or use `async with await async_open(...)`.
 
-### Linux computer (enabled staging organizations only)
+### Linux computer (early access)
 
-Configure the approved staging API/viewer origins and matching credentials privately before running:
+Ask support@revyl.ai about computer access before running:
 
 ```python
 from revyl_verify import Target, open
@@ -114,11 +114,11 @@ with attach("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee") as computer:
 
 Use real IDs from the same authorized environment; these are placeholders. The existing Web build must point to a supported HTTPS source. After startup, `navigate(url)` sends a single deterministic navigation request and accepts HTTP or HTTPS, including localhost, on every Web session. A cold development server may need a warm-up request before navigation succeeds. For hosted browsers localhost means the hosting computer; for ordinary cloud browsers it means that browser's runtime, not your own computer. If navigation times out uncertainly, it may still commit and the session remains usable; re-navigating is your choice. The server runtime owns navigation network policy. The SDK rejects credentials, control characters and backslashes; it never logs the URL. Navigation is unavailable on mobile and computer sessions and returns `None` after a confirmed response.
 
-`computer.open(target)` requires **both** `app_id` and `build_id` UUIDs. Hosted Web accepts `viewport`, `sign_in`, `idle_timeout_seconds` and `start_timeout`, but no `url` or `branch`; the server currently accepts external Web builds, not bundled Web artifacts. Hosted iOS/Android use the selected build and fixed simulator/emulator configuration, so `bundle_id`, `artifact_url`, `device_model`, `os_version`, `url`, `branch`, `viewport` and `sign_in` are unavailable. Mac hosts Web/iOS; Linux hosts Android and exposes Web only subject to server capability. **Linux-hosted Web is currently unavailable in the runtime.** All hosting depends on the computer's enabled server capability and capacity.
+`computer.open(target)` requires **both** `app_id` and `build_id` UUIDs. Hosted Web accepts `viewport`, `sign_in`, `idle_timeout_seconds` and `start_timeout`, but no `url` or `branch`; the server currently accepts external Web builds, not bundled Web artifacts. Hosted iOS/Android use the selected build and fixed simulator/emulator configuration, so `bundle_id`, `artifact_url`, `device_model`, `os_version`, `url`, `branch`, `viewport` and `sign_in` are unavailable. Mac hosts Web/iOS; Linux hosts Android and exposes Web only subject to server capability. **Linux-hosted Web is currently unavailable in the runtime.** All hosting depends on server capability and capacity.
 
 Children reuse their parent's credentials, API/viewer origins, step timeout and log callback. They return normal sessions with instruction, validation, screenshot, report and close methods. The parent's remaining lifetime bounds child startup and worker requests; report and close remain available after expiry. Closing a parent prevents new children, cancels in-flight starts, and gives pending starts and child closes one shared five-second cleanup budget before attempting the computer stop. Child startup failure never closes the parent. Confirmed physical parent release supersedes an earlier child-close uncertainty, which is logged safely. An ambiguous child start is cleaned up using its preallocated ID, without replaying creation. A definitive refusal does not issue a child stop.
 
-For async code use `async with await async_attach(computer_id) as computer`, then `async with await computer.open(target) as browser` and `await browser.navigate(url)`. `async_attach` accepts the same overrides as `async_open`. Cancelling a child open cleans up only that child and leaves the parent open; cancelling attach before it succeeds does not stop the existing computer.
+For async code use `async with await async_attach(computer_id) as computer`, then `async with await computer.open(target) as browser` and `await browser.navigate(url)`. Cancelling a child open cleans up only that child and leaves the parent open; cancelling attach before it succeeds does not stop the existing computer.
 
 ## Platforms and cleanup
 
@@ -130,7 +130,7 @@ Construct a frozen `Target(platform=...)`:
 - **iOS / Android:** provide exactly one of `app_id`, `build_id`, HTTPS `artifact_url` or installed-app `bundle_id`. Optional `device_model` and `os_version` select the device. Do not combine mobile app sources.
 - **Mac / Linux:** only `platform` and `start_timeout` are accepted; app/browser/device fields are unavailable.
 
-`start_timeout` defaults to 600 seconds (allowed range 10–1800). Web/mobile also accept `idle_timeout_seconds` (60–3600). `open`, `async_open`, `attach` and `async_attach` accept optional `backend_url`, `app_url`, and default `step_timeout` in seconds. Prefer matching environment variables when selecting a non-default environment.
+`start_timeout` defaults to 600 seconds (allowed range 10–1800). Web/mobile also accept `idle_timeout_seconds` (60–3600). `open`, `async_open`, `attach` and `async_attach` accept default `step_timeout` in seconds.
 
 Pass `log=callback` to either opening API for sanitized lifecycle progress, including the viewer link as soon as the session identity is known. The default is quiet. Async callbacks run on a worker thread, so make them thread-safe; callback exceptions do not interrupt resource cleanup. Progress never includes app URLs, command or step content, credentials, recording URLs, or raw server errors. Viewer links and session IDs are still private operational context.
 
@@ -164,7 +164,7 @@ Session properties include `id`, `platform`, `viewer_url`, `expires_at` and `clo
 | iOS simulator / Android emulator | Yes | — | Yes |
 | Mac / Linux computer | — | Yes | Yes |
 
-Mac and Linux are staging-only early access for enabled organizations and OSes, **not available in production**. Computer admission may return `COMPUTER_LIMIT`; the SDK does not retry creation. Computer sessions have a hard 60-minute lifetime from creation. Screenshot observation retries structured startup screen-not-ready errors within a bounded window; other errors are not silently replayed.
+Mac and Linux are early access; ask support@revyl.ai about access. Computer admission may return `COMPUTER_LIMIT`; the SDK does not retry creation. Computer sessions have a hard 60-minute lifetime from creation. Screenshot observation retries structured startup screen-not-ready errors within a bounded window; other errors are not silently replayed.
 
 Context-manager exit calls `close()`. Device close acknowledges a stop request; computer close requires terminal state **and confirmed resource release**. Close submits its stop mutation once; repeated calls share the first outcome, including an unconfirmed failure. Interpreter-exit cleanup is best effort and cannot replace explicit close, especially with asyncio. A failed close is not proof the resource was released; investigate it rather than starting replacement sessions blindly.
 
