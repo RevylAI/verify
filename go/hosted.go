@@ -172,7 +172,7 @@ func hostedStartError(r response) error {
 		code = ErrNotFound
 	case reason == ReasonComputerNotRunning:
 		code = ErrSessionEnded
-	case reason == ReasonComputerCannotHostPlatform || reason == ReasonWebRuntimeUnavailable || reason == ReasonRuntimeUnavailable || reason == ReasonComputerRuntimeUnavailable || reason == ReasonNotAvailableOnPlatform:
+	case reason == ReasonComputerCannotHostPlatform || reason == ReasonWebRuntimeUnavailable || reason == ReasonWebRuntimeNotConfigured || reason == ReasonRuntimeUnavailable || reason == ReasonComputerRuntimeUnavailable || reason == ReasonNotAvailableOnPlatform:
 		code = ErrNotAvailableOnPlatform
 	case reason == ReasonComputerLimit || reason == ReasonComputerAtCapacity:
 		code = ErrComputerLimit
@@ -238,6 +238,9 @@ func (s *Session) Navigate(ctx context.Context, rawURL string) error {
 }
 
 func (s *Session) Report(ctx context.Context) (map[string]any, error) {
+	if s.id == "" {
+		return nil, failure(ErrNotFound, "The session ID is unknown; a report is not available.")
+	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	var r response

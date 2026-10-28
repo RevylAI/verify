@@ -29,13 +29,15 @@ const linux = await open({ platform: 'linux' });                    // same comp
 
 The attachment, hosted-child and navigation APIs below are new in the unreleased source; they are not in the published TypeScript 0.2.0 package.
 
+`open()` and `computer.open()` return the extended `OpenedSession` interface. The original `Session` interface keeps its existing required members, so applications implementing or mocking it do not need to add the new methods. Use `OpenedSession` when explicitly annotating a value that calls `report`, `navigate` or `open`.
+
 Attaches to an active Mac or Linux computer in your organization without creating a new one. It uses the same credential precedence and `REVYL_BACKEND_URL` / `REVYL_APP_URL` overrides as `open`; `options.log` controls progress. The returned computer owns cleanup: `close()` stops it, and automatic cleanup also applies. Attaching requires a valid expiry and does not extend the lifetime. Invalid, inaccessible, inactive or expired computers fail without sending a stop request.
 
 ## computer.open(target)
 
 Starts a child app session inside this computer, returning the normal session API. It inherits the parent's authenticated client, logging and step timeout; callers cannot route a child to another backend. Both `target.app.appId` and `target.app.buildId` are required. Web accepts an existing external HTTPS build, plus optional viewport/sign-in settings; native builds use the computer's fixed device profile and accept no bundle, artifact or device override. Named targets and initial URL overrides are not supported here.
 
-Mac supports Web and iOS children. Linux supports Android and may support Web when its runtime advertises that capability; Linux Web currently has a runtime limitation, so do not rely on it without confirming availability. The server remains authoritative for access, capability and capacity. Children require and share the parent's known deadline. Closing a child leaves the parent running; closing the parent cancels pending starts, closes its tracked children first, then requests confirmed computer release. A failed child start never closes the parent.
+Mac supports Web and iOS children. Linux supports Android and may support Web when its runtime advertises that capability; Linux Web currently has a runtime limitation, so do not rely on it without confirming availability. The server remains authoritative for access, capability and capacity. Children require and share the parent's known deadline. Closing a child leaves the parent running; closing the parent cancels pending starts and gives child cleanup at most five seconds total before requesting confirmed computer release. The parent stop also stops any remaining children, so a slow child cannot prevent that request. A failed child start never closes the parent.
 
 ```ts
 const computer = await attach(existingComputerId, { log: false });
@@ -55,11 +57,11 @@ This requires an already-running service on the computer. The initial Web build 
 
 ## session.navigate(url)
 
-Web only, hosted or normal. Sends one deterministic `open_url` action and checks the returned navigation outcome. Accepts an HTTP(S) URL without credentials, whitespace, control characters or backslashes. A hosted browser can reach its parent computer's loopback address; a normal cloud browser's localhost is its own runtime, not your machine. Navigation is not replayed after failure and does not run an agent step. It resolves with no value, or throws a typed error. Computer and native sessions reject it locally.
+Web only, hosted or normal. Sends one deterministic `open_url` action and checks the returned navigation outcome. Accepts an HTTP(S) URL without credentials, whitespace, control characters or backslashes. Loopback addresses are accepted on every Web session: a hosted browser can reach its parent computer's loopback address; a normal cloud browser's localhost is its own runtime, not your machine. The runtime is responsible for enforcing its navigation network policy. Navigation is not replayed after failure and does not run an agent step. It resolves with no value, or throws a typed error. Computer and native sessions reject it locally.
 
 ## session.report()
 
-Returns authenticated JSON metadata: `/execution/device-sessions/{id}` for normal and hosted app sessions, or the computer report for computers. It works after close, does not download recordings, and does not turn a device stop acknowledgment into proof of physical release. Treat returned metadata as private.
+Returns authenticated JSON metadata: `/execution/device-sessions/{id}` for normal and hosted app sessions, or the computer report for computers. It works after close, but fails locally with `NOT_FOUND` when no session ID is known. It does not download recordings or turn a device stop acknowledgment into proof of physical release. Treat returned metadata as private.
 
 ## session.instruction(text, options?)
 

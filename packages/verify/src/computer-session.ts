@@ -7,7 +7,7 @@ import type { ComputerCommand, ComputerCommandResponse, ComputerPlatform, Comput
 import { trackSession, untrackSession } from './cleanup.js';
 import { validateHostedTarget, type HostedTargetConfig, type ResolvedComputerTarget } from './config.js';
 import { VerifyError, isVerifyError, type VerifyErrorCode } from './errors.js';
-import { DeviceSession, pngSize, type ComputerProcess, type ComputerRecording, type ExecOptions, type ExecResult, type FileStat, type OperationOptions, type Session, type SessionOptions, type StepResult } from './session.js';
+import { DeviceSession, pngSize, type ComputerProcess, type ComputerRecording, type ExecOptions, type ExecResult, type FileStat, type OpenedSession, type OperationOptions, type Session, type SessionOptions, type StepResult } from './session.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATES = new Set(['starting', 'active', 'closing', 'stopped', 'failed', 'owner_lost']);
@@ -89,7 +89,7 @@ export class ComputerSession implements Session {
     return session;
   }
 
-  async open(target: HostedTargetConfig): Promise<Session> {
+  async open(target: HostedTargetConfig): Promise<OpenedSession> {
     this.assertOpen();
     if (this.expiresAtMs === undefined) throw new VerifyError('API_ERROR', 'The computer report must include expiry before opening a hosted child.');
     const resolved = validateHostedTarget(target);
@@ -242,15 +242,20 @@ export class ComputerSession implements Session {
     this.closePromise ??= (async () => {
       this.closing = true;
       this.lifetime.abort();
-      await Promise.allSettled([...this.childStarts]);
-      const childResults = await Promise.allSettled([...this.children].map((child) => child.close()));
+      const childCleanup = (async () => {
+        await Promise.allSettled([...this.childStarts]);
+        return Promise.allSettled([...this.children].map((child) => child.close()));
+      })();
+      const childDeadline = new AbortController();
+      const childResults = await Promise.race([childCleanup, delay(5_000, undefined, { signal: childDeadline.signal })]);
+      childDeadline.abort();
       try {
         const report = this.parseReport(await this.request('POST', '/stop', undefined, AbortSignal.timeout(310_000)));
         if (report.release !== 'confirmed') {
           throw new VerifyError('ACTION_UNCERTAIN', `Computer stop was requested, but physical release is unconfirmed. Inspect ${this.viewerUrl}`);
         }
         if (!['stopped', 'failed', 'owner_lost'].includes(report.state)) throw invalidResponse();
-        if (childResults.some((result) => result.status === 'rejected')) this.log('a child stop was unconfirmed before the parent was released');
+        if (!childResults || childResults.some((result) => result.status === 'rejected')) this.log('a child stop was unconfirmed before the parent was released');
         this.log('closed');
       } catch (error) {
         if (isVerifyError(error) && error.code === 'ACTION_UNCERTAIN') {

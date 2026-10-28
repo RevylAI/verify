@@ -11,6 +11,7 @@ type RefusalReason string
 
 const (
 	ReasonWebRuntimeUnavailable      RefusalReason = "web_runtime_unavailable"
+	ReasonWebRuntimeNotConfigured    RefusalReason = "web_runtime_not_configured"
 	ReasonComputerLimit              RefusalReason = "computer_limit"
 	ReasonRuntimeUnavailable         RefusalReason = "runtime_unavailable"
 	ReasonComputerRuntimeUnavailable RefusalReason = "computer_runtime_unavailable"
@@ -100,7 +101,7 @@ func refusalReason(r response) RefusalReason {
 	_ = json.Unmarshal(raw.Error, &topLevel)
 	for _, reason := range []RefusalReason{RefusalReason(detail), RefusalReason(topLevel)} {
 		switch reason {
-		case ReasonWebRuntimeUnavailable, ReasonComputerLimit, ReasonRuntimeUnavailable, ReasonComputerRuntimeUnavailable,
+		case ReasonWebRuntimeUnavailable, ReasonWebRuntimeNotConfigured, ReasonComputerLimit, ReasonRuntimeUnavailable, ReasonComputerRuntimeUnavailable,
 			ReasonComputerAtCapacity, ReasonComputerNotRunning, ReasonComputerCannotHostPlatform, ReasonComputerNotFound,
 			ReasonWebBuildRequired, ReasonWebBuildNotSupported, ReasonIOSBuildRequired, ReasonIOSBuildNotSupported,
 			ReasonAndroidBuildRequired, ReasonAndroidBuildNotSupported, ReasonWebSessionConflict, ReasonIOSSessionConflict,

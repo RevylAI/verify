@@ -247,6 +247,7 @@ func TestHostedRefusals(t *testing.T) {
 		code   verify.Code
 	}{
 		{verify.ReasonWebRuntimeUnavailable, 409, verify.ErrNotAvailableOnPlatform},
+		{verify.ReasonWebRuntimeNotConfigured, 503, verify.ErrNotAvailableOnPlatform},
 		{verify.ReasonComputerLimit, 429, verify.ErrComputerLimit},
 		{verify.ReasonRuntimeUnavailable, 503, verify.ErrNotAvailableOnPlatform},
 		{verify.ReasonComputerRuntimeUnavailable, 503, verify.ErrNotAvailableOnPlatform},
@@ -404,6 +405,98 @@ func TestParentCloseWaitsForOpeningChildCleanup(t *testing.T) {
 	}
 	if len(f.calls("POST", startPath)) != 1 || len(f.calls("POST", computerPath+"/"+parent.ID()+"/stop")) != 1 {
 		t.Fatal("close replayed or allowed a new startup")
+	}
+}
+
+func TestParentCloseReservesStopBudget(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		pending   bool
+		deadline  time.Duration
+		childWait time.Duration
+	}{
+		{"slow-child-five-second-cap", false, 0, 5 * time.Second},
+		{"slow-child-short-caller", false, time.Second, 500 * time.Millisecond},
+		{"pending-start-five-second-cap", true, 0, 5 * time.Second},
+		{"pending-start-short-caller", true, time.Second, 500 * time.Millisecond},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			readiness := make(chan struct{})
+			childStopStarted := make(chan struct{})
+			parentStopped := make(chan time.Time, 1)
+			allowChildStop := make(chan struct{})
+			var unblock sync.Once
+			defer unblock.Do(func() { close(allowChildStop) })
+			f := newHostedFake(t, func(w http.ResponseWriter, r *http.Request, _ map[string]any) bool {
+				if tc.pending && strings.HasPrefix(r.URL.Path, "/api/v1/execution/device-sessions/") {
+					close(readiness)
+					<-r.Context().Done()
+					return true
+				}
+				if strings.HasPrefix(r.URL.Path, "/api/v1/execution/device/sessions/") && strings.HasSuffix(r.URL.Path, "/stop") {
+					close(childStopStarted)
+					select {
+					case <-allowChildStop:
+						writeJSON(w, 200, map[string]any{"success": true})
+					case <-r.Context().Done():
+					}
+					return true
+				}
+				if strings.HasPrefix(r.URL.Path, computerPath+"/") && strings.HasSuffix(r.URL.Path, "/stop") {
+					parentStopped <- time.Now()
+					id := strings.Split(strings.TrimPrefix(r.URL.Path, computerPath+"/"), "/")[0]
+					writeJSON(w, 200, map[string]any{"computer_session_id": id, "state": "stopped", "release": "confirmed"})
+					return true
+				}
+				return false
+			})
+			parent := f.open(verify.Target{Platform: verify.Mac})
+			var opened chan error
+			if tc.pending {
+				opened = make(chan error, 1)
+				go func() {
+					_, err := parent.Open(context.Background(), verify.Target{Platform: verify.Web, AppID: appID, BuildID: buildID})
+					opened <- err
+				}()
+				<-readiness
+			} else if _, err := parent.Open(context.Background(), verify.Target{Platform: verify.Web, AppID: appID, BuildID: buildID}); err != nil {
+				t.Fatal(err)
+			}
+			ctx := context.Background()
+			if tc.deadline != 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, tc.deadline)
+				defer cancel()
+			}
+			started := time.Now()
+			if err := parent.Close(ctx); err != nil {
+				t.Fatalf("confirmed parent release failed: %v", err)
+			}
+			stoppedAt := <-parentStopped
+			t.Logf("parent stop observed after %s with caller budget %s", stoppedAt.Sub(started), tc.deadline)
+			if elapsed := stoppedAt.Sub(started); elapsed < tc.childWait*8/10 || elapsed > tc.childWait+time.Second {
+				t.Fatalf("parent stop after %s, expected child phase about %s", elapsed, tc.childWait)
+			}
+			if deadline, ok := ctx.Deadline(); ok && !stoppedAt.Before(deadline.Add(-tc.deadline/4)) {
+				t.Fatal("child cleanup consumed the reserved parent-stop budget")
+			}
+			select {
+			case <-childStopStarted:
+			default:
+				t.Fatal("parent skipped the initial child cleanup attempt")
+			}
+			unblock.Do(func() { close(allowChildStop) })
+			if opened != nil {
+				select {
+				case err := <-opened:
+					if err == nil {
+						t.Fatal("pending child returned after parent close")
+					}
+				case <-time.After(time.Second):
+					t.Fatal("pending open did not finish after child cleanup")
+				}
+			}
+		})
 	}
 }
 
@@ -782,6 +875,29 @@ func TestReportsValidateObjectsAndRemainReadableAfterClose(t *testing.T) {
 			_, err := s.Report(context.Background())
 			requireCode(t, err, verify.ErrAPI)
 		})
+	}
+}
+
+func TestReportWithoutSessionIDRefusesLocally(t *testing.T) {
+	f := newHostedFake(t, func(w http.ResponseWriter, r *http.Request, _ map[string]any) bool {
+		if r.URL.Path == startPath {
+			writeJSON(w, 200, map[string]any{"workflow_run_id": "run-1"})
+			return true
+		}
+		if r.URL.Path == "/api/v1/execution/device/status/cancel/run-1" {
+			writeJSON(w, 200, map[string]any{"success": true})
+			return true
+		}
+		return false
+	})
+	s := f.open(verify.Target{Platform: verify.IOS, AppID: appID})
+	if s.ID() != "" {
+		t.Fatal("test start unexpectedly returned a session ID")
+	}
+	_, err := s.Report(context.Background())
+	requireCode(t, err, verify.ErrNotFound)
+	if len(f.calls("GET", "/api/v1/execution/device-sessions/")) != 0 {
+		t.Fatal("unknown session ID sent a report request")
 	}
 }
 

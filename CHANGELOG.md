@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-- Add public computer attachment, computer-hosted child sessions and deterministic Web navigation in TypeScript, Go and Python. Child sessions reuse the parent's authenticated client and expire with it; parent close settles tracked child starts and closes children before requesting computer release. Initial hosted Web builds remain HTTPS; localhost is reached by navigation after start, subject to runtime availability.
+- Bound parent computer cleanup's child phase to five seconds so slow child stops cannot prevent requesting parent release. Recognize `web_runtime_not_configured` as a definite hosted refusal, reject reports without a known session ID locally, preserve safe TypeScript startup diagnostics, and keep the original TypeScript `Session` interface compatible through the extended `OpenedSession` interface.
+
+- Add public computer attachment, computer-hosted child sessions and deterministic Web navigation in TypeScript, Go and Python. Child sessions reuse the parent's authenticated client and expire with it; parent close attempts bounded child cleanup before requesting computer release. Initial hosted Web builds remain HTTPS; localhost is reached by navigation after start, subject to runtime availability.
 - Preserve typed server refusal reasons and HTTP status alongside existing error codes, including Web `web_runtime_unavailable`, computer `computer_limit` and `runtime_unavailable`, without replaying starts or navigation.
 
 - Preserve Python startup session identity, viewer links and separate cleanup outcomes on typed errors; add optional lifecycle logging to sync/async opening. Clean up identifiable malformed or uncertain starts, interrupt cancelled async startup, validate device stop acknowledgments, and preserve original failures when cleanup also fails.

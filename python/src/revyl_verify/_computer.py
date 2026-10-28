@@ -36,6 +36,7 @@ from ._transport import (
 )
 
 _MAX_OUTPUT = 1_048_576
+_CHILD_CLEANUP_SECONDS = 5.0
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
 _STATES = ("starting", "active", "closing", "stopped", "failed", "owner_lost")
 _TERMINAL = ("stopped", "failed", "owner_lost")
@@ -788,19 +789,32 @@ class ComputerSession(Session):
                     if self._close_error is not None:
                         raise self._close_error
                     return
+            interrupted: BaseException | None = None
             try:
-                with self._child_condition:
-                    self._closed = True
-                    self._child_condition.notify_all()
-                    self._cancellation.cancel()
-                    while self._child_starts:
-                        self._child_condition.wait()
-                    children = list(self._children)
-                for child in children:
-                    try:
-                        child.close()
-                    except BaseException:
-                        self._log("child cleanup unconfirmed; stopping parent")
+                try:
+                    with self._child_condition:
+                        self._closed = True
+                        self._child_condition.notify_all()
+                        child_deadline = (
+                            Deadline(_CHILD_CLEANUP_SECONDS)
+                            if self._child_starts or self._children
+                            else None
+                        )
+                        self._cancellation.cancel()
+                        while self._child_starts:
+                            assert child_deadline is not None
+                            self._child_condition.wait(child_deadline.remaining())
+                        children = list(self._children)
+                    for child in children:
+                        try:
+                            child._close_with_deadline(child_deadline)
+                        except Exception:
+                            self._log("child cleanup unconfirmed; stopping parent")
+                except VerifyError:
+                    self._log("child cleanup unconfirmed; stopping parent")
+                except BaseException as error:
+                    interrupted = error
+                    self._log("child cleanup interrupted; stopping parent")
                 report = self._report(self._request("POST", "/stop", None, Deadline(310)))
                 if report.get("release") != "confirmed":
                     raise VerifyError(
@@ -838,3 +852,5 @@ class ComputerSession(Session):
                     self._attach_failure(self._close_error)
                     self._log("physical release unconfirmed")
                 untrack(self)
+            if interrupted is not None:
+                raise interrupted
