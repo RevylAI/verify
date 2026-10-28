@@ -48,7 +48,7 @@ try {
 | `SESSION_ENDED` | The session was closed, stopped, or expired | Close explicitly; computer expiry does not prove release |
 | `SESSION_BUSY` | A step conflict, computer operation limit, or recording requested before terminal state and confirmed release | Inspect the state before another call; a terminal computer alone does not prove release |
 | `COMPUTER_LIMIT` | Computer admission was refused due to queued work (including iOS) or the concurrency limit | Wait for capacity; Verify does not retry or stop a definitely refused start |
-| `NOT_AVAILABLE_ON_PLATFORM` | The call is unavailable: computer agent steps, device shell/file/recording methods, computer OS/organization not enabled or runtime unavailable, or a backend without web steps | See [web.md](web.md) and [computers.md](computers.md#availability-and-errors) |
+| `NOT_AVAILABLE_ON_PLATFORM` | The call is unavailable: computer agent steps, device shell/file/recording methods, computer access or runtime unavailable, or a backend without web steps | See [web.md](web.md) and [computers.md](computers.md#availability-and-errors) |
 | `COMMAND_FAILED` | A computer command exited nonzero | Read its reason; use `exec(argv, { check: false })` to inspect the exit code and output instead |
 | `NOT_FOUND` | A computer file or resource was not found | Check the workspace-relative path |
 | `ACCESS_DENIED` | The computer refused access | Check permissions; do not assume host/root access |
@@ -57,7 +57,7 @@ try {
 | `INSTRUCTION_FAILED` | Revyl's agent could not do what the instruction asked | Make the instruction more specific, or split it into smaller steps |
 | `VALIDATION_FAILED` | The validation did not hold | The message has Revyl's reason; watch the recording at the session link |
 | `STEP_FAILED` | Revyl could not run the step to an outcome: it errored, it was cancelled on Revyl, or a validation came back without a verdict. This says nothing about your app, and `soft` does not cover it. | Watch the session at the link, then run the step again |
-| `TIMEOUT` | A step, a session start, or a request ran out of time | Inspect the session before retrying; computer starts require staging enablement. The default 10-minute start timeout is separate from the 120-second unclaimed-start failure. See [computer availability](computers.md#availability-and-errors). |
+| `TIMEOUT` | A step, a session start, or a request ran out of time | Inspect the session before retrying. The default 10-minute start timeout is separate from the 120-second unclaimed-start failure. See [computer availability](computers.md#availability-and-errors). |
 
 `EDGE_BLOCKED` does not require Cloudflare branding in the HTML body. A `cf-ray` header alone is not proof of a block: any syntactically valid JSON body retains its existing error mapping, even if the content type is incorrectly `text/html`. HTTP 401 is unchanged. Edge-block errors include `httpStatus` but never copy the response body or ray ID into the error.
 

@@ -178,8 +178,6 @@ class ComputerTests(unittest.TestCase):
             {
                 "HOME": home.name,
                 "REVYL_API_KEY": "fixture-token",
-                "REVYL_BACKEND_URL": "http://127.0.0.1:1",
-                "REVYL_APP_URL": "https://viewer.test",
             },
         )
         isolated_environment.start()

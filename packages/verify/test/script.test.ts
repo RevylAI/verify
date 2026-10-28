@@ -34,11 +34,11 @@ async function runScript(
   const script = join(dir, 'script.mjs');
   await writeFile(
     script,
-    `import { createJiti } from ${JSON.stringify(jiti)};\nconst { open } = await createJiti(import.meta.url).import(${JSON.stringify(entry)});\n${body}\n`,
+    `import { createJiti } from ${JSON.stringify(jiti)};\nconst { open: verifyOpen } = await createJiti(import.meta.url).import(${JSON.stringify(entry)});\nconst open = (target, options = {}) => verifyOpen(target, { ...options, backendUrl: ${JSON.stringify(server.url)} });\n${body}\n`,
   );
   const child = spawn(process.execPath, [script], {
     cwd: dir,
-    env: { PATH: process.env.PATH, HOME: dir, REVYL_API_KEY: 'test-key', REVYL_BACKEND_URL: server.url },
+    env: { PATH: process.env.PATH, HOME: dir, REVYL_API_KEY: 'test-key' },
   });
   let stderr = '';
   child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
@@ -129,7 +129,7 @@ await session.close();`,
       script,
       `import { createJiti } from ${JSON.stringify(jiti)};\nconst { open } = await createJiti(import.meta.url).import(${JSON.stringify(entry)});\nawait open(${target});\n`,
     );
-    const child = spawn(process.execPath, [script], { cwd: dir, env: { PATH: process.env.PATH, HOME: dir, REVYL_BACKEND_URL: server.url } });
+    const child = spawn(process.execPath, [script], { cwd: dir, env: { PATH: process.env.PATH, HOME: dir } });
     let stderr = '';
     child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
     const code = await new Promise<number | null>((resolve) => child.on('close', resolve));

@@ -117,9 +117,9 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="verify-wheel-home-") as temporary:
         os.environ["HOME"] = temporary
         os.environ["REVYL_API_KEY"] = "wheel-test-key"
-        os.environ["REVYL_APP_URL"] = "https://viewer.test"
+        app_url = "https://viewer.test"
         with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
-            os.environ["REVYL_BACKEND_URL"] = f"http://127.0.0.1:{server.server_port}"
+            backend_url = f"http://127.0.0.1:{server.server_port}"
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             try:
@@ -135,7 +135,9 @@ def main() -> None:
                     revyl_verify.Target(
                         platform="ios",
                         bundle_id="com.apple.Preferences",
-                    )
+                    ),
+                    backend_url=backend_url,
+                    app_url=app_url,
                 ) as session:
                     assert session.id == session_id and session.platform == "ios"
                     assert session.instruction("Open General in Settings").passed
@@ -150,13 +152,17 @@ def main() -> None:
                     app_id="0b6a8c3e-1111-4222-8333-944455556666",
                     build_id="9a9a9a9a-1111-4222-8333-944455556666",
                 )
-                with revyl_verify.attach(computer_id) as computer:
+                with revyl_verify.attach(
+                    computer_id, backend_url=backend_url, app_url=app_url
+                ) as computer:
                     with computer.open(target) as browser:
                         browser.navigate("http://localhost:3000")
                         assert browser.report()["status"] == "running"
 
                 async def check_async() -> None:
-                    async with await revyl_verify.async_attach(computer_id) as computer:
+                    async with await revyl_verify.async_attach(
+                        computer_id, backend_url=backend_url, app_url=app_url
+                    ) as computer:
                         async with await computer.open(target) as browser:
                             await browser.navigate("http://localhost:3000")
                             assert (await browser.report())["status"] == "running"

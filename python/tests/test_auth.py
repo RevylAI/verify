@@ -182,20 +182,27 @@ def test_bad_backend_configuration_is_redacted(fake: FakeRevyl, url: str) -> Non
     assert not fake.requests
 
 
-def test_environment_url_overrides_and_explicit_precedence(
+def test_explicit_url_options(
     fake: FakeRevyl,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("REVYL_BACKEND_URL", fake.url)
-    monkeypatch.setenv("REVYL_APP_URL", "https://custom-viewer.test/prefix/")
-    session = verify.open(Target(platform="ios", app_id=APP_ID))
+    session = verify.open(
+        Target(platform="ios", app_id=APP_ID),
+        backend_url=fake.url,
+        app_url="https://custom-viewer.test/prefix/",
+    )
     try:
         assert session.viewer_url.startswith("https://custom-viewer.test/prefix/sessions/")
     finally:
         session.close()
-    monkeypatch.setenv("REVYL_BACKEND_URL", "https://secret-token@invalid.test")
-    monkeypatch.setenv("REVYL_APP_URL", "https://secret-token@invalid.test")
-    assert fake.open().viewer_url.startswith("https://viewer.test/sessions/")
+    session = verify.open(
+        Target(platform="ios", app_id=APP_ID),
+        backend_url=fake.url,
+        app_url="https://viewer.test",
+    )
+    try:
+        assert session.viewer_url.startswith("https://viewer.test/sessions/")
+    finally:
+        session.close()
 
 
 def test_redirect_does_not_forward_authorization(fake: FakeRevyl) -> None:

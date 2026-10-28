@@ -63,11 +63,7 @@ _ERRORS = {
     "screen_starting",
     "screen_unavailable",
 }
-_AVAILABILITY = (
-    "Computers are not yet available in Revyl production. Early access works only on "
-    "Revyl staging for enabled organizations and operating systems. See "
-    "https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#availability-and-errors"
-)
+_AVAILABILITY = "Computers are early access. Ask support@revyl.ai about access."
 
 
 def _invalid() -> VerifyError:
@@ -335,7 +331,7 @@ class ComputerSession(Session):
                     "TIMEOUT",
                     f"The {target.platform} computer startup timed out "
                     f"(startup budget: {target.start_timeout} seconds). A possible cause is that "
-                    f"no computer could be assigned. {_AVAILABILITY}. Inspect {session.viewer_url}",
+                    f"no computer could be assigned. {_AVAILABILITY} Inspect {session.viewer_url}",
                 )
             session._startup_failure(error, cleanup=not refused, refused=refused)
             if timed_out:
@@ -382,8 +378,7 @@ class ComputerSession(Session):
         ):
             raise VerifyError(
                 "NOT_AVAILABLE_ON_PLATFORM",
-                f"Revyl refused the computer request ({detail}). {_AVAILABILITY}. "
-                "Ask support@revyl.ai about staging organization enablement. "
+                f"Revyl refused the computer request ({detail}). {_AVAILABILITY} "
                 f"See {self.viewer_url}",
                 reason=reason,
                 http_status=response.status,

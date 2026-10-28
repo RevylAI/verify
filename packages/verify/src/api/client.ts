@@ -53,7 +53,7 @@ export class RevylClient {
 
   constructor(options: RevylClientOptions) {
     this.token = options.token;
-    this.backendUrl = validateBackendUrl(options.backendUrl ?? process.env.REVYL_BACKEND_URL ?? DEFAULT_BACKEND_URL);
+    this.backendUrl = validateBackendUrl(options.backendUrl ?? DEFAULT_BACKEND_URL);
     this.fetchImpl = options.fetch ?? fetch;
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   }
@@ -185,12 +185,13 @@ export class RevylClient {
   }
 }
 
-export function appUrl(): string {
-  return (process.env.REVYL_APP_URL ?? DEFAULT_APP_URL).replace(/\/+$/, '');
+export function appUrl(origin = DEFAULT_APP_URL): string {
+  validateBackendUrl(origin, 'viewer');
+  return origin.replace(/\/+$/, '');
 }
 
-export function sessionViewerUrl(sessionId: string, kind?: 'computer'): string {
-  return `${appUrl()}/sessions/${encodeURIComponent(sessionId)}${kind ? `?kind=${kind}` : ''}`;
+export function sessionViewerUrl(sessionId: string, kind?: 'computer', origin?: string): string {
+  return `${appUrl(origin)}/sessions/${encodeURIComponent(sessionId)}${kind ? `?kind=${kind}` : ''}`;
 }
 
 export function parseJson<T>(response: RawResponse, what: string): T {
@@ -293,19 +294,19 @@ function responseKnownDetail<T extends string>(response: RawResponse, codes: Rea
   }
 }
 
-function validateBackendUrl(raw: string): string {
+function validateBackendUrl(raw: string, label = 'backend'): string {
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
-    throw new VerifyError('CONFIG_INVALID', 'REVYL_BACKEND_URL is not a valid URL.');
+    throw new VerifyError('CONFIG_INVALID', `The ${label} URL is not a valid URL.`);
   }
   const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
   if (url.protocol !== 'https:' && !(loopback && url.protocol === 'http:')) {
-    throw new VerifyError('CONFIG_INVALID', 'REVYL_BACKEND_URL must use HTTPS (plain HTTP is allowed only on loopback).');
+    throw new VerifyError('CONFIG_INVALID', `The ${label} URL must use HTTPS (plain HTTP is allowed only on loopback).`);
   }
   if (url.username || url.password || url.search || url.hash) {
-    throw new VerifyError('CONFIG_INVALID', 'REVYL_BACKEND_URL must be an origin without credentials, query, or fragment.');
+    throw new VerifyError('CONFIG_INVALID', `The ${label} URL must be an origin without credentials, query, or fragment.`);
   }
   return url.origin;
 }

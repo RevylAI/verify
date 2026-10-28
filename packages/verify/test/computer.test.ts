@@ -105,7 +105,7 @@ describe('computer lifecycle', () => {
     [503, { error: 'runtime_unavailable' }],
   ])('explains definite admission refusal %s without a stop mutation', async (status, body) => {
     const fake = fakeMac().on('POST', /^\/api\/v1\/computer-runs$/, () => json(body, status));
-    await expect(start(fake)).rejects.toMatchObject({ code: 'NOT_AVAILABLE_ON_PLATFORM', message: expect.stringMatching(/Computers are not yet available in Revyl production.*computers\.md#availability-and-errors/) });
+    await expect(start(fake)).rejects.toMatchObject({ code: 'NOT_AVAILABLE_ON_PLATFORM', message: expect.stringContaining('Computers are early access') });
     expect(fake.requests).toHaveLength(1);
   });
 
@@ -115,7 +115,7 @@ describe('computer lifecycle', () => {
     vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => ms === 600_000 ? controller.signal : timeout(ms));
     const fake = fakeMac().on('POST', /^\/api\/v1\/computer-runs$/, ({ body }) => json({ computer_session_id: body.computer_session_id, state: 'starting' }))
       .on('GET', /\/report$/, () => json({ computer_session_id: fake.requests[0]?.body.computer_session_id, state: 'starting' }));
-    const pending = expect(start(fake)).rejects.toMatchObject({ code: 'TIMEOUT', message: expect.stringMatching(/no computer could be assigned.*Computers are not yet available in Revyl production.*computers\.md#availability-and-errors/) });
+    const pending = expect(start(fake)).rejects.toMatchObject({ code: 'TIMEOUT', message: expect.stringContaining('no computer could be assigned') });
     await vi.waitFor(() => expect(fake.requests).toHaveLength(1));
     controller.abort();
     await pending;
@@ -175,10 +175,10 @@ describe('computer lifecycle', () => {
     const fake = fakeMac().on('POST', /\/computer-runs\/([^/]+)\/stop$/, (_request, match) => json({ computer_session_id: match[1], state, release }));
     const lines: string[] = [];
     const session = await start(fake, lines);
-    await expect(session.close()).rejects.toMatchObject({ code: 'ACTION_UNCERTAIN', message: expect.stringMatching(/no computer could be assigned.*Computers are not yet available in Revyl production.*computers\.md#availability-and-errors/) });
+    await expect(session.close()).rejects.toMatchObject({ code: 'ACTION_UNCERTAIN', message: expect.stringContaining('no computer could be assigned') });
     expect(lines).not.toContain('mac: closed');
     expect(lines.at(-1)).toContain('close failed');
-    expect(lines.at(-1)).toContain('Computers are not yet available in Revyl production');
+    expect(lines.at(-1)).toContain('Computers are early access');
     await expect(session.close()).rejects.toMatchObject({ code: 'ACTION_UNCERTAIN' });
     expect(fake.calls('POST', /\/stop$/)).toHaveLength(1);
   });

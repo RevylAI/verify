@@ -60,7 +60,6 @@ func TestAttachOwnershipAndTransport(t *testing.T) {
 				t.Fatal("attach lost identity, expiry, or viewer")
 			}
 			t.Setenv("REVYL_API_KEY", "changed-token")
-			t.Setenv("REVYL_BACKEND_URL", "https://unused.test")
 			if _, err := s.Exec(context.Background(), []string{"true"}); err != nil {
 				t.Fatal(err)
 			}

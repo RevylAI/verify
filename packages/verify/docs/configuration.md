@@ -7,7 +7,7 @@ import { defineConfig } from '@revyl/verify';
 
 export default defineConfig({
   targets: {
-    web: { platform: 'web', app: { appId: '…', url: 'https://staging.example.com' }, viewport: { width: 1280, height: 800 } },
+    web: { platform: 'web', app: { appId: '…', url: 'https://example.com' }, viewport: { width: 1280, height: 800 } },
     ios: { platform: 'ios', app: { appId: '…' }, device: { model: 'iPhone 16', osVersion: '18.5' } },
     pixel: { platform: 'android', app: { buildId: '…' }, device: { model: 'Pixel 8' } },
     mac: { platform: 'mac' },
@@ -20,7 +20,7 @@ Unknown keys are rejected, so a typo fails loudly instead of being ignored.
 
 ## Top-level options
 
-Mac and Linux targets currently require staging early access for an organization enabled for the requested OS through the optional `REVYL_BACKEND_URL` override and matching credentials; they are not yet available in Revyl production. See [computer availability](computers.md#availability-and-errors).
+Mac and Linux targets are early access. Ask support@revyl.ai about access. See [computer availability](computers.md#availability-and-errors).
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -62,7 +62,7 @@ Give exactly one of `appId`, `buildId`, `artifactUrl`, or `bundleId`.
 | --- | --- |
 | `platform: 'mac'` | A cloud macOS computer, without `app` or `device` configuration |
 | `platform: 'linux'` | A cloud Linux computer with the same SDK methods as Mac, without `app` or `device` configuration |
-| `startTimeout` | Milliseconds to wait for an active owner route; default 600000, range 10000..1800000 |
+| `startTimeout` | Milliseconds to wait for the computer to become active; default 600000, range 10000..1800000 |
 
 Computers do not accept `idleTimeoutSeconds`, image, provider, cwd, or lifetime selectors. The server bounds a run to one hour; per-operation timeout defaults to 30000 ms and accepts 1..300000 ms. See [computers.md](computers.md).
 
@@ -71,8 +71,6 @@ Computers do not accept `idleTimeoutSeconds`, image, provider, cwd, or lifetime 
 | Variable | Meaning |
 | --- | --- |
 | `REVYL_API_KEY` | API key. Wins over a stored CLI login unless that login is usable and marked `local_auth_override`. Without an environment key, a usable stored login is used; expired access tokens fall back to a stored API key. |
-| `REVYL_BACKEND_URL` | Optional API origin override; production is the default. Get the endpoint for your approved early-access environment from Revyl and use matching credentials. |
-| `REVYL_APP_URL` | Optional session-link origin override; production is the default. Get the matching app endpoint from Revyl. |
 
 ## Command line
 

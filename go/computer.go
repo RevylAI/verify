@@ -20,7 +20,7 @@ import (
 	"unicode/utf8"
 )
 
-const computerAvailability = "Mac and Linux computers are early access, not yet available in Revyl production. Staging access requires organization and OS enablement. See https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#availability-and-errors"
+const computerAvailability = "Mac and Linux computers are early access. Ask support@revyl.ai about access."
 const maxComputerOutput = 1048576
 const computerObservationTimeout = 310 * time.Second
 
@@ -151,7 +151,7 @@ func startComputer(ctx context.Context, c *client, viewer string, target Target,
 		_ = s.Close(cleanup)
 	}
 	if ctx.Err() != nil {
-		return nil, &Error{Code: ErrTimeout, Message: fmt.Sprintf("The %s computer was not ready within %d ms. A possible cause is that no computer host could be assigned. %s. Inspect %s", s.platform, target.StartTimeout.Milliseconds(), computerAvailability, s.viewer), Cause: ctx.Err()}
+		return nil, &Error{Code: ErrTimeout, Message: fmt.Sprintf("The %s computer was not ready within %d ms. A possible cause is that no computer host could be assigned. %s Inspect %s", s.platform, target.StartTimeout.Milliseconds(), computerAvailability, s.viewer), Cause: ctx.Err()}
 	}
 	return nil, err
 }
@@ -238,7 +238,7 @@ func (s *Session) computerRequest(ctx context.Context, method, suffix string, bo
 		return r, nil
 	}
 	if detail == "computer_not_enabled" || (r.status == 503 && detail == "runtime_unavailable") {
-		return r, responseFailure(r, ErrNotAvailableOnPlatform, fmt.Sprintf("Revyl refused the computer request (%s). %s. Ask support@revyl.ai about staging organization enablement. See %s", detail, computerAvailability, s.viewer))
+		return r, responseFailure(r, ErrNotAvailableOnPlatform, fmt.Sprintf("Revyl refused the computer request (%s). %s See %s", detail, computerAvailability, s.viewer))
 	}
 	if r.status == 429 && detail == "computer_limit" {
 		return r, responseFailure(r, ErrComputerLimit, "Computer admission was refused because of queued work (including iOS) or the concurrency limit. Verify will not retry the start. See "+s.viewer)

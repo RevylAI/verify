@@ -33,8 +33,6 @@ func (transport screenshotTransport) RoundTrip(request *http.Request) (*http.Res
 func openScreenshotComputer(t *testing.T, expiry time.Duration, screenshot func(*http.Request) (int, any, error)) (*verify.Session, *int) {
 	t.Helper()
 	t.Setenv("REVYL_API_KEY", "test-token")
-	t.Setenv("REVYL_BACKEND_URL", "")
-	t.Setenv("REVYL_APP_URL", "")
 	stops := 0
 	transport := screenshotTransport(func(r *http.Request) (*http.Response, error) {
 		status := 200
@@ -948,7 +946,7 @@ func TestComputerEvidenceLogs(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 			logs := strings.Join(lines, "\n")
-			if !strings.Contains(logs, "report evidence "+evidence) || !strings.Contains(logs, "not yet available in Revyl production") {
+			if !strings.Contains(logs, "report evidence "+evidence) || !strings.Contains(logs, "early access") {
 				t.Fatalf("missing evidence or availability log: %s", logs)
 			}
 		})

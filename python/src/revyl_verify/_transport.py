@@ -402,9 +402,7 @@ def http_error(response: Response, *, hosted: bool = False) -> VerifyError:
 class Client:
     def __init__(self, backend_url: str | None = None) -> None:
         self._token = credentials()
-        self.base = origin(
-            backend_url or os.environ.get("REVYL_BACKEND_URL") or "https://backend.revyl.ai"
-        )
+        self.base = origin(backend_url or "https://backend.revyl.ai")
 
     def request(
         self,

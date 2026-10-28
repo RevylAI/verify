@@ -6,7 +6,7 @@ Only reviewed public scripts, sanitized transcripts, result projections, and two
 
 ## Baseline live results
 
-Web, iOS, and Android ran in production. Mac and Linux ran on staging with early-access access enabled; computers are not yet available in production. Durations below are observed script wall times, not performance targets.
+Web, iOS, Android, Mac, and Linux ran on Revyl. Computers are early access; ask support@revyl.ai about access. Durations below are observed script wall times, not performance targets.
 
 | SDK | Platform and workload | Result | Total time | Cleanup |
 | --- | --- | --- | --- | --- |
@@ -70,7 +70,7 @@ The iOS check ran `init --platform ios` in a fresh tarball-install project and c
 
 The Go Android instruction was `Open About phone or About device, then scroll as needed and open Android version so the operating system version number is visible on screen.` The validation was `The screen shows the operating system version.` Both returned `passed: true`; the report independently recorded zero effective failed steps and one passing validation.
 
-Both Linux attempts were admission refusals, **not an SDK screenshot failure or a successful retry proof**. The script had no manual sleep/retry, but never reached its screenshot call. The new retry behavior remains tests-only, and Linux remains staging-only early access. No further live attempt was authorized. The original 0.1.0 iOS failures, offscreen Android failure, and immediate Linux screenshot failure above remain part of the evidence.
+Both Linux attempts were admission refusals, **not an SDK screenshot failure or a successful retry proof**. The script had no manual sleep/retry, but never reached its screenshot call. The new retry behavior remains tests-only, and Linux remains early access. No further live attempt was authorized. The original 0.1.0 iOS failures, offscreen Android failure, and immediate Linux screenshot failure above remain part of the evidence.
 
 ## Reading the verdict
 
@@ -98,7 +98,7 @@ npm run build
 
 For Go, pin the same baseline with `go get github.com/RevylAI/verify/go@6029513369f13e73914b550d0cd26ece615b4e13` in your own module. Use the [TypeScript API](getting-started.md) or [Go API](https://github.com/RevylAI/verify/tree/main/go) to open the target, run an instruction, validate the visible outcome, capture a screenshot, and close in `finally` or a bounded deferred cleanup context. The web workload uses `https://demo.playwright.dev/todomvc` and a Revyl web app ID supplied privately through `REVYL_WEB_APP_ID`.
 
-Do not use the baseline's blank-screen initializer or offscreen Android assertion as a recommended recipe. To test the fixes, use the reviewed new source revision rather than the baseline commit or the older npm package. Ask Revyl for the approved computer endpoints and matching credentials; never place credentials in argv or publish signed recording URLs.
+Do not use the baseline's blank-screen initializer or offscreen Android assertion as a recommended recipe. To test the fixes, use the reviewed new source revision rather than the baseline commit or the older npm package. Ask support@revyl.ai about computer access; never place credentials in argv or publish signed recording URLs.
 
 ## Limits
 

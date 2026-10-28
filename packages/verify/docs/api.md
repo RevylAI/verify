@@ -10,7 +10,7 @@ Linux targets are supported **since 0.2.0**; 0.1.0 includes the target type but 
 
 Starts a Revyl cloud browser, device, or Mac or Linux computer. Mobile first-screen readiness is [best-effort](mobile.md#steps), not a foreground/rendered-readiness guarantee. Computer starts retain a 10-minute default timeout; an unclaimed start may fail after 120 seconds with no-host context.
 
-Both computer operating systems are early access on staging only for organizations enabled for the requested OS, not yet available in Revyl production. Use the optional `REVYL_BACKEND_URL` override and staging credentials described in [computer availability](computers.md#availability-and-errors).
+Both computer operating systems are early access. Ask support@revyl.ai about access.
 
 ```ts
 const web = await open('web');                                       // a target named in verify.config.ts
@@ -31,7 +31,7 @@ The attachment, hosted-child and navigation APIs below are new in the unreleased
 
 `open()` and `computer.open()` return the extended `OpenedSession` interface. The original `Session` interface keeps its existing required members, so applications implementing or mocking it do not need to add the new methods. Use `OpenedSession` when explicitly annotating a value that calls `report`, `navigate` or `open`.
 
-Attaches to an active Mac or Linux computer in your organization without creating a new one. It uses the same credential precedence and `REVYL_BACKEND_URL` / `REVYL_APP_URL` overrides as `open`; `options.log` controls progress. The returned computer owns cleanup: `close()` stops it, and automatic cleanup also applies. Attaching requires a valid expiry and does not extend the lifetime. Invalid, inaccessible, inactive or expired computers fail without sending a stop request.
+Attaches to an active Mac or Linux computer in your organization without creating a new one. `options.log` controls progress. The returned computer owns cleanup: `close()` stops it, and automatic cleanup also applies. Attaching requires a valid expiry and does not extend the lifetime. Invalid, inaccessible, inactive or expired computers fail without sending a stop request.
 
 ## computer.open(target)
 

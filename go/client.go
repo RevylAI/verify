@@ -42,9 +42,6 @@ func newClient(options OpenOptions) (*client, string, error) {
 	}
 	base := options.BackendURL
 	if base == "" {
-		base = os.Getenv("REVYL_BACKEND_URL")
-	}
-	if base == "" {
 		base = backendURL
 	}
 	base, err = validatedOrigin(base)
@@ -52,9 +49,6 @@ func newClient(options OpenOptions) (*client, string, error) {
 		return nil, "", err
 	}
 	viewer := options.AppURL
-	if viewer == "" {
-		viewer = os.Getenv("REVYL_APP_URL")
-	}
 	if viewer == "" {
 		viewer = appURL
 	}

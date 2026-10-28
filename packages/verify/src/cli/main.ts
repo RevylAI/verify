@@ -73,7 +73,7 @@ async function initCommand(args: string[]): Promise<number> {
   const steps = [
     `npm install --save-dev ${PACKAGE_NAME}`,
     "Authenticate: export REVYL_API_KEY=<key from Revyl settings>, or run 'revyl auth login'",
-    ...(answers.platform === 'mac' ? [`Mac computers are not yet available in Revyl production. Early access works only on Revyl staging for enabled organizations; use the optional REVYL_BACKEND_URL override with staging credentials. Ask support@revyl.ai for access. See https://github.com/RevylAI/verify/blob/v${VERSION}/packages/verify/docs/computers.md#availability-and-errors`] : []),
+    ...(answers.platform === 'mac' ? ['Mac computers are early access. Ask support@revyl.ai about access.'] : []),
     ...(answers.platform === 'mac' || answers.appId ? [] : ['Put your Revyl app id in verify.config.ts (or set REVYL_APP_ID)']),
     'node verify/example.ts',
   ];

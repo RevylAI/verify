@@ -12,7 +12,7 @@ import { DeviceSession, pngSize, type ComputerProcess, type ComputerRecording, t
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATES = new Set(['starting', 'active', 'closing', 'stopped', 'failed', 'owner_lost']);
 const MAX_OUTPUT_BYTES = 1_048_576;
-const COMPUTER_AVAILABILITY = 'Computers are not yet available in Revyl production. Early access works only on Revyl staging for enabled organizations and operating systems. See https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#availability-and-errors';
+const COMPUTER_AVAILABILITY = 'Computers are early access. Ask support@revyl.ai about access.';
 const COMPUTER_CAPACITY = 'Computer admission was refused because of queued work (including iOS) or the concurrency limit. Verify will not retry the start.';
 const ERROR_CODES = new Set(['computer_not_enabled', 'run_closed', 'inaccessible', 'invalid_handle', 'operation_not_found', 'owner_unavailable', 'invalid_request', 'unauthenticated', 'forbidden', 'runtime_unavailable', 'start_failed', 'computer_limit', 'request_conflict', 'run_conflict', 'evidence_conflict', 'evidence_unavailable', 'authentication_unavailable', 'operation_limit', 'screen_starting', 'screen_unavailable']);
 
@@ -34,7 +34,7 @@ export class ComputerSession implements Session {
     this.id = id;
     this.target = target.name;
     this.platform = target.platform;
-    this.viewerUrl = sessionViewerUrl(this.id, 'computer');
+    this.viewerUrl = sessionViewerUrl(this.id, 'computer', options.appUrl);
   }
 
   static async start(client: RevylClient, target: ResolvedComputerTarget, options: SessionOptions): Promise<ComputerSession> {
@@ -67,7 +67,7 @@ export class ComputerSession implements Session {
       } else {
         await session.close().catch(() => undefined);
       }
-      if (timedOut) throw new VerifyError('TIMEOUT', `The ${session.target} computer was not ready within ${target.startTimeout} ms. A possible cause is that no computer could be assigned. ${COMPUTER_AVAILABILITY}. Inspect ${session.viewerUrl}`);
+      if (timedOut) throw new VerifyError('TIMEOUT', `The ${session.target} computer was not ready within ${target.startTimeout} ms. A possible cause is that no computer could be assigned. ${COMPUTER_AVAILABILITY} Inspect ${session.viewerUrl}`);
       throw error;
     }
   }
@@ -350,7 +350,7 @@ export class ComputerSession implements Session {
       if ((code === 'screen_unavailable' && (response.status === 409 || response.status === 503)) || (code === 'screen_starting' && response.status === 409)) return response;
     }
     if (detail === 'computer_not_enabled' || (response.status === 503 && detail === 'runtime_unavailable')) {
-      throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `Revyl refused the computer request (${detail}). ${COMPUTER_AVAILABILITY}. Ask support@revyl.ai about staging organization enablement. See ${this.viewerUrl}`, refusal);
+      throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `Revyl refused the computer request (${detail}). ${COMPUTER_AVAILABILITY} See ${this.viewerUrl}`, refusal);
     }
     if (response.status === 429 && detail === 'computer_limit') throw new VerifyError('COMPUTER_LIMIT', `${COMPUTER_CAPACITY} See ${this.viewerUrl}`, refusal);
     let code: VerifyErrorCode = 'API_ERROR';
