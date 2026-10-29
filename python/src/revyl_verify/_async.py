@@ -167,6 +167,7 @@ async def async_attach(
     app_url: str | None = None,
     step_timeout: float = 180,
     log: Callable[[str], None] | None = None,
+    stop_on_close: bool = True,
 ) -> AsyncSession:
     from . import attach
 
@@ -177,6 +178,7 @@ async def async_attach(
             app_url=app_url,
             step_timeout=step_timeout,
             log=log,
+            stop_on_close=stop_on_close,
             _cancellation=cancellation,
         )
     )

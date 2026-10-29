@@ -95,7 +95,7 @@ recording = session.recording()
 
 ### Attach and open a hosted browser
 
-Attach to an existing active computer with `attach(computer_id)`, or create one with `open(Target(platform="mac"))`. Attaching checks its identity, operating system and unexpired active report without creating or stopping anything on failure. A successful attach takes close ownership: exiting its context stops that computer, not merely the local handle.
+Attach to an existing active computer with `attach(computer_id)`, or create one with `open(Target(platform="mac"))`. Attaching checks its identity, operating system and unexpired active report without creating or stopping anything on failure. A successful attach takes close ownership by default: exiting its context stops that computer, not merely the local handle.
 
 ```python
 from revyl_verify import Target, attach
@@ -117,6 +117,8 @@ Use real IDs from the same authorized environment; these are placeholders. The e
 `computer.open(target)` requires **both** `app_id` and `build_id` UUIDs. Hosted Web accepts `viewport`, `sign_in`, `idle_timeout_seconds` and `start_timeout`, but no `url` or `branch`; the server currently accepts external Web builds, not bundled Web artifacts. Hosted iOS/Android use the selected build and fixed simulator/emulator configuration, so `bundle_id`, `artifact_url`, `device_model`, `os_version`, `url`, `branch`, `viewport` and `sign_in` are unavailable. Mac hosts Web/iOS; Linux hosts Android and exposes Web only subject to server capability. **Linux-hosted Web is currently unavailable in the runtime.** All hosting depends on server capability and capacity.
 
 Children reuse their parent's credentials, API/viewer origins, step timeout and log callback. They return normal sessions with instruction, validation, screenshot, report and close methods. The parent's remaining lifetime bounds child startup and worker requests; report and close remain available after expiry. Closing a parent prevents new children, cancels in-flight starts, and gives pending starts and child closes one shared five-second cleanup budget before attempting the computer stop. Child startup failure never closes the parent. Confirmed physical parent release supersedes an earlier child-close uncertainty, which is logged safely. An ambiguous child start is cleaned up using its preallocated ID, without replaying creation. A definitive refusal does not issue a child stop.
+
+When the computer belongs to another caller, such as a CI runner, use `attach(computer_id, stop_on_close=False)` or `await async_attach(computer_id, stop_on_close=False)`. These attachments are not registered for automatic cleanup. Explicit close or context-manager exit still cancels pending child starts and closes hosted children within the five-second cleanup phase, but never stops the computer; its owner must release it. Child-cleanup failures remain observable. The default is `True`, and ownership is never inferred from the environment.
 
 For async code use `async with await async_attach(computer_id) as computer`, then `async with await computer.open(target) as browser` and `await browser.navigate(url)`. Cancelling a child open cleans up only that child and leaves the parent open; cancelling attach before it succeeds does not stop the existing computer.
 

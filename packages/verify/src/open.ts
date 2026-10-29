@@ -14,12 +14,17 @@ export interface OpenOptions {
   appUrl?: string;
 }
 
-export async function attach(computerId: string, options: Pick<OpenOptions, 'log' | 'backendUrl' | 'appUrl'> = {}): Promise<ComputerSession> {
+export interface AttachOptions extends Pick<OpenOptions, 'log' | 'backendUrl' | 'appUrl'> {
+  stopOnClose?: boolean;
+}
+
+export async function attach(computerId: string, options: AttachOptions = {}): Promise<ComputerSession> {
   if (typeof computerId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(computerId)) throw new VerifyError('INVALID_ARGUMENT', 'attach() requires a computer session UUID.');
+  if (options.stopOnClose !== undefined && typeof options.stopOnClose !== 'boolean') throw new VerifyError('INVALID_ARGUMENT', 'stopOnClose must be a boolean.');
   const credentials = await resolveCredentials();
   if (!credentials) throw new VerifyError('AUTH_MISSING', missingCredentialsMessage());
   const log = options.log === false ? undefined : (options.log ?? ((line: string) => void process.stderr.write(`[verify] ${line}\n`)));
-  return ComputerSession.attach(new RevylClient({ token: credentials.token, backendUrl: options.backendUrl }), computerId, { stepTimeout: DEFAULT_STEP_TIMEOUT_MS, log, appUrl: options.appUrl });
+  return ComputerSession.attach(new RevylClient({ token: credentials.token, backendUrl: options.backendUrl }), computerId, { stepTimeout: DEFAULT_STEP_TIMEOUT_MS, log, appUrl: options.appUrl, stopOnClose: options.stopOnClose });
 }
 
 /**

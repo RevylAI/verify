@@ -31,7 +31,9 @@ The attachment, hosted-child and navigation APIs below are new in the unreleased
 
 `open()` and `computer.open()` return the extended `OpenedSession` interface. The original `Session` interface keeps its existing required members, so applications implementing or mocking it do not need to add the new methods. Use `OpenedSession` when explicitly annotating a value that calls `report`, `navigate` or `open`.
 
-Attaches to an active Mac or Linux computer in your organization without creating a new one. `options.log` controls progress. The returned computer owns cleanup: `close()` stops it, and automatic cleanup also applies. Attaching requires a valid expiry and does not extend the lifetime. Invalid, inaccessible, inactive or expired computers fail without sending a stop request.
+Attaches to an active Mac or Linux computer in your organization without creating a new one. `options.log` controls progress. The returned computer owns cleanup by default: `close()` stops it, and automatic cleanup also applies. Attaching requires a valid expiry and does not extend the lifetime. Invalid, inaccessible, inactive or expired computers fail without sending a stop request.
+
+When attaching to a computer you do not own, such as a CI runner, pass `attach(computerId, { stopOnClose: false })`. The attachment is not registered for automatic cleanup. Its `close()` still cancels pending child starts and gives hosted children the same five-second cleanup phase, but never stops the computer; its owner must release it. Child cleanup failures remain observable. This option is explicit and is never inferred from the environment.
 
 ## computer.open(target)
 
@@ -109,7 +111,7 @@ Resolves with a PNG of the screen as a `Uint8Array`. With `options.path`, also w
 
 Requests that Revyl stop the session. For web/mobile, success acknowledges the stop request rather than proving physical release. It is safe to call more than once, and steps after it throw `SESSION_ENDED`. A `Session` also works with `await using`, which closes it at the end of the block.
 
-For computers, cleanup must be confirmed; a terminal state alone does not prove physical release. Uncertain release throws `ACTION_UNCERTAIN`.
+For owning computers, cleanup must be confirmed; a terminal state alone does not prove physical release. Uncertain release throws `ACTION_UNCERTAIN`. A non-owning attachment closes its children and local handle without requesting computer release.
 
 ## Computer commands, files, and processes
 

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add explicit non-owning computer attachment with `stopOnClose: false`, Python `stop_on_close=False`, and Go `OpenOptions.StopOnClose`. Closing these attachments still cleans up hosted children but leaves the computer running for its owner to release; the default remains owning.
+
 - Removed environment overrides.
 
 - **Breaking wire change:** encode computer-operation arguments as `argv_b64` and file paths as `path_b64` using padded URL-safe base64 of UTF-8, without changing public APIs, argument boundaries, or existing stdin/data fields. These SDKs are incompatible with the previous backend contract. Deploy the encoded-only backend before publishing or upgrading to these SDKs; no plaintext fallback or automatic replay is provided.

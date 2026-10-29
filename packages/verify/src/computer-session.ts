@@ -30,7 +30,7 @@ export class ComputerSession implements Session {
   private readonly childStarts = new Set<Promise<Session>>();
   private closing = false;
 
-  private constructor(private readonly client: RevylClient, target: ResolvedComputerTarget, private readonly options: SessionOptions, id: string = randomUUID()) {
+  private constructor(private readonly client: RevylClient, target: ResolvedComputerTarget, private readonly options: SessionOptions, id: string = randomUUID(), private readonly stopOnClose = true) {
     this.id = id;
     this.target = target.name;
     this.platform = target.platform;
@@ -76,16 +76,16 @@ export class ComputerSession implements Session {
     return this.closePromise !== undefined;
   }
 
-  static async attach(client: RevylClient, computerId: string, options: SessionOptions): Promise<ComputerSession> {
+  static async attach(client: RevylClient, computerId: string, options: SessionOptions & { stopOnClose?: boolean }): Promise<ComputerSession> {
     if (typeof computerId !== 'string' || !UUID.test(computerId)) throw new VerifyError('INVALID_ARGUMENT', 'attach() requires a computer session UUID.');
     const probe = new ComputerSession(client, { name: 'computer', platform: 'mac', startTimeout: 600_000 }, options, computerId);
     const response = await probe.request('GET', '/report', undefined, AbortSignal.timeout(30_000));
     const raw = parseComputerJson<ComputerReport & { os?: string }>(response);
     if (!raw || raw.computer_session_id !== computerId || !['macos', 'linux'].includes(raw.os ?? '') || raw.expires_at == null) throw invalidResponse();
-    const session = new ComputerSession(client, { name: raw.os === 'macos' ? 'mac' : 'linux', platform: raw.os === 'macos' ? 'mac' : 'linux', startTimeout: 600_000 }, options, computerId);
+    const session = new ComputerSession(client, { name: raw.os === 'macos' ? 'mac' : 'linux', platform: raw.os === 'macos' ? 'mac' : 'linux', startTimeout: 600_000 }, options, computerId, options.stopOnClose ?? true);
     session.parseReport(response);
     if (raw.state !== 'active' || (session.expiresAtMs !== undefined && Date.now() >= session.expiresAtMs)) throw new VerifyError('SESSION_ENDED', 'The computer is not active or has expired.');
-    trackSession(session);
+    if (session.stopOnClose) trackSession(session);
     return session;
   }
 
@@ -250,6 +250,11 @@ export class ComputerSession implements Session {
       const childResults = await Promise.race([childCleanup, delay(5_000, undefined, { signal: childDeadline.signal })]);
       childDeadline.abort();
       try {
+        if (!this.stopOnClose) {
+          if (!childResults || childResults.some((result) => result.status === 'rejected')) throw new VerifyError('ACTION_UNCERTAIN', `Hosted child cleanup is unconfirmed; the attached computer was left running. See ${this.viewerUrl}`);
+          this.log('detached; computer left running');
+          return;
+        }
         const report = this.parseReport(await this.request('POST', '/stop', undefined, AbortSignal.timeout(310_000)));
         if (report.release !== 'confirmed') {
           throw new VerifyError('ACTION_UNCERTAIN', `Computer stop was requested, but physical release is unconfirmed. Inspect ${this.viewerUrl}`);
@@ -258,7 +263,7 @@ export class ComputerSession implements Session {
         if (!childResults || childResults.some((result) => result.status === 'rejected')) this.log('a child stop was unconfirmed before the parent was released');
         this.log('closed');
       } catch (error) {
-        if (isVerifyError(error) && error.code === 'ACTION_UNCERTAIN') {
+        if (this.stopOnClose && isVerifyError(error) && error.code === 'ACTION_UNCERTAIN') {
           const message = `${error.message} A possible cause is that no computer could be assigned. ${COMPUTER_AVAILABILITY}`;
           this.log(`close failed (ACTION_UNCERTAIN); ${message}`);
           throw new VerifyError('ACTION_UNCERTAIN', message, { cause: error });

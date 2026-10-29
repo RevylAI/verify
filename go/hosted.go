@@ -50,6 +50,7 @@ func Attach(ctx context.Context, computerID string, options ...OpenOptions) (*Se
 		s.platform = Linux
 	}
 	s.expiresAt = *report.ExpiresAt
+	s.leaveComputerRunning = opt.StopOnClose != nil && !*opt.StopOnClose
 	s.lifetime, s.stopLifetime = context.WithCancel(context.Background())
 	return s, nil
 }

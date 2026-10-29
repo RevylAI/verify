@@ -24,6 +24,7 @@ type OpenOptions struct {
 	HTTPClient  *http.Client
 	StepTimeout time.Duration
 	Log         func(string)
+	StopOnClose *bool
 }
 
 type StepOptions struct{ Timeout time.Duration }
@@ -58,6 +59,7 @@ type Session struct {
 	viewerBase               string
 	childOpens               sync.WaitGroup
 	children                 []*Session
+	leaveComputerRunning     bool
 }
 
 func (s *Session) ID() string           { return s.id }
@@ -413,11 +415,16 @@ func (s *Session) Close(ctx context.Context) error {
 	if s.platform.computer() {
 		s.stopLifetime()
 		childErr := s.closeChildren(ctx)
-		err := s.closeComputer(ctx)
-		if err != nil {
-			err = errors.Join(err, childErr)
-		} else if childErr != nil {
-			s.computerLog("child stop failed; parent physical release is confirmed")
+		err := childErr
+		if !s.leaveComputerRunning {
+			err = s.closeComputer(ctx)
+			if err != nil {
+				err = errors.Join(err, childErr)
+			} else if childErr != nil {
+				s.computerLog("child stop failed; parent physical release is confirmed")
+			}
+		} else {
+			s.computerLog("detached; computer left running")
 		}
 		s.mu.Lock()
 		s.closeErr = err

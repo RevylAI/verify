@@ -76,6 +76,7 @@ def attach(
     app_url: str | None = None,
     step_timeout: float = 180,
     log: Callable[[str], None] | None = None,
+    stop_on_close: bool = True,
     _cancellation: Cancellation | None = None,
 ) -> ComputerSession:
     from ._models import UUID_PATTERN
@@ -83,10 +84,14 @@ def attach(
 
     if not isinstance(computer_id, str) or not UUID_PATTERN.fullmatch(computer_id):
         raise VerifyError("INVALID_ARGUMENT", "attach() requires a computer UUID.")
+    if not isinstance(stop_on_close, bool):
+        raise VerifyError("INVALID_ARGUMENT", "stop_on_close must be a boolean.")
     seconds(step_timeout, 1, 3600, "step_timeout")
     if log is not None and not callable(log):
         raise VerifyError("INVALID_ARGUMENT", "log must be a callable or None.")
     install_signal_cleanup()
     client = Client(backend_url)
     viewer = origin(app_url or "https://app.revyl.ai", app=True)
-    return ComputerSession.attach(client, viewer, computer_id, step_timeout, log, _cancellation)
+    return ComputerSession.attach(
+        client, viewer, computer_id, step_timeout, log, _cancellation, stop_on_close=stop_on_close
+    )
