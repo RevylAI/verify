@@ -1,5 +1,5 @@
 export { attach, open } from './open.js';
-export type { OpenOptions } from './open.js';
+export type { AttachOptions, OpenOptions } from './open.js';
 export type { OpenedSession, Session, StepOptions, StepResult, StepType, ValidationOptions, OperationOptions, ExecOptions, ExecResult, FileStat, ComputerProcess, ComputerRecording } from './session.js';
 export { defineConfig } from './config.js';
 export type { HostedTargetConfig, MobileAppConfig, MobileTargetConfig, ComputerTargetConfig, TargetConfig, VerifyConfig, WebAppConfig, WebTargetConfig } from './config.js';

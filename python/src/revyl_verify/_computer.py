@@ -148,6 +148,7 @@ class ComputerSession(Session):
         self._children: list[Session] = []
         self._child_starts = 0
         self._child_condition = threading.Condition(self._lock)
+        self._stop_on_close: bool = True
 
     @classmethod
     def attach(
@@ -158,6 +159,8 @@ class ComputerSession(Session):
         step_timeout: float,
         log: Callable[[str], None] | None = None,
         cancellation: Cancellation | None = None,
+        *,
+        stop_on_close: bool = True,
     ) -> ComputerSession:
         session = cls(
             client,
@@ -168,6 +171,7 @@ class ComputerSession(Session):
             step_timeout,
         )
         session._log_callback = log
+        session._stop_on_close = stop_on_close
         session._cancellation = cancellation or Cancellation()
         deadline = Deadline(30, session._cancellation)
         try:
@@ -181,7 +185,8 @@ class ComputerSession(Session):
         except BaseException as error:
             session._startup_failure(error, cleanup=False, refused=True)
             raise
-        track(session)
+        if session._stop_on_close:
+            track(session)
         session._log("attached")
         return session
 
@@ -807,6 +812,7 @@ class ComputerSession(Session):
                         raise self._close_error
                     return
             interrupted: BaseException | None = None
+            child_cleanup_failed = False
             try:
                 try:
                     with self._child_condition:
@@ -826,12 +832,38 @@ class ComputerSession(Session):
                         try:
                             child._close_with_deadline(child_deadline)
                         except Exception:
-                            self._log("child cleanup unconfirmed; stopping parent")
+                            child_cleanup_failed = True
+                            self._log(
+                                "child cleanup unconfirmed; stopping parent"
+                                if self._stop_on_close
+                                else "child cleanup unconfirmed; computer left running"
+                            )
                 except VerifyError:
-                    self._log("child cleanup unconfirmed; stopping parent")
+                    child_cleanup_failed = True
+                    self._log(
+                        "child cleanup unconfirmed; stopping parent"
+                        if self._stop_on_close
+                        else "child cleanup unconfirmed; computer left running"
+                    )
                 except BaseException as error:
                     interrupted = error
-                    self._log("child cleanup interrupted; stopping parent")
+                    self._log(
+                        "child cleanup interrupted; stopping parent"
+                        if self._stop_on_close
+                        else "child cleanup interrupted; computer left running"
+                    )
+                if not self._stop_on_close:
+                    if interrupted is not None:
+                        raise interrupted
+                    if child_cleanup_failed:
+                        raise VerifyError(
+                            "ACTION_UNCERTAIN",
+                            "Hosted child cleanup is unconfirmed; "
+                            f"the attached computer was left running. See {self.viewer_url}",
+                        )
+                    self._cleanup_status = "not_required"
+                    self._log("detached; computer left running")
+                    return
                 report = self._report(self._request("POST", "/stop", None, Deadline(310)))
                 if report.get("release") != "confirmed":
                     raise VerifyError(
@@ -845,7 +877,7 @@ class ComputerSession(Session):
                 self._log("physical release confirmed")
             except VerifyError as error:
                 self._cleanup_status = "unconfirmed"
-                if error.code == "ACTION_UNCERTAIN":
+                if self._stop_on_close and error.code == "ACTION_UNCERTAIN":
                     error = VerifyError(
                         error.code,
                         f"{error.message} A possible cause is that no computer could be assigned. "
@@ -860,14 +892,22 @@ class ComputerSession(Session):
                 self._cleanup_status = "unconfirmed"
                 self._close_error = VerifyError(
                     "ACTION_UNCERTAIN",
-                    "Computer stop was interrupted; physical release is unconfirmed. "
-                    f"Inspect {self.viewer_url}",
+                    (
+                        "Computer stop was interrupted; physical release is unconfirmed. "
+                        if self._stop_on_close
+                        else "Hosted child cleanup was interrupted; the computer was left running. "
+                    )
+                    + f"Inspect {self.viewer_url}",
                 )
                 raise
             finally:
                 if self._close_error:
                     self._attach_failure(self._close_error)
-                    self._log("physical release unconfirmed")
+                    self._log(
+                        "physical release unconfirmed"
+                        if self._stop_on_close
+                        else "child cleanup unconfirmed; computer left running"
+                    )
                 untrack(self)
             if interrupted is not None:
                 raise interrupted
