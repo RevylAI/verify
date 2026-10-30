@@ -27,6 +27,12 @@ export async function attach(computerId: string, options: AttachOptions = {}): P
   return ComputerSession.attach(new RevylClient({ token: credentials.token, backendUrl: options.backendUrl }), computerId, { stepTimeout: DEFAULT_STEP_TIMEOUT_MS, log, appUrl: options.appUrl, stopOnClose: options.stopOnClose });
 }
 
+export async function currentComputer(options: AttachOptions = {}): Promise<ComputerSession> {
+  const computerId = process.env.REVYL_COMPUTER_ID?.trim();
+  if (!computerId) throw new VerifyError('COMPUTER_ID_MISSING', 'No current Revyl computer is available. Run this job on a revyl-macos runner.');
+  return attach(computerId, { ...options, stopOnClose: options.stopOnClose === undefined ? false : options.stopOnClose });
+}
+
 /**
  * Starts a Revyl cloud browser, device, or computer. Mobile first-screen readiness is best-effort.
  * Pass a target name from verify.config.ts, such as open('web'), or a target object.

@@ -43,6 +43,7 @@ const (
 	ErrConfigNotFound         Code = "CONFIG_NOT_FOUND"
 	ErrConfigInvalid          Code = "CONFIG_INVALID"
 	ErrAuthMissing            Code = "AUTH_MISSING"
+	ErrComputerIDMissing      Code = "COMPUTER_ID_MISSING"
 	ErrAuthRejected           Code = "AUTH_REJECTED"
 	ErrEdgeBlocked            Code = "EDGE_BLOCKED"
 	ErrAPI                    Code = "API_ERROR"

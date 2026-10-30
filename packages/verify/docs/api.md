@@ -25,6 +25,28 @@ const linux = await open({ platform: 'linux' });                    // same comp
 
 `open` needs credentials: `REVYL_API_KEY` or a Revyl CLI login. It throws `AUTH_MISSING` without them, `CONFIG_NOT_FOUND` or `CONFIG_INVALID` for config problems, and `SESSION_START_FAILED` or `TIMEOUT` when the browser or device does not start.
 
+## Inside a revyl-macos GitHub Actions job
+
+`currentComputer(options?)` attaches to `REVYL_COMPUTER_ID` using normal credential resolution. It is non-owning by default: close cleans up hosted children, while the job's owner releases the computer. It never creates a computer and throws `COMPUTER_ID_MISSING` when the ID is unset or blank. Invalid IDs fail with `INVALID_ARGUMENT`.
+
+This helper requires a release containing it and a runner configured to inject `REVYL_COMPUTER_ID` and a short-lived `REVYL_API_KEY`. It is not in the published TypeScript 0.2.0 package. A workflow can supply its own `REVYL_API_KEY` instead. After installing the project dependencies and selecting Node.js ≥22.18, add this step to a job with `runs-on: revyl-macos`:
+
+```yaml
+- name: Run Verify
+  run: |
+    node --input-type=module <<'JS'
+    import { currentComputer } from '@revyl/verify';
+    const computer = await currentComputer();
+    try {
+      await computer.screenshot({ path: 'computer.png' });
+    } finally {
+      await computer.close();
+    }
+    JS
+```
+
+The helper accepts the same options as `attach`, including explicit `backendUrl` and `appUrl`; it does not read URL environment variables. `stopOnClose: true` explicitly takes ownership and can end the job's computer when closed. Use `computer.open(target)` with an exact app/build pair for hosted app sessions.
+
 ## attach(computerId, options?)
 
 The attachment, hosted-child and navigation APIs below are new in the unreleased source; they are not in the published TypeScript 0.2.0 package.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 
 from ._async import AsyncSession, async_attach, async_open
@@ -38,9 +39,21 @@ __all__ = [
     "Viewport",
     "attach",
     "async_attach",
+    "async_current_computer",
     "async_open",
+    "current_computer",
     "open",
 ]
+
+
+def _current_computer_id() -> str:
+    computer_id = os.environ.get("REVYL_COMPUTER_ID", "").strip()
+    if not computer_id:
+        raise VerifyError(
+            "COMPUTER_ID_MISSING",
+            "No current Revyl computer is available. Run this job on a revyl-macos runner.",
+        )
+    return computer_id
 
 
 def open(
@@ -94,4 +107,40 @@ def attach(
     viewer = origin(app_url or "https://app.revyl.ai", app=True)
     return ComputerSession.attach(
         client, viewer, computer_id, step_timeout, log, _cancellation, stop_on_close=stop_on_close
+    )
+
+
+def current_computer(
+    *,
+    backend_url: str | None = None,
+    app_url: str | None = None,
+    step_timeout: float = 180,
+    log: Callable[[str], None] | None = None,
+    stop_on_close: bool = False,
+) -> ComputerSession:
+    return attach(
+        _current_computer_id(),
+        backend_url=backend_url,
+        app_url=app_url,
+        step_timeout=step_timeout,
+        log=log,
+        stop_on_close=stop_on_close,
+    )
+
+
+async def async_current_computer(
+    *,
+    backend_url: str | None = None,
+    app_url: str | None = None,
+    step_timeout: float = 180,
+    log: Callable[[str], None] | None = None,
+    stop_on_close: bool = False,
+) -> AsyncSession:
+    return await async_attach(
+        _current_computer_id(),
+        backend_url=backend_url,
+        app_url=app_url,
+        step_timeout=step_timeout,
+        log=log,
+        stop_on_close=stop_on_close,
     )

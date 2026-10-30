@@ -3,6 +3,7 @@ export type VerifyErrorCode =
   | 'CONFIG_NOT_FOUND'
   | 'CONFIG_INVALID'
   | 'AUTH_MISSING'
+  | 'COMPUTER_ID_MISSING'
   | 'AUTH_REJECTED'
   | 'EDGE_BLOCKED'
   | 'API_ERROR'
