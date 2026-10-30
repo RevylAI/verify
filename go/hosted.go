@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -53,6 +54,22 @@ func Attach(ctx context.Context, computerID string, options ...OpenOptions) (*Se
 	s.leaveComputerRunning = opt.StopOnClose != nil && !*opt.StopOnClose
 	s.lifetime, s.stopLifetime = context.WithCancel(context.Background())
 	return s, nil
+}
+
+func CurrentComputer(ctx context.Context, options ...OpenOptions) (*Session, error) {
+	computerID := strings.TrimSpace(os.Getenv("REVYL_COMPUTER_ID"))
+	if computerID == "" {
+		return nil, failure(ErrComputerIDMissing, "No current Revyl computer is available. Run this job on a revyl-macos runner.")
+	}
+	opt, err := openOptions(options)
+	if err != nil {
+		return nil, err
+	}
+	if opt.StopOnClose == nil {
+		stopOnClose := false
+		opt.StopOnClose = &stopOnClose
+	}
+	return Attach(ctx, computerID, opt)
 }
 
 func (s *Session) Open(ctx context.Context, target Target) (*Session, error) {

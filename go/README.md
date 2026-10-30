@@ -110,6 +110,44 @@ The Go SDK does not read `verify.config.ts`, resolve named targets, or provide a
 
 The `Attach`, hosted `Open`, `Navigate`, and `Report` APIs are unreleased additions; use a reviewed source revision until the next Go release includes them.
 
+## Inside a revyl-macos GitHub Actions job
+
+`verify.CurrentComputer(ctx, options...)` attaches to `REVYL_COMPUTER_ID` using normal credential resolution, non-owning by default. It never creates a computer and returns `ErrComputerIDMissing` when the ID is unset or blank. Invalid IDs return `ErrInvalidArgument`. The job's owner releases the computer; closing the attachment only cleans up hosted children.
+
+Use a release containing this helper and a runner configured to inject `REVYL_COMPUTER_ID` and a short-lived `REVYL_API_KEY`. A workflow can supply its own key instead. With the Go toolchain and project module dependencies installed, add this step to a job with `runs-on: revyl-macos`:
+
+```yaml
+- name: Run Verify
+  run: |
+    cat > "$RUNNER_TEMP/verify_current.go" <<'GO'
+    package main
+    import (
+        "context"
+        "log"
+        verify "github.com/RevylAI/verify/go"
+    )
+    func main() {
+        if err := run(); err != nil { log.Fatal(err) }
+    }
+    func run() (err error) {
+        computer, err := verify.CurrentComputer(context.Background())
+        if err != nil { return err }
+        defer func() {
+            if closeErr := computer.Close(context.Background()); err == nil {
+                err = closeErr
+            }
+        }()
+        _, err = computer.Screenshot(context.Background(), "computer.png")
+        return err
+    }
+    GO
+    go run "$RUNNER_TEMP/verify_current.go"
+```
+
+The helper accepts explicit `BackendURL` and `AppURL` through `OpenOptions` and never reads URL environment variables. Set `own := true` and `StopOnClose: &own` only to take ownership deliberately: closing it can end the job's computer. `nil` defaults to non-owning for `CurrentComputer`; it still defaults to owning for `Attach`. Use `computer.Open(ctx, target)` with an exact app/build pair for hosted app sessions.
+
+### Attach to a specified computer
+
 `verify.Attach(ctx, computerID, options...)` connects to an existing active computer using the same credentials and `OpenOptions` as `verify.Open`. It reads the computer report, verifies the ID, OS, state, and future expiry, and returns a normal `*Session`. Failed attachment never creates or stops a computer. Successful attachment takes cleanup ownership by default: explicitly close it, even if another process created it. Do not let two independent owners close the same computer unexpectedly.
 
 To attach without taking ownership, set `stop := false` and pass `verify.OpenOptions{StopOnClose: &stop}` to `Attach`. `nil` and a pointer to `true` preserve owning behavior. For a computer owned by another caller, such as a CI runner, this lets `Close` cancel pending child starts and close children within the existing five-second phase without stopping the computer. Its owner remains responsible for releasing it, and child-cleanup failures are returned. Ownership is never inferred from environment variables. The Go SDK does not register automatic process-exit cleanup.

@@ -32,6 +32,24 @@ revyl auth login
 
 Credential precedence matches the other SDKs: a usable stored CLI login marked `local_auth_override`, then `REVYL_API_KEY`, then another usable CLI login. An expired access token can fall back to its stored API key. Never pass keys in argv, source, screenshots or logs.
 
+## Inside a revyl-macos GitHub Actions job
+
+`current_computer()` and `async_current_computer()` attach to `REVYL_COMPUTER_ID` with normal credential resolution, non-owning by default. They never create a computer, raise `COMPUTER_ID_MISSING` when the ID is unset or blank, and reject invalid IDs with `INVALID_ARGUMENT`. The job's owner releases the computer; closing the attachment only cleans up hosted children.
+
+Use a release containing these helpers and a runner configured to inject `REVYL_COMPUTER_ID` and a short-lived `REVYL_API_KEY`. A workflow can supply its own key instead. With Python ≥3.10 and the project dependencies installed, add this step to a job with `runs-on: revyl-macos`:
+
+```yaml
+- name: Run Verify
+  run: |
+    python - <<'PY'
+    from revyl_verify import current_computer
+    with current_computer() as computer:
+        computer.screenshot(path="computer.png")
+    PY
+```
+
+Use `async with await async_current_computer() as computer` in asyncio jobs. Both helpers accept explicit `backend_url`, `app_url`, `step_timeout`, and `log` options; neither reads URL environment variables. `stop_on_close=True` explicitly takes ownership and can end the job's computer when closed. Use `computer.open(target)` with an exact app/build pair for hosted app sessions.
+
 ## Quick Start
 
 ### Synchronous iOS Settings
