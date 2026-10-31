@@ -7,12 +7,14 @@ import { missingCredentialsMessage, resolveCredentials } from '../auth.js';
 import { VerifyError, errorMessage, isVerifyError } from '../errors.js';
 import { PACKAGE_NAME, VERSION } from '../version.js';
 import { initProject, validateInitAnswers, type InitAnswers } from './init.js';
+import { installVerify, packageHasVerify } from './install.js';
+import { signIn } from './login.js';
 
 const HELP = `verify ${VERSION}: open Revyl cloud browsers, devices, and computers from your code
 
 Usage
-  npx ${PACKAGE_NAME} init [--platform web|ios|android|mac] [--app-id <id>] [--url <https-url>] [--force]
-      Write verify.config.ts and an example script, verify/example.ts
+  npx ${PACKAGE_NAME} init [--platform web|ios|android|mac] [--app-id <id>] [--url <https-url>] [--force] [--yes] [--no-install]
+      Install Verify, write verify.config.ts and an example script, then check authentication
   npx ${PACKAGE_NAME} whoami
       Check which Revyl account your credentials belong to
 
@@ -55,32 +57,60 @@ async function initCommand(args: string[]): Promise<number> {
       'app-id': { type: 'string' },
       url: { type: 'string' },
       force: { type: 'boolean' },
+      yes: { type: 'boolean' },
+      'no-install': { type: 'boolean' },
     },
   });
-  let answers: InitAnswers;
+  const interactive = Boolean(process.stdin.isTTY) && !process.env.CI;
+  let answers: InitAnswers | undefined;
   if (values.platform) {
     answers = validateInitAnswers({
       platform: values.platform as Platform,
       ...(values['app-id'] ? { appId: values['app-id'] } : {}),
       ...(values.url ? { url: values.url } : {}),
     });
-  } else if (process.stdin.isTTY) {
-    answers = await askInitQuestions(values['app-id'], values.url);
-  } else {
+  } else if (!interactive) {
     throw new VerifyError('INVALID_ARGUMENT', 'Pass --platform web, ios, android, or mac when not running in a terminal.');
   }
+  if (!values['no-install'] && !(await packageHasVerify(process.cwd()))) {
+    let installApproved = !interactive || Boolean(values.yes);
+    if (interactive && !values.yes) {
+      const readline = createInterface({ input: process.stdin, output: process.stdout });
+      try {
+        const answer = (await readline.question(`Install ${PACKAGE_NAME} as a dev dependency? (Y/n) `)).trim().toLowerCase();
+        installApproved = answer === '' || answer === 'y' || answer === 'yes';
+      } finally {
+        readline.close();
+      }
+    }
+    if (installApproved) await installVerify(process.cwd());
+  }
+  answers ??= await askInitQuestions(values['app-id'], values.url);
   const result = await initProject(process.cwd(), answers, { force: values.force ?? false });
+  process.stdout.write(`Created ${result.created.join(' and ')}${result.gitignoreUpdated ? ', and added .verify/ to .gitignore' : ''}.\n`);
+  const credentials = await resolveCredentials();
+  if (!credentials) {
+    if (interactive) {
+      await signIn();
+    } else {
+      throw new VerifyError('AUTH_MISSING', `${missingCredentialsMessage()} In non-interactive environments, set the REVYL_API_KEY secret.`);
+    }
+  }
+  try {
+    await whoamiCommand();
+  } catch (error) {
+    if (!interactive || !isVerifyError(error) || error.code !== 'AUTH_REJECTED') throw error;
+    await signIn({ force: true });
+    await whoamiCommand();
+  }
   const steps = [
-    `npm install --save-dev ${PACKAGE_NAME}`,
-    "Authenticate: export REVYL_API_KEY=<key from Revyl settings>, or run 'revyl auth login'",
+    'Configure the generated verify.config.ts if needed',
     ...(answers.platform === 'mac' ? ['Mac computers are early access. Ask support@revyl.ai about access.'] : []),
     ...(answers.platform === 'mac' || answers.appId ? [] : ['Put your Revyl app id in verify.config.ts (or set REVYL_APP_ID)']),
     'node verify/example.ts',
   ];
   process.stdout.write(
     [
-      `Created ${result.created.join(' and ')}${result.gitignoreUpdated ? ', and added .verify/ to .gitignore' : ''}.`,
-      '',
       'Next:',
       ...steps.map((step, index) => `  ${index + 1}. ${step}`),
       '',

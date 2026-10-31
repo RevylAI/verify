@@ -1,6 +1,6 @@
 # CI and test runners
 
-Verify is a library, so it runs wherever your code runs. Browsers, devices, and computers run in Revyl's cloud, so the runner needs nothing but Node.js and an API key. Both Mac and Linux computer targets work from a Linux runner; no local guest runtime is needed.
+Verify is a library, so it runs wherever your code runs. Browsers, devices, and computers run in Revyl's cloud, so the runner needs Node.js and an API key. For local setup, run `npx @revyl/verify init`; in CI, `npm ci` and a `REVYL_API_KEY` secret are enough. The one-command setup flow is planned for Verify 0.3.0; the published 0.2.0 package still needs the manual install path.
 
 ## A script in GitHub Actions
 

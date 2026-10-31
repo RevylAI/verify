@@ -71,11 +71,15 @@ try {
     assert.equal(aliasResult.stderr, scopedResult.stderr);
   }
   assert.equal(execFileSync('npx', ['--no-install', 'revyl-verify', '--version'], { cwd: consumer, env, encoding: 'utf8', timeout: 30_000 }).trim(), manifest.version);
-  execFileSync('npx', ['--no-install', 'revyl-verify', 'init', '--platform', 'web'], { cwd: consumer, env, stdio: 'pipe', timeout: 30_000 });
+  const consumerInit = spawnSync('npx', ['--no-install', 'revyl-verify', 'init', '--platform', 'web', '--no-install'], { cwd: consumer, env, encoding: 'utf8', timeout: 30_000 });
+  assert.equal(consumerInit.status, 2);
+  assert.match(consumerInit.stderr, /AUTH_MISSING/);
   assert.ok(readFileSync(join(consumer, 'verify.config.ts'), 'utf8').includes('web'));
   const scopedProject = join(directory, 'scoped-project');
   mkdirSync(scopedProject);
-  execFileSync(process.execPath, [scopedCli, 'init', '--platform', 'web'], { cwd: scopedProject, env, stdio: 'pipe', timeout: 30_000 });
+  const scopedInit = spawnSync(process.execPath, [scopedCli, 'init', '--platform', 'web', '--no-install'], { cwd: scopedProject, env, encoding: 'utf8', timeout: 30_000 });
+  assert.equal(scopedInit.status, 2);
+  assert.match(scopedInit.stderr, /AUTH_MISSING/);
   for (const file of ['verify.config.ts', 'verify/example.ts']) {
     assert.equal(readFileSync(join(consumer, file), 'utf8'), readFileSync(join(scopedProject, file), 'utf8'));
   }
