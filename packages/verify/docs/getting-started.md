@@ -21,7 +21,7 @@ npx @revyl/verify init --platform ios --app-id <revyl-app-id>
 npx @revyl/verify init --platform mac
 ```
 
-Use `--yes` to accept installation without a prompt, or `--no-install` when Verify is already installed. The one-command flow is planned for Verify 0.3.0; the published 0.2.0 package still needs the manual setup below.
+Use `--yes` to accept installation without a prompt, or `--no-install` when Verify is already installed.
 
 ## Manual setup
 

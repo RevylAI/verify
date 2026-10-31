@@ -1,8 +1,8 @@
 # Verify
 
-Verify runs end-to-end checks against real Revyl targets. Instead of encoding coordinates and selectors that break when a screen changes, you describe what the agent should do and what must be true afterward. Revyl runs those steps on a cloud browser, iOS simulator, Android emulator, or computer, so the same check can run from a script, an existing test runner, or a coding agent.
+The runtime is what matters. Verify runs end-to-end checks against a real Revyl browser, iOS simulator, Android emulator, or computer. You describe what the agent should do and what must be true afterward, instead of maintaining selectors and coordinates that break when a screen changes.
 
-Every run gives you a link to watch the target while it runs. The session keeps its report and available recording afterward, and the SDK keeps the instruction and validation results in order so a failed check has something concrete to inspect.
+Every run gives you a link to watch the target. The session keeps its report and available recording, and the SDK keeps instruction and validation results in order. A failed check leaves evidence you can inspect.
 
 ## A small check
 
@@ -33,13 +33,13 @@ The URL is live during the run and keeps the report and available recording afte
 
 ## Setup
 
-With Verify 0.3.0, run this from your project directory:
+Run this from your project directory:
 
 ```bash
 npx @revyl/verify init
 ```
 
-`init` detects your package manager, asks before adding `@revyl/verify` as a dev dependency, creates `verify.config.ts` and `verify/example.ts`, signs in through the same browser approval flow as the Revyl CLI when needed, and prints the command that runs the example. Use `--yes` to accept installation without a prompt, or `--no-install` when Verify is already installed. In CI, it never prompts or opens a browser; provide `REVYL_API_KEY` as a secret instead. This setup flow is not in the published 0.2.0 package yet.
+`init` detects your package manager, asks before adding `@revyl/verify` as a dev dependency, creates `verify.config.ts` and `verify/example.ts`, signs in through the same browser approval flow as the Revyl CLI when needed, and prints the command that runs the example. Use `--yes` to accept installation without a prompt, or `--no-install` when Verify is already installed. In CI, it never prompts or opens a browser; provide `REVYL_API_KEY` as a secret instead.
 
 The generated project starts with a named target. Use `--platform web`, `--platform ios`, `--platform android`, or `--platform mac` when you want to skip the platform question. Web and mobile targets need a Revyl app id; a Mac target does not. The generated config is ordinary TypeScript, so edit it when the example needs a pinned build, a public Web URL, or a different target.
 
@@ -61,7 +61,7 @@ For a normal GitHub Actions job, install from the lockfile with `npm ci` and pas
     REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
 ```
 
-On a `revyl-macos` job, Verify 0.3.0 also provides `currentComputer()`, which attaches to the runner's existing computer without taking ownership. The runner releases the computer; closing the Verify attachment still cleans up hosted children. This helper is not in the published 0.2.0 package yet. See the [CI guide](packages/verify/docs/ci.md) and [computer API](packages/verify/docs/api.md#inside-a-revyl-macos-github-actions-job).
+On a `revyl-macos` job, `currentComputer()` attaches to the runner's existing computer without taking ownership. The runner releases the computer; closing the Verify attachment still cleans up hosted children. See the [CI guide](packages/verify/docs/ci.md) and [computer API](packages/verify/docs/api.md#inside-a-revyl-macos-github-actions-job).
 
 ## Manual setup
 

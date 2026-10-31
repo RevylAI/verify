@@ -8,7 +8,7 @@ npx @revyl/verify init --platform mac
 node verify/example.ts
 ```
 
-Verify 0.3.0 will install the package and check credentials as part of `init`. The published 0.2.0 package still needs `npm install --save-dev @revyl/verify` and `revyl auth login` separately; see [manual setup](getting-started.md#manual-setup). Running the script starts a paid computer. No app id, build, device selector, image selector, or local Mac is needed. The generated script checks commands and a file round trip without agent steps.
+`init` installs the package and checks credentials. Running the script starts a paid computer. No app id, build, device selector, image selector, or local Mac is needed. The generated script checks commands and a file round trip without agent steps.
 
 `init` intentionally generates only Mac computer projects. For Linux, install the package and use `open({ platform: 'linux' })` inline, or add `linux: { platform: 'linux' }` to the `targets` in `verify.config.ts`. The methods below are shared by both operating systems; installed tools, paths, resources, and desktop dimensions are not fixed SDK guarantees.
 
