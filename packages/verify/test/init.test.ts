@@ -7,7 +7,7 @@ import { validateConfig, validateTarget, type ResolvedDeviceTarget } from '../sr
 import { DeviceSession } from '../src/session.js';
 import { APP_ID, FakeRevyl, fakeAndroid, json, stepResult, verdict } from './helpers/fake-revyl.js';
 import { PACKAGE_NAME, VERSION } from '../src/version.js';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -26,9 +26,10 @@ describe('initProject', () => {
     const dir = await mkdtemp(join(tmpdir(), 'verify-init-cli-'));
     const jiti = pathToFileURL(createRequire(import.meta.url).resolve('jiti')).href;
     const entry = fileURLToPath(new URL('../src/cli/main.ts', import.meta.url));
-    const output = execFileSync(process.execPath, ['--input-type=module', '-e', `import { createJiti } from ${JSON.stringify(jiti)}; process.argv = ['node', 'verify', 'init', '--platform', 'mac']; await createJiti(import.meta.url).import(${JSON.stringify(entry)});`], { cwd: dir, encoding: 'utf8' });
-    expect(output.match(/Mac computers are early access/g)).toHaveLength(1);
-    expect(output).toContain('support@revyl.ai');
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', `import { createJiti } from ${JSON.stringify(jiti)}; process.argv = ['node', 'verify', 'init', '--platform', 'mac', '--no-install']; await createJiti(import.meta.url).import(${JSON.stringify(entry)});`], { cwd: dir, encoding: 'utf8' });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('AUTH_MISSING');
+    expect(result.stderr).toContain('REVYL_API_KEY secret');
   });
   it('writes a web config, an example script, and ignores screenshots', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'verify-init-'));
