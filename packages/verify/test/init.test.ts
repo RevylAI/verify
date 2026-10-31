@@ -26,7 +26,7 @@ describe('initProject', () => {
     const dir = await mkdtemp(join(tmpdir(), 'verify-init-cli-'));
     const jiti = pathToFileURL(createRequire(import.meta.url).resolve('jiti')).href;
     const entry = fileURLToPath(new URL('../src/cli/main.ts', import.meta.url));
-    const env = { ...process.env, CI: '1' };
+    const env: NodeJS.ProcessEnv = { ...process.env, CI: '1' };
     delete env.REVYL_API_KEY;
     const result = spawnSync(process.execPath, ['--input-type=module', '-e', `import { createJiti } from ${JSON.stringify(jiti)}; process.argv = ['node', 'verify', 'init', '--platform', 'mac', '--no-install']; await createJiti(import.meta.url).import(${JSON.stringify(entry)});`], { cwd: dir, env, encoding: 'utf8' });
     expect(result.status).toBe(2);
