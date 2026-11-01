@@ -137,14 +137,15 @@ jobs:
             echo "GitHub release $GITHUB_REF_NAME already exists."
           else
             version="${GITHUB_REF_NAME#v}"
-            changelog_version="${version%%-*}"
-            awk -v version="$changelog_version" '
-              $0 ~ "^## " version "( \\([^)]*\\))?$" { found = 1; next }
-              found && /^## / { exit }
-              found { print }
-              END { if (!found) exit 1 }
+            awk -v version="$version" '
+              /^## / {
+                if (found) exit
+                if ($2 == version) found = 1
+                next
+              }
+              found { print; if ($0 ~ /[^[:space:]]/) content = 1 }
+              END { if (!found || !content) exit 1 }
             ' CHANGELOG.md > release-notes.md
-            test -s release-notes.md
             release_args=()
             if [[ "$version" == *-* ]]; then
               release_args+=(--prerelease)
