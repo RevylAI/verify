@@ -1,6 +1,6 @@
 # Verify
 
-The runtime is what matters. Verify runs end-to-end checks against a real Revyl browser, iOS simulator, Android emulator, or computer. You describe what the agent should do and what must be true afterward, instead of maintaining selectors and coordinates that break when a screen changes.
+Verify runs end-to-end checks in a real browser, iOS simulator, or Android emulator on Revyl. You describe what the agent should do and what must be true afterward, instead of maintaining selectors and coordinates that break when a screen changes. Use it from a script, a coding agent, or the test runner you already have. Mac and Linux computers are also available for commands, files, and screenshots, not natural-language steps.
 
 Every run gives you a link to watch the target. The session keeps its report and available recording, and the SDK keeps instruction and validation results in order. A failed check leaves evidence you can inspect.
 
@@ -22,11 +22,11 @@ try {
 When it runs, Verify prints a live session URL and progress like this:
 
 ```text
-[verify] starting ios session https://app.revyl.ai/sessions/…
-[verify] ready
-[verify] ✓ instruction "Open General, then About" (12.0s)
-[verify] ✓ validation "The screen shows the operating system version" (9.8s)
-[verify] closed
+[verify] ios: starting ios session https://app.revyl.ai/sessions/…
+[verify] ios: ready
+[verify] ios: ✓ instruction "Open General, then About" (12.0s)
+[verify] ios: ✓ validation "The screen shows the operating system version" (9.8s)
+[verify] ios: closed
 ```
 
 The URL is live during the run and keeps the report and available recording after it closes. A failed instruction or validation throws a typed error and includes the same URL.

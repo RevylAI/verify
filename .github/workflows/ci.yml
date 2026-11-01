@@ -90,7 +90,13 @@ jobs:
             if [ "$platform" = android ]; then
               args+=(--app-id 00000000-0000-4000-8000-000000000000)
             fi
-            npx verify init "${args[@]}"
+            set +e
+            output="$(REVYL_API_KEY= HOME="$project" npx verify init "${args[@]}" --no-install 2>&1)"
+            code=$?
+            set -e
+            echo "$output"
+            test "$code" -eq 2
+            grep -q 'AUTH_MISSING' <<<"$output"
             npx tsc --noEmit --strict --skipLibCheck --erasableSyntaxOnly --target es2022 --module nodenext --types node verify.config.ts verify/example.ts
             set +e
             output="$(HOME="$project" node verify/example.ts 2>&1)"
