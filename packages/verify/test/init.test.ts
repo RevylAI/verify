@@ -26,7 +26,8 @@ describe('initProject', () => {
     const dir = await mkdtemp(join(tmpdir(), 'verify-init-cli-'));
     const jiti = pathToFileURL(createRequire(import.meta.url).resolve('jiti')).href;
     const entry = fileURLToPath(new URL('../src/cli/main.ts', import.meta.url));
-    const output = execFileSync(process.execPath, ['--input-type=module', '-e', `import { createJiti } from ${JSON.stringify(jiti)}; process.argv = ['node', 'verify', 'init', '--platform', 'mac']; await createJiti(import.meta.url).import(${JSON.stringify(entry)});`], { cwd: dir, encoding: 'utf8' });
+    const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: dir, USERPROFILE: dir, REVYL_API_KEY: 'test-token', CI: '1' };
+    const output = execFileSync(process.execPath, ['--input-type=module', '-e', `import { createJiti } from ${JSON.stringify(jiti)}; globalThis.fetch = async () => Response.json({ email: 'dev@example.test', org_name: 'Example' }); process.argv = ['node', 'verify', 'init', '--platform', 'mac', '--no-install']; await createJiti(import.meta.url).import(${JSON.stringify(entry)});`], { cwd: dir, env, encoding: 'utf8' });
     expect(output.match(/Mac computers are early access/g)).toHaveLength(1);
     expect(output).toContain('support@revyl.ai');
   });

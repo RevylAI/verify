@@ -2,18 +2,36 @@
 
 Verify needs Node.js 22.18 or later, which runs TypeScript files directly, and a Revyl account.
 
-## 1. Create a config and an example script
+## Install and run
 
 ```bash
-npx @revyl/verify init
+npm install @revyl/verify
 ```
 
-`init` asks what you want to open (web, iOS, Android, or Mac), your Revyl app id for web/mobile, and for web, the URL to open. It writes two files and adds `.verify/` to `.gitignore`:
+Use an inline target when you do not need a named config:
+
+```ts
+import { open } from '@revyl/verify';
+
+const session = await open({ platform: 'ios', app: { appId: 'YOUR_REVYL_APP_ID' } });
+try {
+    await session.instruction('Open the main navigation');
+    await session.validation('The main navigation is visible');
+} finally {
+    await session.close();
+}
+```
+
+On the first interactive run, Verify opens the Revyl browser approval flow once and saves the shared CLI login. It prints a live session link, then ordered step results. In CI, it never prompts or opens a browser; set `REVYL_API_KEY` as a secret. Python and Go use an existing CLI login or API key; their SDKs do not open the browser themselves.
+
+## Scaffold a config (optional)
+
+Use `init` when you want named targets in `verify.config.ts` and a generated example script. It adds Verify with the package manager selected by its lockfile, asks what you want to open, and adds `.verify/` to `.gitignore`:
 
 - `verify.config.ts`: the targets `open()` can start, by name
 - `verify/example.ts`: a script that opens the target, runs steps and takes a screenshot (web/mobile) or checks commands and files (Mac), and closes
 
-In scripts and CI, pass the answers as flags:
+In scripts and CI, pass the answers as flags. Non-interactive runs never prompt or open a browser; provide `REVYL_API_KEY` as a secret:
 
 ```bash
 npx @revyl/verify init --platform web --app-id <revyl-app-id> --url https://example.com
@@ -21,13 +39,9 @@ npx @revyl/verify init --platform ios --app-id <revyl-app-id>
 npx @revyl/verify init --platform mac
 ```
 
-## 2. Install Verify
+Use `--yes` to accept installation without a prompt, or `--no-install` when Verify is already installed.
 
-```bash
-npm install --save-dev @revyl/verify
-```
-
-## 3. Authenticate
+## Manual setup
 
 Verify uses the same credential precedence as the Revyl CLI:
 
@@ -40,7 +54,7 @@ export REVYL_API_KEY=...        # or: revyl auth login
 npx @revyl/verify whoami         # checks the credentials without starting a session
 ```
 
-## 4. Point the config at your app
+## Point the config at your app
 
 Web and mobile targets need an app. Open the app in Revyl and copy its id into `app.appId`, or set `REVYL_APP_ID`, which the generated config reads. Mac and Linux targets need no app id. Linux init is intentionally unavailable; use `open({ platform: 'linux' })` or add a Linux config target.
 
@@ -48,7 +62,7 @@ Web and mobile targets need an app. Open the app in Revyl and copy its id into `
 - **iOS and Android:** upload a build to the app in Revyl, for example with `revyl build upload`; each session installs the newest one. See [mobile.md](mobile.md).
 - **Mac and Linux:** computers are early access; ask support@revyl.ai about access. Agent instruction/validation are unavailable. See [computers.md](computers.md#availability-and-errors).
 
-## 5. Run the script
+## Run the script
 
 ```bash
 node verify/example.ts
