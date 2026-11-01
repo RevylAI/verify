@@ -9,10 +9,10 @@ Use Go 1.26.9 or later and a Revyl account. Set `REVYL_API_KEY` through your she
 The module lives in the repository's `go/` subdirectory. Install the tagged release with:
 
 ```sh
-go get github.com/RevylAI/verify/go@v0.1.0
+go get github.com/RevylAI/verify/go@v0.2.0
 ```
 
-Go releases use independent repository tags such as `go/v0.1.0`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
+Go releases use independent repository tags such as `go/v0.2.0`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
 
 ## Core API
 
@@ -108,13 +108,13 @@ The Go SDK does not read `verify.config.ts`, resolve named targets, or provide a
 
 ## Attach and hosted app sessions
 
-The `Attach`, hosted `Open`, `Navigate`, and `Report` APIs are unreleased additions; use a reviewed source revision until the next Go release includes them.
+The `Attach`, hosted `Open`, `Navigate`, `Report`, and `CurrentComputer` APIs are included in Go `v0.2.0`. The release also uses the encoded computer-operation wire format required by the production backend.
 
 ## Inside a revyl-macos GitHub Actions job
 
 `verify.CurrentComputer(ctx, options...)` attaches to `REVYL_COMPUTER_ID` using normal credential resolution, non-owning by default. It never creates a computer and returns `ErrComputerIDMissing` when the ID is unset or blank. Invalid IDs return `ErrInvalidArgument`. The job's owner releases the computer; closing the attachment only cleans up hosted children.
 
-Use a release containing this helper and a runner configured to inject `REVYL_COMPUTER_ID` and a short-lived `REVYL_API_KEY`. A workflow can supply its own key instead. With the Go toolchain and project module dependencies installed, add this step to a job with `runs-on: revyl-macos`:
+Use Go `v0.2.0` or later and a runner configured to inject `REVYL_COMPUTER_ID` and a short-lived `REVYL_API_KEY`. A workflow can supply its own key instead. With the Go toolchain and project module dependencies installed, add this step to a job with `runs-on: revyl-macos`:
 
 ```yaml
 - name: Run Verify
@@ -240,7 +240,7 @@ func CheckWorkspace(ctx context.Context) (err error) {
 
 Computer paths must be workspace-relative with no empty, dot, parent, backslash, colon, or control-character components. Limits are 64 argv entries and 16 KiB for argv plus stdin, 64 KiB per file write, and 1 MiB per file read or combined stdout/stderr. `OperationOptions.Timeout` and `ExecOptions.Timeout` are whole-millisecond durations from 1 ms to 5 minutes, defaulting to 30 seconds. Request observation is separately bounded to 310 seconds and honors context cancellation.
 
-**Breaking wire change:** computer-operation arguments use `argv_b64` (one padded URL-safe base64 UTF-8 string per argument) and file paths use `path_b64`, with no raw `argv` or `path`. This SDK is incompatible with the previous backend contract. Deploy the encoded-only backend before publishing or upgrading to this SDK. Public APIs and decoded limits are unchanged; `stdin` and file `data` retain their existing standard base64 encoding, and process commands are unchanged. Encoding is not encryption, and Verify does not fall back to plaintext or replay the request.
+**Breaking wire change:** Go `v0.2.0` requires the encoded-only backend, which is already live on revyl.ai. Computer-operation arguments use `argv_b64` (one padded URL-safe base64 UTF-8 string per argument) and file paths use `path_b64`, with no raw `argv` or `path`. Public APIs and decoded limits are unchanged; `stdin` and file `data` retain their existing standard base64 encoding, and process commands are unchanged. Encoding is not encryption, and Verify does not fall back to plaintext or replay the request.
 
 Computer `Screenshot` retries exact structured `screen_unavailable` (HTTP 409/503) and `screen_starting` (HTTP 409) during the fixed 30-second window after active readiness, with 500 ms backoff doubling up to 2 seconds. Context cancellation, close, expiry, and observation limits still apply. The window never resets on another call; exhaustion returns `ErrSessionBusy` with a desktop-not-ready message. Unrelated errors, authentication failures, malformed responses, and transport failures are not retried. Callers do not need a startup sleep, and mutations are never replayed by this behavior.
 

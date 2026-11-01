@@ -59,7 +59,7 @@ npx @revyl/verify init
 
 The generated project starts with a named target. Use `--platform web`, `--platform ios`, `--platform android`, or `--platform mac` when you want to skip the platform question. Web and mobile targets need a Revyl app id; a Mac target does not. The generated config is ordinary TypeScript, so edit it when the example needs a pinned build, a public Web URL, or a different target.
 
-See the [TypeScript getting-started guide](packages/verify/docs/getting-started.md), the [Python SDK guide](python/README.md), and the [Go SDK guide](go/README.md).
+See the [TypeScript getting-started guide](packages/verify/docs/getting-started.md), the [Python SDK guide](python/README.md), and the [Go SDK guide](https://github.com/RevylAI/verify/tree/go/v0.2.0/go).
 
 ## CI
 
@@ -123,7 +123,7 @@ _, err = session.Validation(ctx, "The screen shows the operating system version"
 return err
 ```
 
-Go calls return errors instead of throwing. The [Go reference](go/README.md) covers context deadlines, screenshots, computer operations, and hosted sessions.
+Go calls return errors instead of throwing. The [Go reference](https://github.com/RevylAI/verify/tree/go/v0.2.0/go) covers context deadlines, screenshots, computer operations, and hosted sessions.
 
 ## Python
 
