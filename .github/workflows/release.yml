@@ -33,8 +33,9 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '24'
+          package-manager-cache: false
       - name: Install supported npm
-        run: npm install --global npm@11.5.1
+        run: npm install --global npm@11
       - name: Check npm version
         run: npm --version
       - name: Validate release tag
@@ -59,7 +60,7 @@ jobs:
           npm pack --workspace ./packages/revyl-verify --pack-destination ./release-artifacts/alias
       - name: Check npm versions and archive integrity
         id: registry
-        run: node scripts/check-published.mjs "$GITHUB_EVENT_NAME" release-artifacts/scoped/*.tgz release-artifacts/alias/*.tgz
+        run: node scripts/check-published.mjs release-artifacts/scoped/*.tgz release-artifacts/alias/*.tgz
       - name: Dry-run scoped publication
         if: github.event_name == 'workflow_dispatch' || steps.registry.outputs.scoped_published == 'false'
         run: npm publish ./release-artifacts/scoped/*.tgz --dry-run --access public
@@ -90,25 +91,31 @@ jobs:
         with:
           node-version: '24'
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false
       - name: Install supported npm
-        run: npm install --global npm@11.5.1
+        run: npm install --global npm@11
       - name: Check npm version
         run: npm --version
+      - name: Remove token authentication configuration
+        run: printf 'registry=https://registry.npmjs.org/\n' > "$NPM_CONFIG_USERCONFIG"
       - uses: actions/download-artifact@v4
         with:
           name: npm-package-${{ github.sha }}
           path: release-artifacts
       - run: node scripts/check-release.mjs "$GITHUB_REF_NAME"
+      - name: Recheck npm versions and archive integrity
+        id: registry
+        run: node scripts/check-published.mjs release-artifacts/scoped/*.tgz release-artifacts/alias/*.tgz
       - name: Require public source for provenance
         env:
           REPOSITORY_VISIBILITY: ${{ github.event.repository.visibility }}
         run: test "$REPOSITORY_VISIBILITY" = public
       - name: Publish scoped package with provenance
-        if: needs.validate.outputs.scoped_published == 'false'
-        run: npm publish ./release-artifacts/scoped/*.tgz --provenance --access public
+        if: steps.registry.outputs.scoped_published == 'false'
+        run: env -u NODE_AUTH_TOKEN -u NPM_TOKEN npm publish ./release-artifacts/scoped/*.tgz --provenance --access public
       - name: Publish alias with provenance
-        if: needs.validate.outputs.alias_published == 'false'
-        run: npm publish ./release-artifacts/alias/*.tgz --provenance --access public
+        if: steps.registry.outputs.alias_published == 'false'
+        run: env -u NODE_AUTH_TOKEN -u NPM_TOKEN npm publish ./release-artifacts/alias/*.tgz --provenance --access public
 
   release:
     if: always() && github.event_name == 'push' && needs.validate.result == 'success' && (needs.publish.result == 'success' || needs.publish.result == 'skipped')
@@ -128,6 +135,7 @@ jobs:
             version="${GITHUB_REF_NAME#v}"
             gh release create "$GITHUB_REF_NAME" \
               --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
               --title "@revyl/verify $version" \
               --generate-notes
           fi

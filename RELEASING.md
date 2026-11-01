@@ -40,8 +40,10 @@ Before any publication, inspect the public registry for the exact package and ve
 
 ## Publication
 
-Publication requires a separate maintainer approval. Maintainers create two npm Trusted Publishers for GitHub Actions: `RevylAI / verify / .github/workflows/release.yml`, with no environment, for `@revyl/verify` and `revyl-verify`, and allow `npm publish`. The workflow uses Node 24, npm 11.5.1 or later, GitHub OIDC, and no npm token.
+Publication requires a separate maintainer approval. For each package (`@revyl/verify` and `revyl-verify`), configure an npm Trusted Publisher with provider **GitHub Actions**, organization **RevylAI**, repository **verify**, workflow filename **release.yml**, and an empty environment name. Under Allowed actions, enable **npm publish**. The workflow uses Node 24, npm 11.5.1 or later, GitHub OIDC, and no npm token or GitHub environment approval.
 
 After both publishers are configured, publish the reviewed release by pushing an annotated `vX.Y.Z` tag. The workflow validates that both npm package versions match the tag, runs the full build and checks, compares each packed archive with any exact version already on npm, publishes the scoped package before the alias, and creates a GitHub release. Re-running an identical tag is safe; an existing version with different bytes fails closed. Use the workflow's `dry_run` dispatch input to validate a branch without publishing.
+
+New npm Trusted Publisher configurations expire if they do not complete their first successful publish within two days. Configure them close to the first tag-based release, or recreate expired entries before publishing. Go tags such as `go/vX.Y.Z` do not trigger this workflow.
 
 After publication, verify the exact package version, integrity, dist-tags and archive contents from a fresh consumer. A successful local build or dry run is not proof of publication.
