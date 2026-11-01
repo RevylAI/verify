@@ -6,6 +6,12 @@ Every run gives you a link to watch the target. The session keeps its report and
 
 ## Install and run
 
+```bash
+npm install @revyl/verify
+```
+
+Save this as `verify/check.ts`:
+
 ```ts
 import { open } from '@revyl/verify';
 
@@ -19,12 +25,13 @@ try {
 }
 ```
 
-Install the package, then run the script. On the first interactive run, Verify opens the Revyl browser approval flow once and saves the login in `~/.revyl/credentials.json` for the CLI and SDK to share:
+Run the script:
 
 ```bash
-npm install @revyl/verify
 node verify/check.ts
 ```
+
+On the first interactive run, Verify opens the Revyl browser approval flow once and saves the login in `~/.revyl/credentials.json` for the CLI and SDK to share.
 
 Verify prints a live session URL and progress like this:
 
