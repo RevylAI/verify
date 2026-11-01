@@ -36,6 +36,8 @@ test('release workflow uses npm trusted publishing without token configuration',
   assert.match(workflow, /id-token: write/);
   assert.ok(workflow.includes(`printf 'registry=https://registry.npmjs.org/\\n' > "$NPM_CONFIG_USERCONFIG"`));
   assert.match(workflow, /env -u NODE_AUTH_TOKEN -u NPM_TOKEN npm publish/);
+  assert.match(workflow, /--notes-file release-notes\.md/);
+  assert.doesNotMatch(workflow, /--generate-notes/);
   assert.doesNotMatch(workflow, /(?:NPM_TOKEN|NODE_AUTH_TOKEN)\s*:|VERIFY_CI_PUBLISH_ENABLED|environment:/);
 });
 
