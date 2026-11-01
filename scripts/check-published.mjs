@@ -5,9 +5,11 @@ import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { readReleasePackages } from './release-packages.mjs';
 
-export async function publishedVersionExists(name, version, archivePath, fetchImpl = fetch) {
+export async function publishedVersionExists(name, version, archivePathOrFetchImpl, fetchImpl = fetch) {
+  const archivePath = typeof archivePathOrFetchImpl === 'function' ? undefined : archivePathOrFetchImpl;
+  const fetcher = typeof archivePathOrFetchImpl === 'function' ? archivePathOrFetchImpl : fetchImpl;
   const url = `https://registry.npmjs.org/${encodeURIComponent(name)}/${encodeURIComponent(version)}`;
-  const response = await fetchImpl(url, { signal: AbortSignal.timeout(30_000), redirect: 'error' });
+  const response = await fetcher(url, { signal: AbortSignal.timeout(30_000), redirect: 'error' });
   if (response.status === 404) return false;
   assert.equal(response.status, 200, `npm version lookup failed with HTTP ${response.status}; refusing to assume the version is unpublished.`);
   const metadata = await response.json();
@@ -18,10 +20,17 @@ export async function publishedVersionExists(name, version, archivePath, fetchIm
   return true;
 }
 
-export async function publishedPackageVersions(packages, archivePaths, fetchImpl = fetch) {
+export async function publishedPackageVersions(packages, archivePathsOrFetchImpl, fetchImpl = fetch) {
+  if (typeof archivePathsOrFetchImpl === 'function') {
+    const published = {};
+    for (const { id, name, version } of packages) {
+      published[id] = await publishedVersionExists(name, version, archivePathsOrFetchImpl);
+    }
+    return published;
+  }
   const published = {};
   for (const { id, name, version } of packages) {
-    published[id] = await publishedVersionExists(name, version, archivePaths[id], fetchImpl);
+    published[id] = await publishedVersionExists(name, version, archivePathsOrFetchImpl[id], fetchImpl);
   }
   return published;
 }

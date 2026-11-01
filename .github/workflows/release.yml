@@ -133,9 +133,14 @@ jobs:
             echo "GitHub release $GITHUB_REF_NAME already exists."
           else
             version="${GITHUB_REF_NAME#v}"
+            release_args=()
+            if [[ "$version" == *-* ]]; then
+              release_args+=(--prerelease)
+            fi
             gh release create "$GITHUB_REF_NAME" \
               --repo "$GITHUB_REPOSITORY" \
               --verify-tag \
               --title "@revyl/verify $version" \
+              "${release_args[@]}" \
               --generate-notes
           fi
