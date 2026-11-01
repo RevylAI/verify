@@ -4,6 +4,12 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Run the release validation and npm publish dry-run without publishing
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -19,6 +25,7 @@ jobs:
     outputs:
       scoped_published: ${{ steps.registry.outputs.scoped_published }}
       alias_published: ${{ steps.registry.outputs.alias_published }}
+      npm_dist_tag: ${{ steps.release_metadata.outputs.npm_dist_tag }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -27,17 +34,40 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '24'
-      - run: npm install --global npm@11
+          package-manager-cache: false
+      - name: Install supported npm
+        run: npm install --global npm@11
+      - name: Check npm version
+        run: npm --version
       - name: Validate release tag
         if: github.event_name == 'push'
         run: |
           node scripts/check-release.mjs "$GITHUB_REF_NAME"
           git merge-base --is-ancestor HEAD origin/main
-      - name: Check npm versions and require explicit CI publication opt-in
-        id: registry
+      - name: Require workflow dispatch dry-run
+        if: github.event_name == 'workflow_dispatch'
         env:
-          VERIFY_CI_PUBLISH_ENABLED: ${{ vars.VERIFY_CI_PUBLISH_ENABLED }}
-        run: node scripts/check-published.mjs "$GITHUB_EVENT_NAME"
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: test "$DRY_RUN" = true
+      - name: Validate release notes and select npm dist-tag
+        id: release_metadata
+        run: |
+          mkdir -p release-artifacts
+          version="$(node -p 'require("./packages/verify/package.json").version')"
+          awk -v version="$version" '
+            /^## / {
+              if (found) exit
+              if ($2 == version) found = 1
+              next
+            }
+            found { print; if ($0 ~ /[^[:space:]]/) content = 1 }
+            END { if (!found || !content) exit 1 }
+          ' CHANGELOG.md > release-artifacts/release-notes.md
+          if [[ "$version" == *-* ]]; then
+            echo 'npm_dist_tag=next' >> "$GITHUB_OUTPUT"
+          else
+            echo 'npm_dist_tag=latest' >> "$GITHUB_OUTPUT"
+          fi
       - run: npm ci
       - run: npm run build
       - run: npm run typecheck
@@ -48,29 +78,37 @@ jobs:
           mkdir -p release-artifacts/scoped release-artifacts/alias
           npm pack --workspace ./packages/verify --pack-destination ./release-artifacts/scoped
           npm pack --workspace ./packages/revyl-verify --pack-destination ./release-artifacts/alias
+      - name: Check npm versions and archive integrity
+        id: registry
+        run: node scripts/check-published.mjs release-artifacts/scoped/*.tgz release-artifacts/alias/*.tgz
       - name: Dry-run scoped publication
-        if: steps.registry.outputs.scoped_published == 'false'
-        run: npm publish ./release-artifacts/scoped/*.tgz --dry-run --access public
+        if: github.event_name == 'workflow_dispatch' || steps.registry.outputs.scoped_published == 'false'
+        env:
+          NPM_DIST_TAG: ${{ steps.release_metadata.outputs.npm_dist_tag }}
+        run: npm publish ./release-artifacts/scoped/*.tgz --dry-run --access public --tag "$NPM_DIST_TAG"
       - name: Dry-run alias publication
-        if: steps.registry.outputs.alias_published == 'false'
-        run: npm publish ./release-artifacts/alias/*.tgz --dry-run --access public
+        if: github.event_name == 'workflow_dispatch' || steps.registry.outputs.alias_published == 'false'
+        env:
+          NPM_DIST_TAG: ${{ steps.release_metadata.outputs.npm_dist_tag }}
+        run: npm publish ./release-artifacts/alias/*.tgz --dry-run --access public --tag "$NPM_DIST_TAG"
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'push'
         with:
           name: npm-package-${{ github.sha }}
-          path: release-artifacts/**/*.tgz
+          path: release-artifacts/
           if-no-files-found: error
           retention-days: 7
 
   publish:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && (needs.validate.outputs.scoped_published == 'false' || needs.validate.outputs.alias_published == 'false') && vars.VERIFY_CI_PUBLISH_ENABLED == 'true'
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && (needs.validate.outputs.scoped_published == 'false' || needs.validate.outputs.alias_published == 'false')
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: npm
     permissions:
       contents: read
       id-token: write
+    env:
+      NPM_DIST_TAG: ${{ needs.validate.outputs.npm_dist_tag }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -79,23 +117,60 @@ jobs:
         with:
           node-version: '24'
           registry-url: https://registry.npmjs.org
-      - run: npm install --global npm@11
+          package-manager-cache: false
+      - name: Install supported npm
+        run: npm install --global npm@11
+      - name: Check npm version
+        run: npm --version
+      - name: Remove token authentication configuration
+        run: printf 'registry=https://registry.npmjs.org/\n' > "$NPM_CONFIG_USERCONFIG"
       - uses: actions/download-artifact@v4
         with:
           name: npm-package-${{ github.sha }}
           path: release-artifacts
       - run: node scripts/check-release.mjs "$GITHUB_REF_NAME"
+      - name: Recheck npm versions and archive integrity
+        id: registry
+        run: node scripts/check-published.mjs release-artifacts/scoped/*.tgz release-artifacts/alias/*.tgz
       - name: Require public source for provenance
         env:
           REPOSITORY_VISIBILITY: ${{ github.event.repository.visibility }}
         run: test "$REPOSITORY_VISIBILITY" = public
       - name: Publish scoped package with provenance
-        if: needs.validate.outputs.scoped_published == 'false'
-        run: npm publish ./release-artifacts/scoped/*.tgz --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        if: steps.registry.outputs.scoped_published == 'false'
+        run: env -u NODE_AUTH_TOKEN -u NPM_TOKEN npm publish ./release-artifacts/scoped/*.tgz --provenance --access public --tag "$NPM_DIST_TAG"
       - name: Publish alias with provenance
-        if: needs.validate.outputs.alias_published == 'false'
-        run: npm publish ./release-artifacts/alias/*.tgz --provenance --access public
+        if: steps.registry.outputs.alias_published == 'false'
+        run: env -u NODE_AUTH_TOKEN -u NPM_TOKEN npm publish ./release-artifacts/alias/*.tgz --provenance --access public --tag "$NPM_DIST_TAG"
+
+  release:
+    if: always() && github.event_name == 'push' && needs.validate.result == 'success' && (needs.publish.result == 'success' || needs.publish.result == 'skipped')
+    needs: [validate, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-package-${{ github.sha }}
+          path: release-artifacts
+      - name: Create GitHub release
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "GitHub release $GITHUB_REF_NAME already exists."
+          else
+            version="${GITHUB_REF_NAME#v}"
+            release_args=()
+            if [[ "$version" == *-* ]]; then
+              release_args+=(--prerelease)
+            fi
+            release_args+=(--notes-file release-artifacts/release-notes.md)
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --title "@revyl/verify $version" \
+              "${release_args[@]}"
+          fi
