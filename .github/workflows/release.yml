@@ -25,6 +25,7 @@ jobs:
     outputs:
       scoped_published: ${{ steps.registry.outputs.scoped_published }}
       alias_published: ${{ steps.registry.outputs.alias_published }}
+      npm_dist_tag: ${{ steps.release_metadata.outputs.npm_dist_tag }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -48,6 +49,25 @@ jobs:
         env:
           DRY_RUN: ${{ inputs.dry_run }}
         run: test "$DRY_RUN" = true
+      - name: Validate release notes and select npm dist-tag
+        id: release_metadata
+        run: |
+          mkdir -p release-artifacts
+          version="$(node -p 'require("./packages/verify/package.json").version')"
+          awk -v version="$version" '
+            /^## / {
+              if (found) exit
+              if ($2 == version) found = 1
+              next
+            }
+            found { print; if ($0 ~ /[^[:space:]]/) content = 1 }
+            END { if (!found || !content) exit 1 }
+          ' CHANGELOG.md > release-artifacts/release-notes.md
+          if [[ "$version" == *-* ]]; then
+            echo 'npm_dist_tag=next' >> "$GITHUB_OUTPUT"
+          else
+            echo 'npm_dist_tag=latest' >> "$GITHUB_OUTPUT"
+          fi
       - run: npm ci
       - run: npm run build
       - run: npm run typecheck
@@ -63,15 +83,19 @@ jobs:
         run: node scripts/check-published.mjs release-artifacts/scoped/*.tgz release-artifacts/alias/*.tgz
       - name: Dry-run scoped publication
         if: github.event_name == 'workflow_dispatch' || steps.registry.outputs.scoped_published == 'false'
-        run: npm publish ./release-artifacts/scoped/*.tgz --dry-run --access public
+        env:
+          NPM_DIST_TAG: ${{ steps.release_metadata.outputs.npm_dist_tag }}
+        run: npm publish ./release-artifacts/scoped/*.tgz --dry-run --access public --tag "$NPM_DIST_TAG"
       - name: Dry-run alias publication
         if: github.event_name == 'workflow_dispatch' || steps.registry.outputs.alias_published == 'false'
-        run: npm publish ./release-artifacts/alias/*.tgz --dry-run --access public
+        env:
+          NPM_DIST_TAG: ${{ steps.release_metadata.outputs.npm_dist_tag }}
+        run: npm publish ./release-artifacts/alias/*.tgz --dry-run --access public --tag "$NPM_DIST_TAG"
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'push'
         with:
           name: npm-package-${{ github.sha }}
-          path: release-artifacts/**/*.tgz
+          path: release-artifacts/
           if-no-files-found: error
           retention-days: 7
 
@@ -83,6 +107,8 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    env:
+      NPM_DIST_TAG: ${{ needs.validate.outputs.npm_dist_tag }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -112,10 +138,10 @@ jobs:
         run: test "$REPOSITORY_VISIBILITY" = public
       - name: Publish scoped package with provenance
         if: steps.registry.outputs.scoped_published == 'false'
-        run: env -u NODE_AUTH_TOKEN -u NPM_TOKEN npm publish ./release-artifacts/scoped/*.tgz --provenance --access public
+        run: env -u NODE_AUTH_TOKEN -u NPM_TOKEN npm publish ./release-artifacts/scoped/*.tgz --provenance --access public --tag "$NPM_DIST_TAG"
       - name: Publish alias with provenance
         if: steps.registry.outputs.alias_published == 'false'
-        run: env -u NODE_AUTH_TOKEN -u NPM_TOKEN npm publish ./release-artifacts/alias/*.tgz --provenance --access public
+        run: env -u NODE_AUTH_TOKEN -u NPM_TOKEN npm publish ./release-artifacts/alias/*.tgz --provenance --access public --tag "$NPM_DIST_TAG"
 
   release:
     if: always() && github.event_name == 'push' && needs.validate.result == 'success' && (needs.publish.result == 'success' || needs.publish.result == 'skipped')
@@ -125,10 +151,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
         with:
-          fetch-depth: 1
-          persist-credentials: false
+          name: npm-package-${{ github.sha }}
+          path: release-artifacts
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -137,20 +163,11 @@ jobs:
             echo "GitHub release $GITHUB_REF_NAME already exists."
           else
             version="${GITHUB_REF_NAME#v}"
-            awk -v version="$version" '
-              /^## / {
-                if (found) exit
-                if ($2 == version) found = 1
-                next
-              }
-              found { print; if ($0 ~ /[^[:space:]]/) content = 1 }
-              END { if (!found || !content) exit 1 }
-            ' CHANGELOG.md > release-notes.md
             release_args=()
             if [[ "$version" == *-* ]]; then
               release_args+=(--prerelease)
             fi
-            release_args+=(--notes-file release-notes.md)
+            release_args+=(--notes-file release-artifacts/release-notes.md)
             gh release create "$GITHUB_REF_NAME" \
               --repo "$GITHUB_REPOSITORY" \
               --verify-tag \

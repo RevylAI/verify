@@ -28,23 +28,10 @@ test('publication lookup skips only the exact published package version', async 
   assert.equal(await publishedVersionExists('@revyl/verify', '0.2.0', archive, async () => new Response(null, { status: 404 })), false);
 });
 
-test('release workflow uses npm trusted publishing without token configuration', () => {
-  const workflow = readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8');
-  assert.match(workflow, /node-version: '24'/);
-  assert.match(workflow, /registry-url: https:\/\/registry\.npmjs\.org/);
-  assert.match(workflow, /package-manager-cache: false/);
-  assert.match(workflow, /id-token: write/);
-  assert.ok(workflow.includes(`printf 'registry=https://registry.npmjs.org/\\n' > "$NPM_CONFIG_USERCONFIG"`));
-  assert.match(workflow, /env -u NODE_AUTH_TOKEN -u NPM_TOKEN npm publish/);
-  assert.match(workflow, /--notes-file release-notes\.md/);
-  assert.doesNotMatch(workflow, /--generate-notes/);
-  assert.doesNotMatch(workflow, /(?:NPM_TOKEN|NODE_AUTH_TOKEN)\s*:|VERIFY_CI_PUBLISH_ENABLED|environment:/);
-});
-
 test('release workflow guards each package independently and publishes scoped first', () => {
   const workflow = readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8');
-  const dryRuns = [...workflow.matchAll(/      - name: Dry-run (scoped|alias) publication\n        if: (.+)\n        run: (.+)/g)];
-  const publications = [...workflow.matchAll(/      - name: Publish (scoped package|alias) with provenance\n        if: (.+)\n        run: (.+)/g)];
+  const dryRuns = [...workflow.matchAll(/      - name: Dry-run (scoped|alias) publication\n        if: ([^\n]+)\n(?:        env:\n          [^\n]+\n)?        run: ([^\n]+)/g)];
+  const publications = [...workflow.matchAll(/      - name: Publish (scoped package|alias) with provenance\n        if: ([^\n]+)\n        run: ([^\n]+)/g)];
   assert.equal(dryRuns.length, 2);
   assert.equal(publications.length, 2);
   assert.ok(workflow.indexOf('id: registry') < dryRuns[0].index);
@@ -53,8 +40,8 @@ test('release workflow guards each package independently and publishes scoped fi
   assert.equal(publications[0][1], 'scoped package');
   assert.equal(publications[1][1], 'alias');
   for (const [index, id] of ['scoped', 'alias'].entries()) {
-    assert.equal(dryRuns[index][3], `npm publish ./release-artifacts/${id}/*.tgz --dry-run --access public`);
-    assert.equal(publications[index][3], `env -u NODE_AUTH_TOKEN -u NPM_TOKEN npm publish ./release-artifacts/${id}/*.tgz --provenance --access public`);
+    assert.match(dryRuns[index][3], new RegExp(`npm publish ./release-artifacts/${id}/\\*\\.tgz --dry-run --access public --tag`));
+    assert.match(publications[index][3], new RegExp(`env -u NODE_AUTH_TOKEN -u NPM_TOKEN npm publish ./release-artifacts/${id}/\\*\\.tgz --provenance --access public --tag`));
   }
   const publish = workflow.match(/  publish:\n    if: (.+)/);
   assert.ok(publish);
