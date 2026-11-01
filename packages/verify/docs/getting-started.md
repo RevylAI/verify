@@ -22,7 +22,7 @@ try {
 }
 ```
 
-On the first interactive run, Verify opens the Revyl browser approval flow once and saves the shared CLI login. It prints a live session link, then ordered step results. In CI, it never prompts or opens a browser; set `REVYL_API_KEY` as a secret.
+On the first interactive run, Verify opens the Revyl browser approval flow once and saves the shared CLI login. It prints a live session link, then ordered step results. In CI, it never prompts or opens a browser; set `REVYL_API_KEY` as a secret. Python and Go use an existing CLI login or API key; their SDKs do not open the browser themselves.
 
 ## Scaffold a config (optional)
 
