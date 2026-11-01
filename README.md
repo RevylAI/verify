@@ -4,12 +4,12 @@ Verify runs end-to-end checks in a real browser, iOS simulator, or Android emula
 
 Every run gives you a link to watch the target. The session keeps its report and available recording, and the SDK keeps instruction and validation results in order. A failed check leaves evidence you can inspect.
 
-## A small check
+## Install and run
 
 ```ts
 import { open } from '@revyl/verify';
 
-const session = await open('ios');
+const session = await open({ platform: 'ios', app: { appId: 'YOUR_REVYL_APP_ID' } });
 try {
   await session.instruction('Open General, then About');
   await session.validation('The screen shows the operating system version');
@@ -19,7 +19,14 @@ try {
 }
 ```
 
-When it runs, Verify prints a live session URL and progress like this:
+Install the package, then run the script. On the first interactive run, Verify opens the Revyl browser approval flow once and saves the login in `~/.revyl/credentials.json` for the CLI and SDK to share:
+
+```bash
+npm install @revyl/verify
+node verify/check.ts
+```
+
+Verify prints a live session URL and progress like this:
 
 ```text
 [verify] ios: starting ios session https://app.revyl.ai/sessions/…
@@ -29,17 +36,19 @@ When it runs, Verify prints a live session URL and progress like this:
 [verify] ios: closed
 ```
 
-The URL is live during the run and keeps the report and available recording after it closes. A failed instruction or validation throws a typed error and includes the same URL.
+The URL is live during the run and keeps the report and available recording after it closes. A failed instruction or validation throws a typed error and includes the same URL. In CI, Verify never opens a browser: provide `REVYL_API_KEY` as a secret.
 
-## Setup
+For Web, use `open({ platform: 'web', app: { appId, url } })`; for a computer, use `open({ platform: 'mac' })`.
 
-Run this from your project directory:
+## Scaffold a config (optional)
+
+Use `init` when you want named targets in `verify.config.ts` and a generated `verify/example.ts` script:
 
 ```bash
 npx @revyl/verify init
 ```
 
-`init` detects your package manager, asks before adding `@revyl/verify` as a dev dependency, creates `verify.config.ts` and `verify/example.ts`, signs in through the same browser approval flow as the Revyl CLI when needed, and prints the command that runs the example. Use `--yes` to accept installation without a prompt, or `--no-install` when Verify is already installed. In CI, it never prompts or opens a browser; provide `REVYL_API_KEY` as a secret instead.
+`init` detects your package manager, asks before adding `@revyl/verify` as a dev dependency, creates `verify.config.ts` and `verify/example.ts`, and prints the command that runs the example. Use `--yes` to accept installation without a prompt, or `--no-install` when Verify is already installed. It is optional; installing the package is enough to use inline targets.
 
 The generated project starts with a named target. Use `--platform web`, `--platform ios`, `--platform android`, or `--platform mac` when you want to skip the platform question. Web and mobile targets need a Revyl app id; a Mac target does not. The generated config is ordinary TypeScript, so edit it when the example needs a pinned build, a public Web URL, or a different target.
 
@@ -63,12 +72,11 @@ For a normal GitHub Actions job, install from the lockfile with `npm ci` and pas
 
 On a `revyl-macos` job, `currentComputer()` attaches to the runner's existing computer without taking ownership. The runner releases the computer; closing the Verify attachment still cleans up hosted children. See the [CI guide](packages/verify/docs/ci.md) and [computer API](packages/verify/docs/api.md#inside-a-revyl-macos-github-actions-job).
 
-## Manual setup
+## Reference authentication
 
 Use manual setup when you need to control the package manager or keep the generated files out of the project:
 
 ```bash
-npm install --save-dev @revyl/verify
 revyl auth login
 npx @revyl/verify whoami
 ```

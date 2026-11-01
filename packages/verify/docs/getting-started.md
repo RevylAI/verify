@@ -2,13 +2,31 @@
 
 Verify needs Node.js 22.18 or later, which runs TypeScript files directly, and a Revyl account.
 
-## Setup with one command
+## Install and run
 
 ```bash
-npx @revyl/verify init
+npm install @revyl/verify
 ```
 
-`init` asks what you want to open (web, iOS, Android, or Mac), adds Verify to the project with the package manager selected by its lockfile, signs in through the Revyl CLI's browser approval flow when needed, and adds `.verify/` to `.gitignore`:
+Use an inline target when you do not need a named config:
+
+```ts
+import { open } from '@revyl/verify';
+
+const session = await open({ platform: 'ios', app: { appId: 'YOUR_REVYL_APP_ID' } });
+try {
+    await session.instruction('Open the main navigation');
+    await session.validation('The main navigation is visible');
+} finally {
+    await session.close();
+}
+```
+
+On the first interactive run, Verify opens the Revyl browser approval flow once and saves the shared CLI login. It prints a live session link, then ordered step results. In CI, it never prompts or opens a browser; set `REVYL_API_KEY` as a secret.
+
+## Scaffold a config (optional)
+
+Use `init` when you want named targets in `verify.config.ts` and a generated example script. It adds Verify with the package manager selected by its lockfile, asks what you want to open, and adds `.verify/` to `.gitignore`:
 
 - `verify.config.ts`: the targets `open()` can start, by name
 - `verify/example.ts`: a script that opens the target, runs steps and takes a screenshot (web/mobile) or checks commands and files (Mac), and closes

@@ -13,7 +13,7 @@ const AUTH_PATH = '/api/v1/entity/users/cli-device-authorizations';
 export async function signIn(options: { force?: boolean } = {}): Promise<Credentials> {
   const existing = options.force ? undefined : await resolveCredentials();
   if (existing) return existing;
-  if (!process.stdin.isTTY || process.env.CI) throw new VerifyError('AUTH_MISSING', `${missingCredentialsMessage()} Set the REVYL_API_KEY secret for non-interactive runs.`);
+  if (!process.stdin.isTTY || !process.stderr.isTTY || process.env.CI) throw new VerifyError('AUTH_MISSING', `${missingCredentialsMessage()} Set the REVYL_API_KEY secret for non-interactive runs.`);
   const controller = new AbortController();
   const cancel = () => controller.abort();
   process.once('SIGINT', cancel);
