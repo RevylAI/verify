@@ -29,7 +29,7 @@ const linux = await open({ platform: 'linux' });                    // same comp
 
 `currentComputer(options?)` attaches to `REVYL_COMPUTER_ID` using normal credential resolution. It is non-owning by default: close cleans up hosted children, while the job's owner releases the computer. It never creates a computer and throws `COMPUTER_ID_MISSING` when the ID is unset or blank. Invalid IDs fail with `INVALID_ARGUMENT`.
 
-This helper requires a release containing it and a runner configured to inject `REVYL_COMPUTER_ID` and a short-lived `REVYL_API_KEY`. It is not in the published TypeScript 0.2.0 package. A workflow can supply its own `REVYL_API_KEY` instead. After installing the project dependencies and selecting Node.js ≥22.18, add this step to a job with `runs-on: revyl-macos`:
+This helper is included in the TypeScript 0.3.0 release and requires a runner configured to inject `REVYL_COMPUTER_ID` and a short-lived `REVYL_API_KEY`. A workflow can supply its own `REVYL_API_KEY` instead. After installing the project dependencies and selecting Node.js ≥22.18, add this step to a job with `runs-on: revyl-macos`:
 
 ```yaml
 - name: Run Verify
@@ -49,7 +49,7 @@ The helper accepts the same options as `attach`, including explicit `backendUrl`
 
 ## attach(computerId, options?)
 
-The attachment, hosted-child and navigation APIs below are new in the unreleased source; they are not in the published TypeScript 0.2.0 package.
+The attachment, hosted-child and navigation APIs below are included in the TypeScript 0.3.0 release.
 
 `open()` and `computer.open()` return the extended `OpenedSession` interface. The original `Session` interface keeps its existing required members, so applications implementing or mocking it do not need to add the new methods. Use `OpenedSession` when explicitly annotating a value that calls `report`, `navigate` or `open`.
 

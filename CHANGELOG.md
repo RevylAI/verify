@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-10-31)
 
 - Sign in automatically on the first interactive `open()`, `attach()`, or `currentComputer()` call using the Revyl CLI browser-approval flow; CI remains key-only and browser-free.
 - Make `npx @revyl/verify init` install Verify, scaffold a project, sign in through the Revyl CLI browser approval flow when needed, and print the example command. Non-interactive runs use `REVYL_API_KEY` without prompting or opening a browser.
@@ -9,7 +9,7 @@
 
 - Removed environment overrides.
 
-- **Breaking wire change:** encode computer-operation arguments as `argv_b64` and file paths as `path_b64` using padded URL-safe base64 of UTF-8, without changing public APIs, argument boundaries, or existing stdin/data fields. These SDKs are incompatible with the previous backend contract. Deploy the encoded-only backend before publishing or upgrading to these SDKs; no plaintext fallback or automatic replay is provided.
+- **Breaking wire change:** encode computer-operation arguments as `argv_b64` and file paths as `path_b64` using padded URL-safe base64 of UTF-8, without changing public APIs, argument boundaries, or existing stdin/data fields. Verify 0.3.0 requires the encoded-only backend, which is already live on revyl.ai; no plaintext fallback or automatic replay is provided.
 
 - Classify HTTP 403 responses with a `text/html` content type and nonempty `cf-ray` as `EDGE_BLOCKED` across TypeScript, Go and Python, unless the body is syntactically valid JSON. Preserve origin authentication errors, omit response content from edge-block messages, and do not retry blocked requests.
 
