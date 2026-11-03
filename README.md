@@ -10,12 +10,12 @@ Every run gives you a link to watch the target. The session keeps its report and
 npm install @revyl/verify
 ```
 
-Save this as `verify/check.ts`:
+Save this as `verify/check.mts`:
 
 ```ts
 import { open } from '@revyl/verify';
 
-const session = await open({ platform: 'ios', app: { appId: 'YOUR_REVYL_APP_ID' } });
+const session = await open({ platform: 'ios', app: { bundleId: 'com.apple.Preferences' } });
 try {
   await session.instruction('Open General, then About');
   await session.validation('The screen shows the operating system version');
@@ -25,10 +25,12 @@ try {
 }
 ```
 
+Use `appId` when you want to target your own uploaded app.
+
 Run the script:
 
 ```bash
-node verify/check.ts
+node verify/check.mts
 ```
 
 On the first interactive run, Verify opens the Revyl browser approval flow once and saves the login in `~/.revyl/credentials.json` for the CLI and SDK to share.
@@ -45,7 +47,7 @@ Verify prints a live session URL and progress like this:
 
 The URL is live during the run and keeps the report and available recording after it closes. A failed instruction or validation throws a typed error and includes the same URL. In CI, Verify never opens a browser: provide `REVYL_API_KEY` as a secret.
 
-For Web, use `open({ platform: 'web', app: { appId, url } })`; for a computer, use `open({ platform: 'mac' })`.
+For Web, use `open({ platform: 'web', app: { appId, url } })`; for a computer, use `open({ platform: 'mac' })`. Web targets need Web enabled for your organization; new self-serve organizations don't have it yet. `revyl app create --platform web` reports `Web is not enabled for this organization`; contact Revyl to enable it.
 
 ## Scaffold a config (optional)
 
@@ -126,6 +128,8 @@ return err
 Go calls return errors instead of throwing. The [Go reference](https://github.com/RevylAI/verify/tree/go/v0.2.0/go) covers context deadlines, screenshots, computer operations, and hosted sessions.
 
 ## Python
+
+The Python SDK isn't published to PyPI yet; install it from source using the instructions in the [Python SDK guide](python/README.md).
 
 ```python
 from revyl_verify import Target, open

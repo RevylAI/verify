@@ -2,6 +2,8 @@
 
 A web target opens your app in a Revyl cloud browser.
 
+Web targets need Web enabled for your organization; new self-serve organizations don't have it yet. `revyl app create --platform web` reports `Web is not enabled for this organization`; contact Revyl to enable it.
+
 ```ts
 {
   platform: 'web',
