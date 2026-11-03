@@ -2,7 +2,7 @@
 
 ## 0.3.1 (2026-11-03)
 
-- Docs: runnable quickstart uses the built-in iOS Settings app, explains how to target an uploaded app with `appId`, and clarifies that the Python SDK is not published to PyPI yet.
+- Docs: runnable `.mts` quickstart uses the built-in iOS Settings app, explains how to target an uploaded app with `appId`, clarifies that the Python SDK is not published to PyPI yet, and documents Web availability requirements.
 
 ## 0.3.0 (2026-10-31)
 
