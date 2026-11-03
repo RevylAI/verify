@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 (2026-11-03)
+
+- Docs: runnable quickstart uses the built-in iOS Settings app, explains how to target an uploaded app with `appId`, and clarifies that the Python SDK is not published to PyPI yet.
+
 ## 0.3.0 (2026-10-31)
 
 - Sign in automatically on the first interactive `open()`, `attach()`, or `currentComputer()` call using the Revyl CLI browser-approval flow; CI remains key-only and browser-free.

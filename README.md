@@ -15,7 +15,7 @@ Save this as `verify/check.ts`:
 ```ts
 import { open } from '@revyl/verify';
 
-const session = await open({ platform: 'ios', app: { appId: 'YOUR_REVYL_APP_ID' } });
+const session = await open({ platform: 'ios', app: { bundleId: 'com.apple.Preferences' } });
 try {
   await session.instruction('Open General, then About');
   await session.validation('The screen shows the operating system version');
@@ -24,6 +24,8 @@ try {
   await session.close();
 }
 ```
+
+Use `appId` when you want to target your own uploaded app.
 
 Run the script:
 
@@ -126,6 +128,8 @@ return err
 Go calls return errors instead of throwing. The [Go reference](https://github.com/RevylAI/verify/tree/go/v0.2.0/go) covers context deadlines, screenshots, computer operations, and hosted sessions.
 
 ## Python
+
+The Python SDK isn't published to PyPI yet; install it from source using the instructions in the [Python SDK guide](python/README.md).
 
 ```python
 from revyl_verify import Target, open

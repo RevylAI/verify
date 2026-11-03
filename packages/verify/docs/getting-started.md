@@ -13,14 +13,16 @@ Use an inline target when you do not need a named config:
 ```ts
 import { open } from '@revyl/verify';
 
-const session = await open({ platform: 'ios', app: { appId: 'YOUR_REVYL_APP_ID' } });
+const session = await open({ platform: 'ios', app: { bundleId: 'com.apple.Preferences' } });
 try {
-    await session.instruction('Open the main navigation');
-    await session.validation('The main navigation is visible');
+    await session.instruction('Open General, then About');
+    await session.validation('The screen shows the operating system version');
 } finally {
     await session.close();
 }
 ```
+
+Use `appId` when you want to target your own uploaded app.
 
 On the first interactive run, Verify opens the Revyl browser approval flow once and saves the shared CLI login. It prints a live session link, then ordered step results. In CI, it never prompts or opens a browser; set `REVYL_API_KEY` as a secret. Python and Go use an existing CLI login or API key; their SDKs do not open the browser themselves.
 
