@@ -1,5 +1,7 @@
 # Verify
 
+![Terminal output from one Verify script beside a Mac computer's command result and the screens it reached in a cloud browser, an Android emulator, and an iOS simulator](docs/images/verify-hero.webp)
+
 Verify runs end-to-end checks in a real browser, iOS simulator, or Android emulator on Revyl. You describe what the agent should do and what must be true afterward, instead of maintaining selectors and coordinates that break when a screen changes. Use it from a script, a coding agent, or the test runner you already have. Mac and Linux computers are also available for commands, files, and screenshots, not natural-language steps.
 
 Every run gives you a link to watch the target. The session keeps its report and available recording, and the SDK keeps instruction and validation results in order. A failed check leaves evidence you can inspect.
@@ -45,7 +47,11 @@ Verify prints a live session URL and progress like this:
 [verify] ios: closed
 ```
 
+![Recording of the quickstart run at 4× speed: the terminal prints each step while the simulator opens General, then About](docs/images/verify-run.gif)
+
 The URL is live during the run and keeps the report and available recording after it closes. A failed instruction or validation throws a typed error and includes the same URL. In CI, Verify never opens a browser: provide `REVYL_API_KEY` as a secret.
+
+![The Revyl session report for the run, showing the device recording, the Launch, Instruction, and Validation steps, and the validation's reasoning](docs/images/verify-session-report.webp)
 
 For Web, use `open({ platform: 'web', app: { appId, url } })`; for a computer, use `open({ platform: 'mac' })`. Web targets need Web enabled for your organization; new self-serve organizations don't have it yet. `revyl app create --platform web` reports `Web is not enabled for this organization`; contact Revyl to enable it.
 
