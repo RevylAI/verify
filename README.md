@@ -1,6 +1,6 @@
 # Verify
 
-![Terminal output from node verify/check.mts beside the iOS Settings About screen the run opened on a Revyl simulator](docs/images/verify-hero.webp)
+![Terminal output from one Verify script beside the screens it reached on a Mac computer, a cloud browser, an Android emulator, and an iOS simulator](docs/images/verify-hero.webp)
 
 Verify runs end-to-end checks in a real browser, iOS simulator, or Android emulator on Revyl. You describe what the agent should do and what must be true afterward, instead of maintaining selectors and coordinates that break when a screen changes. Use it from a script, a coding agent, or the test runner you already have. Mac and Linux computers are also available for commands, files, and screenshots, not natural-language steps.
 
