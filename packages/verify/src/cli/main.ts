@@ -177,10 +177,17 @@ function uploadSummary(result: UploadBuildResult): string {
     identity
       ? `Pull request identity: ${identity.repository}@${identity.commit}${identity.pr ? ` (PR #${identity.pr})` : ''}, from ${identity.ciSystem}.`
       : 'No pull request identity was detected, so no review can match this build. On a runner other than GitHub Actions, pass --repo and --commit.',
-    ...(identity ? ['Revyl does not report the review match yet; check the pull request for its Revyl status.'] : []),
+    ...(identity ? [reviewLine(result.reviewCorrelation)] : []),
     ...result.warnings.map((warning) => `Warning: ${warning}`),
     '',
   ].join('\n');
+}
+
+function reviewLine(correlation: UploadBuildResult['reviewCorrelation']): string {
+  if (correlation.status === 'unknown') return 'Revyl did not report the review match; check the pull request for its Revyl status.';
+  const targets = correlation.matchedTargetCount === undefined ? '' : ` (${correlation.matchedTargetCount} matched review target${correlation.matchedTargetCount === 1 ? '' : 's'})`;
+  const later = correlation.status === 'not_owned' || correlation.status === 'unmatched' ? ' It can still attach once the review picks its targets for this commit.' : '';
+  return `Review match: ${correlation.status}${targets}.${later}`;
 }
 
 async function whoamiCommand(): Promise<number> {

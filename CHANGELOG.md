@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Add `uploadBuild()` and `npx @revyl/verify upload` to upload a CI build (`.apk`, `.app`, or `.zip`) with the pull request identity Revyl uses for Proof of Changes, detected on GitHub Actions or given with `--repo` and `--commit`. Errors are typed: `ARTIFACT_REJECTED`, `VERSION_EXISTS`, and `UPLOAD_FAILED` are new codes. `reviewCorrelation.status` is `unknown` until Revyl reports the review match.
+- Add `uploadBuild()` and `npx @revyl/verify upload` to upload a CI build (`.apk`, `.app`, or `.zip`) with the pull request identity Revyl uses for Proof of Changes, detected on GitHub Actions or given with `--repo` and `--commit`. Errors are typed: `ARTIFACT_REJECTED`, `VERSION_EXISTS`, and `UPLOAD_FAILED` are new codes. `reviewCorrelation` carries Revyl's review match: `status` (`associated`, `not_owned`, `ambiguous_review`, `stale_review`, `closed_review`, `unmatched`, `no_identity`, or `unknown` when Revyl doesn't report it), `associated`, and `matchedTargetCount`. Registering the build is retried on 5xx, 429, and network errors like `revyl build upload`.
 
 ## 0.3.1 (2026-11-03)
 
