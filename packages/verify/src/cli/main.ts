@@ -8,7 +8,7 @@ import { VerifyError, errorMessage, isVerifyError } from '../errors.js';
 import { PACKAGE_NAME, VERSION } from '../version.js';
 import { initProject, validateInitAnswers, type InitAnswers } from './init.js';
 import { uploadBuild, type UploadBuildResult } from '../upload.js';
-import { proof, type ProofEnvironmentValue, type ProofHarness, type ProofRun } from '../proof.js';
+import { proof, type ProofEnvironmentValue, type ProofHarness, type ProofRun, type ProofTarget } from '../proof.js';
 import { installVerify, packageHasVerify } from './install.js';
 import { signIn } from './login.js';
 
@@ -20,9 +20,10 @@ Usage
   npx ${PACKAGE_NAME} upload <artifact> --app-id <id> [--platform ios|android] [--version <label>] [--repo <owner/name> --commit <sha> [--pr <number>]] [--json]
       Upload a CI build (.apk, .app, or .zip) with its pull request identity, detected on GitHub Actions
   npx ${PACKAGE_NAME} proof <artifact> | --url <https-url> --app-id <id> [--guidance <text>] [--harness revyl|cursor|capy|devin] [--env NAME[=value]]... [--env-secret NAME=<launch variable>]... [--timeout <minutes>] [--no-wait] [--json]
-      Upload a pull request's build, or register its Web deployment URL, and run Revyl Proof of Changes on it, on GitHub Actions. Exits 1 when the verdict is failed.
-      A --url must stay up until the run settles; --env and --env-secret apply only to mobile builds
-      --env values are stored with the run and may appear in reports; pass secrets with --env-secret, naming an organization launch variable
+  npx ${PACKAGE_NAME} proof --target <app-id>=<artifact-or-https-url>... [same options]
+      Upload each pull request build or register its Web URL, and run Revyl Proof of Changes on it, on GitHub Actions.
+      Up to 3 targets, one per platform; --env and --env-secret apply to every mobile target. A URL must stay up until its run settles.
+      Exits 1 when the overall verdict is failed: failed if any run failed, else inconclusive if any is, else passed
   npx ${PACKAGE_NAME} whoami
       Check which Revyl account your credentials belong to
 
@@ -204,6 +205,7 @@ async function proofCommand(args: string[]): Promise<number> {
     options: {
       'app-id': { type: 'string' },
       url: { type: 'string' },
+      target: { type: 'string', multiple: true },
       guidance: { type: 'string' },
       harness: { type: 'string' },
       env: { type: 'string', multiple: true },
@@ -214,9 +216,10 @@ async function proofCommand(args: string[]): Promise<number> {
     },
   });
   const [build, ...extra] = positionals;
-  if (extra.length > 0 || (build === undefined) === (values.url === undefined)) throw new VerifyError('INVALID_ARGUMENT', 'verify proof takes one artifact path or --url <https-url>, not both.');
-  const appId = values['app-id'] ?? process.env.REVYL_APP_ID?.trim();
-  if (!appId) throw new VerifyError('INVALID_ARGUMENT', 'Pass --app-id (or set REVYL_APP_ID) with the Revyl app this build belongs to.');
+  const single = build !== undefined || values.url !== undefined || values['app-id'] !== undefined;
+  if (extra.length > 0 || (values.target !== undefined && single) || (build !== undefined && values.url !== undefined)) {
+    throw new VerifyError('INVALID_ARGUMENT', 'verify proof takes one artifact path or --url with --app-id, or repeated --target <app-id>=<artifact-or-https-url>.');
+  }
   if (values.timeout !== undefined && !/^[1-9][0-9]*$/.test(values.timeout)) throw new VerifyError('INVALID_ARGUMENT', '--timeout must be a positive number of minutes.');
   const environment: Record<string, ProofEnvironmentValue> = {};
   for (const entry of values.env ?? []) {
@@ -231,27 +234,42 @@ async function proofCommand(args: string[]): Promise<number> {
     if (separator <= 0 || separator === entry.length - 1) throw new VerifyError('INVALID_ARGUMENT', '--env-secret takes NAME=<launch variable>, naming an organization launch variable that holds the secret.');
     environment[entry.slice(0, separator)] = { secretRef: entry.slice(separator + 1) };
   }
-  const wait = !values['no-wait'];
-  const settings = {
-    appId,
+  const hasEnvironment = Object.keys(environment).length > 0;
+  const target = (appId: string, artifactOrUrl: string): ProofTarget =>
+    artifactOrUrl.startsWith('https://') || artifactOrUrl.startsWith('http://')
+      ? { appId, url: artifactOrUrl }
+      : { appId, build: artifactOrUrl, ...(hasEnvironment ? { environment } : {}) };
+  let targets: ProofTarget[];
+  if (values.target !== undefined) {
+    targets = values.target.map((entry) => {
+      const separator = entry.indexOf('=');
+      if (separator <= 0 || separator === entry.length - 1) throw new VerifyError('INVALID_ARGUMENT', '--target takes <app-id>=<artifact-or-https-url>.');
+      return target(entry.slice(0, separator), entry.slice(separator + 1));
+    });
+  } else {
+    const appId = values['app-id'] ?? process.env.REVYL_APP_ID?.trim();
+    if (!appId) throw new VerifyError('INVALID_ARGUMENT', 'Pass --app-id (or set REVYL_APP_ID) with the Revyl app this build belongs to.');
+    if (build === undefined && values.url === undefined) throw new VerifyError('INVALID_ARGUMENT', 'verify proof takes one artifact path or --url with --app-id, or repeated --target <app-id>=<artifact-or-https-url>.');
+    targets = [values.url !== undefined ? { appId, url: values.url } : target(appId, build!)];
+  }
+  if (hasEnvironment && targets.every((entry) => entry.url !== undefined)) throw new VerifyError('INVALID_ARGUMENT', '--env and --env-secret apply only to mobile builds; a URL target takes no launch variables.');
+  const run = await proof({
+    targets,
     ...(values.guidance !== undefined ? { guidance: values.guidance } : {}),
     ...(values.harness !== undefined ? { harness: values.harness as ProofHarness } : {}),
     ...(values.timeout !== undefined ? { timeoutMs: Number(values.timeout) * 60_000 } : {}),
-    wait,
-  };
-  const hasEnvironment = Object.keys(environment).length > 0;
-  if (values.url !== undefined && hasEnvironment) throw new VerifyError('INVALID_ARGUMENT', '--env and --env-secret apply only to mobile builds; a URL build takes no launch variables.');
-  const run = values.url !== undefined
-    ? await proof({ ...settings, url: values.url })
-    : await proof({ ...settings, build: build!, ...(hasEnvironment ? { environment } : {}) });
+    wait: !values['no-wait'],
+  });
   process.stdout.write(values.json ? `${JSON.stringify(run, null, 2)}\n` : proofSummary(run));
   return run.verdict === 'failed' ? 1 : 0;
 }
 
 function proofSummary(run: ProofRun): string {
-  const subject = `Proof of Changes run ${run.id} for ${run.pullRequest.repository}#${run.pullRequest.number} (build ${run.build.buildId})`;
-  const outcome = run.verdict ? `${subject}: ${run.label ?? run.verdict}.` : `Started ${subject}.`;
-  return [outcome, ...(run.reportUrl ? [`Report: ${run.reportUrl}`] : []), ...(run.reviewUrl ? [`Review: ${run.reviewUrl}`] : []), ...('warnings' in run.build ? run.build.warnings : []).map((warning) => `Warning: ${warning}`), ''].join('\n');
+  const pullRequest = `${run.pullRequest.repository}#${run.pullRequest.number}`;
+  const lines = run.runs.map((entry) => `  ${entry.platform ?? entry.build.platform} run ${entry.id} (build ${entry.build.buildId}): ${entry.verdict ? (entry.label ?? entry.verdict) : entry.status}`);
+  const warnings = run.runs.flatMap((entry) => ('warnings' in entry.build ? entry.build.warnings : [])).map((warning) => `Warning: ${warning}`);
+  const outcome = run.verdict ? `Proof of Changes for ${pullRequest}: ${run.label ?? run.verdict}.` : `Started Proof of Changes for ${pullRequest}.`;
+  return [outcome, ...lines, ...(run.reportUrl ? [`Report: ${run.reportUrl}`] : []), ...warnings, ''].join('\n');
 }
 
 async function whoamiCommand(): Promise<number> {

@@ -18,17 +18,24 @@ export interface PullRequestContext {
 
 export type ProofEnvironmentValue = string | { secretRef: string };
 
-export interface CreateProofRunRequest {
+export interface ProofRunTarget {
   appId: string;
   buildId: string;
+  environment?: Record<string, ProofEnvironmentValue>;
+}
+
+export interface CreateProofRunsRequest {
   pullRequest: PullRequestContext;
+  targets: ProofRunTarget[];
   harness: ProofHarness;
   guidance?: string;
-  environment?: Record<string, ProofEnvironmentValue>;
 }
 
 export interface ProofRunState {
   id: string;
+  /** Known from the create response; a GET may not repeat them. */
+  appId?: string;
+  platform?: string;
   status: string;
   verdict?: string;
   label?: string;
@@ -56,12 +63,16 @@ const REFUSALS: Record<string, VerifyErrorCode> = {
   url_unreachable: 'PREVIEW_UNREACHABLE',
 };
 
-export async function createProofRun(client: RevylClient, request: CreateProofRunRequest, signal?: AbortSignal): Promise<ProofRunState> {
+/** Starts one run per target. Revyl returns the existing runs when the same target set was already started at this head. */
+export async function createProofRuns(client: RevylClient, request: CreateProofRunsRequest, signal?: AbortSignal): Promise<ProofRunState[]> {
   const { pullRequest } = request;
   const response = await client.send('POST', PROOF_RUNS_PATH, {
     body: {
-      app_id: request.appId,
-      build_id: request.buildId,
+      targets: request.targets.map((target) => ({
+        app_id: target.appId,
+        build_id: target.buildId,
+        ...(target.environment !== undefined ? { environment: wireEnvironment(target.environment) } : {}),
+      })),
       scm: {
         provider: pullRequest.provider,
         repo: pullRequest.repository,
@@ -72,14 +83,18 @@ export async function createProofRun(client: RevylClient, request: CreateProofRu
       settings: {
         harness: request.harness,
         ...(request.guidance !== undefined ? { guidance: request.guidance } : {}),
-        ...(request.environment !== undefined ? { environment: wireEnvironment(request.environment) } : {}),
       },
     },
     timeoutMs: CREATE_TIMEOUT_MS,
     retry: false,
     signal,
   });
-  return proofRunState(response, 'POST', PROOF_RUNS_PATH);
+  if (response.status < 200 || response.status >= 300) throw proofRunError(response, 'POST', PROOF_RUNS_PATH);
+  const wire = parseJson<{ runs?: unknown }>(response, `POST ${PROOF_RUNS_PATH}`);
+  if (!Array.isArray(wire.runs) || wire.runs.length !== request.targets.length) {
+    throw new VerifyError('API_ERROR', `Revyl answered POST ${PROOF_RUNS_PATH} without one run per target.`, { httpStatus: response.status });
+  }
+  return wire.runs.map((run) => wireState(run, response.status, `POST ${PROOF_RUNS_PATH}`));
 }
 
 export async function getProofRun(client: RevylClient, id: string, signal?: AbortSignal): Promise<ProofRunState> {
@@ -100,13 +115,19 @@ function wireEnvironment(environment: Record<string, ProofEnvironmentValue>): Re
 
 function proofRunState(response: RawResponse, method: string, path: string, knownId?: string): ProofRunState {
   if (response.status < 200 || response.status >= 300) throw proofRunError(response, method, path);
-  const wire = parseJson<Record<string, unknown>>(response, `${method} ${path}`);
+  return wireState(parseJson<unknown>(response, `${method} ${path}`), response.status, `${method} ${path}`, knownId);
+}
+
+function wireState(value: unknown, httpStatus: number, what: string, knownId?: string): ProofRunState {
+  const wire = typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
   const id = typeof wire.proof_run_id === 'string' && wire.proof_run_id !== '' ? wire.proof_run_id : knownId;
   if (id === undefined || typeof wire.status !== 'string') {
-    throw new VerifyError('API_ERROR', `Revyl returned a proof run to ${method} ${path} without an id and status.`, { httpStatus: response.status });
+    throw new VerifyError('API_ERROR', `Revyl returned a proof run to ${what} without an id and status.`, { httpStatus });
   }
   const text = (key: string): string | undefined => (typeof wire[key] === 'string' && wire[key] !== '' ? (wire[key] as string) : undefined);
   const fields: Array<[keyof ProofRunState, string | undefined]> = [
+    ['appId', text('app_id')],
+    ['platform', text('platform')],
     ['verdict', text('verdict')],
     ['label', text('display_status_label')],
     ['reportUrl', text('report_url')],
