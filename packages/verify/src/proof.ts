@@ -4,14 +4,12 @@ import { cancelProofRun, createProofRun, getProofRun, type ProofEnvironmentValue
 import { missingCredentialsMessage, resolveCredentials } from './auth.js';
 import { trackSession, untrackSession } from './cleanup.js';
 import { VerifyError, errorMessage } from './errors.js';
-import { detectScmIdentity, uploadBuild, type UploadBuildResult } from './upload.js';
+import { detectScmIdentity, registerUrlBuild, uploadBuild, type UploadBuildResult, type UrlBuildResult } from './upload.js';
 
 export type { ProofEnvironmentValue, ProofHarness, PullRequestContext };
 
-export interface ProofOptions {
-  /** The CI build to prove: a debug `.apk`, a simulator `.app` bundle, or a `.zip` holding one. */
-  build: string;
-  /** The Revyl app (UUID) the build belongs to. */
+interface ProofSettings {
+  /** The Revyl app (UUID): a mobile app for `build`, a Web app for `url`. */
   appId: string;
   /** What the agent should focus on. */
   guidance?: string;
@@ -35,6 +33,25 @@ export interface ProofOptions {
   signal?: AbortSignal;
 }
 
+export type ProofOptions =
+  | (ProofSettings & {
+      /** The CI build to prove: a debug `.apk`, a simulator `.app` bundle, or a `.zip` holding one. */
+      build: string;
+      url?: never;
+    })
+  | (Omit<ProofSettings, 'environment' | 'version'> & {
+      /**
+       * A deployment to prove in a cloud browser: public HTTPS on port 443, that loads signed in or needs no sign-in
+       * (URL builds take no headers or basic auth), where any HTTP status of 400 or above fails the page. It must stay
+       * up from the call until the run settles, which can take minutes; with `wait: false` keeping it up is yours.
+       * The same build at the same head commit returns the earlier run, so a stable hostname reuses it.
+       */
+      url: string;
+      build?: never;
+      environment?: never;
+      version?: never;
+    });
+
 export interface ProofRun {
   id: string;
   /** Revyl's run status, as reported. */
@@ -50,7 +67,7 @@ export interface ProofRun {
   /** Set once the run is over. */
   settledAt?: string;
   pullRequest: PullRequestContext;
-  build: UploadBuildResult;
+  build: UploadBuildResult | UrlBuildResult;
 }
 
 const HARNESSES = new Set<ProofHarness>(['revyl', 'cursor', 'capy', 'devin']);
@@ -59,11 +76,15 @@ const DEFAULT_TIMEOUT_MS = 30 * 60_000;
 const POLL_INTERVALS_MS = [5_000, 10_000, 15_000];
 
 /**
- * Uploads a pull request's CI build and starts a Revyl Proof of Changes run on it. With `wait` (the default) it
+ * Uploads a pull request's CI build, or registers its deployment URL, and starts a Revyl Proof of Changes run on it. With `wait` (the default) it
  * polls until the run has a verdict, and cancels the run if the process is interrupted or `signal` aborts.
  * Needs a pull request on GitHub Actions.
  */
 export async function proof(options: ProofOptions): Promise<ProofRun> {
+  const web = options.url !== undefined;
+  if (web === (options.build !== undefined)) throw new VerifyError('INVALID_ARGUMENT', 'Pass either build (a mobile artifact) or url (a Web deployment), not both.');
+  if (web && options.environment !== undefined) throw new VerifyError('INVALID_ARGUMENT', 'environment applies only to mobile builds; a URL build takes no launch variables.');
+  if (web && options.version !== undefined) throw new VerifyError('INVALID_ARGUMENT', 'version applies only to mobile builds.');
   const harness = options.harness ?? 'revyl';
   if (!HARNESSES.has(harness)) throw new VerifyError('INVALID_ARGUMENT', `harness must be one of ${[...HARNESSES].join(', ')}.`);
   const environment = validEnvironment(options.environment);
@@ -74,14 +95,10 @@ export async function proof(options: ProofOptions): Promise<ProofRun> {
   const token = options.token ?? (await resolveCredentials())?.token;
   if (!token) throw new VerifyError('AUTH_MISSING', missingCredentialsMessage());
 
-  const build = await uploadBuild({
-    file: options.build,
-    appId: options.appId,
-    token,
-    ...(options.version !== undefined ? { version: options.version } : {}),
-    ...(options.backendUrl !== undefined ? { backendUrl: options.backendUrl } : {}),
-    ...(options.signal !== undefined ? { signal: options.signal } : {}),
-  });
+  const target = { appId: options.appId, token, ...(options.backendUrl !== undefined ? { backendUrl: options.backendUrl } : {}), ...(options.signal !== undefined ? { signal: options.signal } : {}) };
+  const build = options.url !== undefined
+    ? await registerUrlBuild({ ...target, url: options.url })
+    : await uploadBuild({ ...target, file: options.build, ...(options.version !== undefined ? { version: options.version } : {}) });
   const client = new RevylClient({ token, backendUrl: options.backendUrl });
   const started = await createProofRun(
     client,

@@ -52,6 +52,8 @@ const REFUSALS: Record<string, VerifyErrorCode> = {
   app_not_found: 'NOT_FOUND',
   build_not_found: 'NOT_FOUND',
   platform_mismatch: 'PLATFORM_MISMATCH',
+  preview_unreachable: 'PREVIEW_UNREACHABLE',
+  url_unreachable: 'PREVIEW_UNREACHABLE',
 };
 
 export async function createProofRun(client: RevylClient, request: CreateProofRunRequest, signal?: AbortSignal): Promise<ProofRunState> {
@@ -125,6 +127,9 @@ function proofRunError(response: RawResponse, method: string, path: string): Ver
   if (mapped === 'GITHUB_APP_NOT_CONNECTED') return new VerifyError(mapped, `${refused} ${GITHUB_APP_FIX}`, options);
   if (mapped === 'CONFIG_MANAGED_REVIEW') {
     return new VerifyError(mapped, `${refused} The repository's .revyl/config.yaml already runs Proof of Changes for this head, so proof() can't start another run.`, options);
+  }
+  if (mapped === 'PREVIEW_UNREACHABLE') {
+    return new VerifyError(mapped, `${refused} Revyl couldn't load the URL: it must be public HTTPS on port 443 and answer below HTTP 400 without headers or basic auth.`, options);
   }
   if (mapped) return new VerifyError(mapped, refused, options);
   if (response.status === 409 && proofRunId) {

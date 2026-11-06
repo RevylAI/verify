@@ -19,8 +19,9 @@ Usage
       Install Verify, write verify.config.ts and an example script, then check authentication
   npx ${PACKAGE_NAME} upload <artifact> --app-id <id> [--platform ios|android] [--version <label>] [--repo <owner/name> --commit <sha> [--pr <number>]] [--json]
       Upload a CI build (.apk, .app, or .zip) with its pull request identity, detected on GitHub Actions
-  npx ${PACKAGE_NAME} proof <artifact> --app-id <id> [--guidance <text>] [--harness revyl|cursor|capy|devin] [--env NAME[=value]]... [--env-secret NAME=<launch variable>]... [--timeout <minutes>] [--no-wait] [--json]
-      Upload a pull request's build and run Revyl Proof of Changes on it, on GitHub Actions. Exits 1 when the verdict is failed.
+  npx ${PACKAGE_NAME} proof <artifact> | --url <https-url> --app-id <id> [--guidance <text>] [--harness revyl|cursor|capy|devin] [--env NAME[=value]]... [--env-secret NAME=<launch variable>]... [--timeout <minutes>] [--no-wait] [--json]
+      Upload a pull request's build, or register its Web deployment URL, and run Revyl Proof of Changes on it, on GitHub Actions. Exits 1 when the verdict is failed.
+      A --url must stay up until the run settles; --env and --env-secret apply only to mobile builds
       --env values are stored with the run and may appear in reports; pass secrets with --env-secret, naming an organization launch variable
   npx ${PACKAGE_NAME} whoami
       Check which Revyl account your credentials belong to
@@ -202,6 +203,7 @@ async function proofCommand(args: string[]): Promise<number> {
     allowPositionals: true,
     options: {
       'app-id': { type: 'string' },
+      url: { type: 'string' },
       guidance: { type: 'string' },
       harness: { type: 'string' },
       env: { type: 'string', multiple: true },
@@ -212,7 +214,7 @@ async function proofCommand(args: string[]): Promise<number> {
     },
   });
   const [build, ...extra] = positionals;
-  if (!build || extra.length > 0) throw new VerifyError('INVALID_ARGUMENT', 'verify proof takes exactly one artifact path.');
+  if (extra.length > 0 || (build === undefined) === (values.url === undefined)) throw new VerifyError('INVALID_ARGUMENT', 'verify proof takes one artifact path or --url <https-url>, not both.');
   const appId = values['app-id'] ?? process.env.REVYL_APP_ID?.trim();
   if (!appId) throw new VerifyError('INVALID_ARGUMENT', 'Pass --app-id (or set REVYL_APP_ID) with the Revyl app this build belongs to.');
   if (values.timeout !== undefined && !/^[1-9][0-9]*$/.test(values.timeout)) throw new VerifyError('INVALID_ARGUMENT', '--timeout must be a positive number of minutes.');
@@ -230,15 +232,18 @@ async function proofCommand(args: string[]): Promise<number> {
     environment[entry.slice(0, separator)] = { secretRef: entry.slice(separator + 1) };
   }
   const wait = !values['no-wait'];
-  const run = await proof({
-    build,
+  const settings = {
     appId,
     ...(values.guidance !== undefined ? { guidance: values.guidance } : {}),
     ...(values.harness !== undefined ? { harness: values.harness as ProofHarness } : {}),
-    ...(Object.keys(environment).length > 0 ? { environment } : {}),
     ...(values.timeout !== undefined ? { timeoutMs: Number(values.timeout) * 60_000 } : {}),
     wait,
-  });
+  };
+  const hasEnvironment = Object.keys(environment).length > 0;
+  if (values.url !== undefined && hasEnvironment) throw new VerifyError('INVALID_ARGUMENT', '--env and --env-secret apply only to mobile builds; a URL build takes no launch variables.');
+  const run = values.url !== undefined
+    ? await proof({ ...settings, url: values.url })
+    : await proof({ ...settings, build: build!, ...(hasEnvironment ? { environment } : {}) });
   process.stdout.write(values.json ? `${JSON.stringify(run, null, 2)}\n` : proofSummary(run));
   return run.verdict === 'failed' ? 1 : 0;
 }
@@ -246,7 +251,7 @@ async function proofCommand(args: string[]): Promise<number> {
 function proofSummary(run: ProofRun): string {
   const subject = `Proof of Changes run ${run.id} for ${run.pullRequest.repository}#${run.pullRequest.number} (build ${run.build.buildId})`;
   const outcome = run.verdict ? `${subject}: ${run.label ?? run.verdict}.` : `Started ${subject}.`;
-  return [outcome, ...(run.reportUrl ? [`Report: ${run.reportUrl}`] : []), ...(run.reviewUrl ? [`Review: ${run.reviewUrl}`] : []), ...run.build.warnings.map((warning) => `Warning: ${warning}`), ''].join('\n');
+  return [outcome, ...(run.reportUrl ? [`Report: ${run.reportUrl}`] : []), ...(run.reviewUrl ? [`Review: ${run.reviewUrl}`] : []), ...('warnings' in run.build ? run.build.warnings : []).map((warning) => `Warning: ${warning}`), ''].join('\n');
 }
 
 async function whoamiCommand(): Promise<number> {
