@@ -87,6 +87,17 @@ For a normal GitHub Actions job, install from the lockfile with `npm ci` and pas
 
 On a `revyl-macos` job, `currentComputer()` attaches to the runner's existing computer without taking ownership. The runner releases the computer; closing the Verify attachment still cleans up hosted children. See the [CI guide](packages/verify/docs/ci.md) and [computer API](packages/verify/docs/api.md#inside-a-revyl-macos-github-actions-job).
 
+## Per-PR environments
+
+`environment()` runs a pull request's stack on the CI runner, gives each port a public HTTPS URL, and passes the URLs to Proof of Changes:
+
+```ts
+await using env = await environment({ start: 'docker compose up -d', stop: 'docker compose down', expose: { API_URL: 8080 }, ready: { API_URL: '/health' } });
+await proof({ build, appId, environment: env.variables, wait: true });
+```
+
+`npx @revyl/verify env --start "docker compose up -d" --expose API_URL=8080 --ready API_URL=/health -- node verify/proof.mts` does the same around any command. The URLs are Cloudflare quick tunnels: public and unguessable but not access-controlled, alive only for the run, and hidden from logs by default. The stack runs with the job's own secrets. See [per-PR environments](packages/verify/docs/environments.md).
+
 ## Reference authentication
 
 Use manual setup when you need to control the package manager or keep the generated files out of the project:
@@ -161,7 +172,7 @@ Computer targets are early access and use commands, files, processes, and screen
 
 ## Documentation
 
-- [Documentation index](packages/verify/docs/) · [API](packages/verify/docs/api.md) · [CI](packages/verify/docs/ci.md) · [Coding agents](packages/verify/docs/agents.md)
+- [Documentation index](packages/verify/docs/) · [API](packages/verify/docs/api.md) · [CI](packages/verify/docs/ci.md) · [Per-PR environments](packages/verify/docs/environments.md) · [Coding agents](packages/verify/docs/agents.md)
 - [End-to-end results and limitations](packages/verify/docs/end-to-end.md)
 - [Examples](examples/): [Web store](examples/web-store/) · [Mobile Settings](examples/mobile-settings/) · [Mac workspace](examples/mac-workspace/)
 - [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Releasing](RELEASING.md)
