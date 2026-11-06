@@ -6,29 +6,29 @@ Verify is a thin [Revyl](https://revyl.com) SDK, not a test runner. Open a web b
 
 ## For coding agents
 
-Use Python ≥3.10 and the `revyl_verify` import. The distribution is named `revyl-verify`; it is separate from the `revyl` CLI. Python 0.1.0 is prepared in this repository, **not published to PyPI or verified against live Revyl sessions**. The Go/TypeScript live results do not prove Python behavior.
+Use Python ≥3.10 and the `revyl_verify` import. The distribution is named `revyl-verify`; it is separate from the `revyl` CLI. Install it from PyPI with `pip install revyl-verify` or `uv add revyl-verify`.
 
 Run only explicitly authorized cloud workloads. Keep API keys, signed recording URLs and session links private. Use context managers so errors still trigger cleanup; there is no runner, automatic step replay or creation retry.
 
 ## Install
 
-Until a Python release is published, install a reviewed checkout from the repository root:
-
 ```bash
-uv pip install ./python
-# Or, in an activated virtual environment:
-python -m pip install ./python
+pip install revyl-verify
+# Or, in a uv project:
+uv add revyl-verify
 ```
 
-After a maintainer publishes 0.1.0, the corresponding registry command will be `uv pip install revyl-verify==0.1.0` (or `python -m pip install revyl-verify==0.1.0`). Do not treat that command as evidence the package exists today. Pillow is the only runtime dependency, for PNG blank-frame inspection; HTTP uses the standard library.
+Pillow is the only runtime dependency, for PNG blank-frame inspection; HTTP uses the standard library.
 
 ## Authenticate
 
-Supply `REVYL_API_KEY` through a secret manager, or use the separately installed [Revyl CLI](https://github.com/RevylAI/revyl-cli#install):
+On the first interactive `open()`, `attach()` or `current_computer()` call without credentials, Verify prints a Revyl approval URL and code, opens your browser, and waits for you to approve. It saves the login to `~/.revyl/credentials.json`, which the Revyl CLI and the other Verify SDKs share, so later runs start without a prompt. You can also sign in ahead of time with the separately installed [Revyl CLI](https://github.com/RevylAI/revyl-cli#install):
 
 ```bash
 revyl auth login
 ```
+
+Verify never opens a browser when stdin or stderr is not a terminal or `CI` is set. Supply `REVYL_API_KEY` through the process's secret store there; without credentials the call raises `AUTH_MISSING`.
 
 Credential precedence matches the other SDKs: a usable stored CLI login marked `local_auth_override`, then `REVYL_API_KEY`, then another usable CLI login. An expired access token can fall back to its stored API key. Never pass keys in argv, source, screenshots or logs.
 
@@ -212,7 +212,7 @@ Use an empty `dist/` before building; the package checker rejects stale or extra
 - [TypeScript API and platform contracts](https://github.com/RevylAI/verify/tree/main/packages/verify/docs)
 - [Go SDK](https://github.com/RevylAI/verify/tree/main/go)
 - [Live results from other SDKs and limitations](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/end-to-end.md)
-- [Python release procedure](https://github.com/RevylAI/verify/blob/main/RELEASING.md#python-distribution-release-pyv010)
+- [Python release procedure](https://github.com/RevylAI/verify/blob/main/RELEASING.md#python)
 
 ## Troubleshooting
 

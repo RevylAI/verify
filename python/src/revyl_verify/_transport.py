@@ -241,7 +241,7 @@ def _invalid_constant(value: str) -> None:
     raise ValueError
 
 
-def credentials() -> str:
+def stored_or_env_token() -> str:
     try:
         raw = (Path.home() / ".revyl" / "credentials.json").read_bytes()
     except FileNotFoundError:
@@ -285,6 +285,20 @@ def credentials() -> str:
         and not (stored.get("local_auth_override") is True and token)
     ):
         token = key
+    return token
+
+
+def credentials(
+    backend: str | None = None,
+    viewer: str | None = None,
+    cancellation: Cancellation | None = None,
+) -> str:
+    token = stored_or_env_token()
+    if not token and backend is not None and viewer is not None:
+        from . import _login
+
+        if _login.interactive():
+            token = _login.sign_in(backend, viewer, cancellation)
     if not token:
         raise VerifyError(
             "AUTH_MISSING",
@@ -400,9 +414,16 @@ def http_error(response: Response, *, hosted: bool = False) -> VerifyError:
 
 
 class Client:
-    def __init__(self, backend_url: str | None = None) -> None:
-        self._token = credentials()
+    def __init__(
+        self,
+        backend_url: str | None = None,
+        app_url: str | None = None,
+        cancellation: Cancellation | None = None,
+    ) -> None:
         self.base = origin(backend_url or "https://backend.revyl.ai")
+        self._token = credentials(
+            self.base, origin(app_url or "https://app.revyl.ai", app=True), cancellation
+        )
 
     def request(
         self,
