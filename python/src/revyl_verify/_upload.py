@@ -4,8 +4,10 @@ import http.client
 import json
 import os
 import re
+import socket
 import stat
 import tempfile
+import threading
 import time
 import zipfile
 from collections.abc import Mapping
@@ -259,7 +261,11 @@ def _identity_headers(identity: ScmIdentity | None) -> dict[str, str]:
         "X-CI-PR-URL": identity.pr_url,
         "X-CI-PR-Number": str(identity.pr) if identity.pr is not None else None,
     }
-    return {name: value for name, value in headers.items() if value}
+    return {name: value for name, value in headers.items() if value and _header_safe(value)}
+
+
+def _header_safe(value: str) -> bool:
+    return all(32 <= ord(char) <= 126 for char in value)
 
 
 def _identity_metadata(identity: ScmIdentity | None, platform: MobilePlatform) -> dict[str, Json]:
@@ -347,7 +353,7 @@ def _inspect_artifact(path: Path, platform: str | None) -> tuple[Path, MobilePla
 def _zip_app_bundle(bundle: Path, destination: Path) -> Path:
     """Zips an .app bundle like `revyl build upload`: entries under the bundle name, links kept."""
     with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED, allowZip64=False) as archive:
-        for root, directories, files in os.walk(bundle):
+        for root, directories, files in os.walk(bundle, onerror=_raise_walk_error):
             directories.sort()
             for name in sorted([*directories, *files]):
                 entry = Path(root) / name
@@ -378,6 +384,12 @@ def _zip_app_bundle(bundle: Path, destination: Path) -> Path:
     return destination
 
 
+def _raise_walk_error(error: OSError) -> None:
+    raise VerifyError(
+        "INVALID_ARGUMENT", f"Cannot read {error.filename} in the .app bundle: {error.strerror}"
+    )
+
+
 def _put_artifact(upload_url: str, content_type: str, path: Path) -> None:
     parsed = urlsplit(upload_url)
     loopback = parsed.hostname in ("localhost", "127.0.0.1", "::1")
@@ -392,6 +404,19 @@ def _put_artifact(upload_url: str, content_type: str, path: Path) -> None:
             http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
         )
         connection = connection_type(parsed.hostname, parsed.port, timeout=_PUT_TIMEOUT)
+        expired = threading.Event()
+
+        def expire(connection: http.client.HTTPConnection = connection) -> None:
+            expired.set()
+            if connection.sock is not None:
+                try:
+                    connection.sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+
+        timer = threading.Timer(_PUT_TIMEOUT, expire)
+        timer.daemon = True
+        timer.start()
         failure: VerifyError
         retryable: bool
         try:
@@ -418,11 +443,17 @@ def _put_artifact(upload_url: str, content_type: str, path: Path) -> None:
                 f"The artifact upload got no response within {_PUT_TIMEOUT / 60:g} minutes.",
             ) from None
         except (OSError, http.client.HTTPException) as error:
+            if expired.is_set():
+                raise VerifyError(
+                    "TIMEOUT",
+                    f"The artifact upload did not finish within {_PUT_TIMEOUT / 60:g} minutes.",
+                ) from None
             failure = VerifyError(
                 "UPLOAD_FAILED", f"Could not upload the artifact to Revyl's storage: {error}"
             )
             retryable = True
         finally:
+            timer.cancel()
             connection.close()
         if not retryable or attempt == len(_PUT_RETRY_DELAYS):
             raise failure

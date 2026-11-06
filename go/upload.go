@@ -258,7 +258,7 @@ func identityHeaders(identity *ScmIdentity) map[string]string {
 		"X-CI-Actor-URL":  identity.ActorURL,
 		"X-CI-PR-URL":     identity.PRURL,
 	} {
-		if value != "" {
+		if value != "" && headerSafe(value) {
 			headers[name] = value
 		}
 	}
@@ -266,6 +266,15 @@ func identityHeaders(identity *ScmIdentity) map[string]string {
 		headers["X-CI-PR-Number"] = strconv.Itoa(identity.PR)
 	}
 	return headers
+}
+
+func headerSafe(value string) bool {
+	for _, char := range value {
+		if char < 32 || char > 126 {
+			return false
+		}
+	}
+	return true
 }
 
 func identityMetadata(identity *ScmIdentity, platform string) map[string]any {
@@ -358,6 +367,7 @@ func zipAppBundle(bundle, destination string) (string, error) {
 	}
 	defer out.Close()
 	archive := zip.NewWriter(out)
+	bundle = filepath.Clean(bundle)
 	parent := filepath.Dir(bundle)
 	walkErr := filepath.WalkDir(bundle, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil || path == bundle {
