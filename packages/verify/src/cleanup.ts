@@ -3,6 +3,8 @@ import { isVerifyError } from './errors.js';
 
 interface OpenSession {
   readonly target: string;
+  /** How long close() may take before the process exits anyway, when longer than the default. */
+  readonly closeBudgetMs?: number;
   close(): Promise<void>;
 }
 
@@ -73,7 +75,8 @@ async function exitAfterClosing(code: number): Promise<void> {
 
 async function closeAll(): Promise<void> {
   const closing = Promise.allSettled([...open].map((session) => session.close()));
-  await Promise.race([closing, new Promise((resolve) => setTimeout(resolve, CLOSE_ALL_TIMEOUT_MS).unref())]);
+  const budget = Math.max(CLOSE_ALL_TIMEOUT_MS, ...[...open].map((session) => session.closeBudgetMs ?? 0));
+  await Promise.race([closing, new Promise((resolve) => setTimeout(resolve, budget).unref())]);
 }
 
 function describeOpen(): string {
