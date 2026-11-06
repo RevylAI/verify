@@ -7,7 +7,6 @@ import { missingCredentialsMessage, resolveCredentials } from '../auth.js';
 import { VerifyError, errorMessage, isVerifyError } from '../errors.js';
 import { PACKAGE_NAME, VERSION } from '../version.js';
 import { initProject, validateInitAnswers, type InitAnswers } from './init.js';
-import { checkGithubApp, proofRepository, resolveProofApp, writeProofFiles } from './proof.js';
 import { uploadBuild, type UploadBuildResult } from '../upload.js';
 import { installVerify, packageHasVerify } from './install.js';
 import { signIn } from './login.js';
@@ -17,8 +16,6 @@ const HELP = `verify ${VERSION}: open Revyl cloud browsers, devices, and compute
 Usage
   npx ${PACKAGE_NAME} init [--platform web|ios|android|mac] [--app-id <id>] [--url <https-url>] [--force] [--yes] [--no-install]
       Install Verify, write verify.config.ts and an example script, then check authentication
-  npx ${PACKAGE_NAME} init --proof --platform ios|android [--app-name <name> | --app-id <id>] [--artifact <path>] [--force] [--yes]
-      Write .revyl/config.yaml and .github/workflows/revyl-proof.yml so CI uploads each pull request's build for Proof of Changes
   npx ${PACKAGE_NAME} upload <artifact> --app-id <id> [--platform ios|android] [--version <label>] [--repo <owner/name> --commit <sha> [--pr <number>]] [--json]
       Upload a CI build (.apk, .app, or .zip) with its pull request identity, detected on GitHub Actions
   npx ${PACKAGE_NAME} whoami
@@ -46,7 +43,7 @@ export async function main(argv: string[]): Promise<number> {
       process.stdout.write(`${VERSION}\n`);
       return 0;
     case 'init':
-      return rest.includes('--proof') ? proofInitCommand(rest) : initCommand(rest);
+      return initCommand(rest);
     case 'upload':
       return uploadCommand(rest);
     case 'whoami':
@@ -138,71 +135,6 @@ async function askInitQuestions(appId: string | undefined, url: string | undefin
     return validateInitAnswers({ platform, ...(id ? { appId: id } : {}), ...(webUrl ? { url: webUrl } : {}) });
   } finally {
     readline.close();
-  }
-}
-
-async function proofInitCommand(args: string[]): Promise<number> {
-  const { values } = parseArgs({
-    args,
-    options: {
-      proof: { type: 'boolean' },
-      platform: { type: 'string', short: 'p' },
-      'app-id': { type: 'string' },
-      'app-name': { type: 'string' },
-      artifact: { type: 'string' },
-      force: { type: 'boolean' },
-      yes: { type: 'boolean' },
-    },
-  });
-  const interactive = Boolean(process.stdin.isTTY) && !process.env.CI;
-  const cwd = process.cwd();
-  const repository = await proofRepository(cwd);
-  const readline = interactive ? createInterface({ input: process.stdin, output: process.stdout }) : undefined;
-  try {
-    const platform = (values.platform ?? (await readline?.question('Which platform does CI build? [ios/android]: '))?.trim().toLowerCase()) as MobilePlatform | undefined;
-    if (platform !== 'ios' && platform !== 'android') throw new VerifyError('INVALID_ARGUMENT', 'init --proof needs --platform ios or --platform android.');
-    if (values['app-id'] && values['app-name']) throw new VerifyError('INVALID_ARGUMENT', 'Pass --app-id or --app-name, not both.');
-    const suggested = `${repository?.split('/')[1] ?? 'app'}-${platform}`;
-    const appName = values['app-name'] ?? (values['app-id'] || !readline ? suggested : (await readline.question(`Revyl app name (${suggested}): `)).trim() || suggested);
-    const credentials = (await resolveCredentials()) ?? (interactive ? await signIn() : undefined);
-    if (!credentials) throw new VerifyError('AUTH_MISSING', `${missingCredentialsMessage()} In non-interactive environments, set REVYL_API_KEY.`);
-    const client = new RevylClient({ token: credentials.token });
-    const app = await resolveProofApp(client, {
-      platform,
-      ...(values['app-id'] ? { appId: values['app-id'] } : {}),
-      appName,
-      confirmCreate: async (name) => {
-        if (values.yes) return true;
-        if (!readline) return false;
-        const answer = (await readline.question(`No Revyl app is named "${name}". Create a ${platform} app with that name? (y/N) `)).trim().toLowerCase();
-        return answer === 'y' || answer === 'yes';
-      },
-    });
-    const github = await checkGithubApp(client, repository);
-    const created = await writeProofFiles(cwd, { platform, appId: app.id, ...(values.artifact ? { artifact: values.artifact } : {}), force: values.force ?? false });
-    const steps = [
-      ...(github.fix ? [github.fix] : []),
-      `Replace the build step in ${created[1]} with your ${platform} build`,
-      'Add the REVYL_API_KEY repository secret: a Revyl member\'s API key (gh secret set REVYL_API_KEY)',
-      `Commit ${created.join(' and ')} to your default branch before opening pull requests; Revyl reads the policy from there`,
-      'Open a pull request: Revyl waits for its uploaded build, then runs Proof of Changes',
-    ];
-    process.stdout.write(
-      [
-        `${app.created ? 'Created' : 'Using'} Revyl app "${app.name}" (${app.id}).`,
-        github.status === 'granted' ? `The Revyl GitHub App can see ${repository}.` : undefined,
-        `Wrote ${created.join(' and ')}. Nothing was published and no session was started.`,
-        '',
-        'Next:',
-        ...steps.map((step, index) => `  ${index + 1}. ${step}`),
-        '',
-      ]
-        .filter((line) => line !== undefined)
-        .join('\n'),
-    );
-    return 0;
-  } finally {
-    readline?.close();
   }
 }
 
