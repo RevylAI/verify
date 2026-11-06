@@ -89,7 +89,7 @@ On a `revyl-macos` job, `currentComputer()` attaches to the runner's existing co
 
 ### Proof of Changes from your CI
 
-If your CI already builds the app, `npx @revyl/verify init --proof --platform ios|android` writes the Revyl policy (`.revyl/config.yaml`) and a GitHub Actions workflow that uploads each pull request's build with `npx @revyl/verify upload`. Revyl then runs [Proof of Changes](https://github.com/RevylAI/revyl-cli/blob/main/docs/proof-of-changes.md) on it. Commit both files to your default branch before opening pull requests. `uploadBuild()` (TypeScript), `upload_build()` (Python), and `UploadBuild` (Go) do the upload from code. See [Proof of Changes from your CI](packages/verify/docs/proof-of-changes.md).
+If your CI already builds the app, `npx @revyl/verify upload` sends each pull request's build to Revyl with its pull request identity, so Revyl can run [Proof of Changes](https://github.com/RevylAI/revyl-cli/blob/main/docs/proof-of-changes.md) on it. `uploadBuild()` (TypeScript), `upload_build()` (Python), and `UploadBuild` (Go) do the same from code. See [Proof of Changes from your CI](packages/verify/docs/proof-of-changes.md).
 
 ## Reference authentication
 

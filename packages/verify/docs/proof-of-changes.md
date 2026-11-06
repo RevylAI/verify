@@ -1,61 +1,24 @@
 # Proof of Changes from your CI
 
-Revyl's [Proof of Changes](https://github.com/RevylAI/revyl-cli/blob/main/docs/proof-of-changes.md) runs an agent on a real device against each pull request and posts the result on the pull request. When your own CI already builds the app, Verify sets that up in code: `verify init --proof` writes the policy and a GitHub Actions workflow, and `verify upload` (or `uploadBuild()` from TypeScript, Python, or Go) sends each pull request's build to Revyl with the pull request identity Revyl matches it by.
+Revyl's [Proof of Changes](https://github.com/RevylAI/revyl-cli/blob/main/docs/proof-of-changes.md) runs an agent on a real device against each pull request and posts the result on the pull request. When your own CI already builds the app, `verify upload` (or `uploadBuild()` from TypeScript, Python, or Go) sends each pull request's build to Revyl with the pull request identity Revyl matches it by.
 
-The policy fields, harnesses, and what Revyl does with the build are documented in [Configure Proof of Changes](https://github.com/RevylAI/revyl-cli/blob/main/docs/proof-of-changes.md). This page covers only Verify's part.
+The policy that turns Proof of Changes on for CI-uploaded builds, its harnesses, and what Revyl does with the build are documented in [Configure Proof of Changes](https://github.com/RevylAI/revyl-cli/blob/main/docs/proof-of-changes.md). This page covers only Verify's part.
 
 ## Before you start
 
-- The Revyl GitHub App must be installed on the repository. `verify init --proof` checks this and prints the fix when it isn't: run `revyl github connect`, or add the repository to the app's repository access on GitHub.
+- The Revyl GitHub App must be installed on the repository: run `revyl github connect`, or add the repository to the app's repository access on GitHub.
 - CI needs a `REVYL_API_KEY` secret holding the API key of a Revyl member (Member role or higher). An organization API key that isn't tied to a member can be rejected as an invalid API key.
-- Proof of Changes reads `.revyl/config.yaml` from your **default branch**. Commit the generated files there **before** opening pull requests: a pull request opened before Revyl has the policy doesn't pick up uploads until its next push.
+- Proof of Changes reads its policy from your **default branch**. Commit it there **before** opening pull requests: a pull request opened before Revyl has the policy doesn't pick up uploads until its next push.
 
-## Scaffold it: `verify init --proof`
+In a GitHub Actions workflow that runs on `pull_request`, upload after your build step:
 
-Run it from the repository root:
-
-```bash
-npx @revyl/verify init --proof --platform ios      # or --platform android
+```yaml
+- name: Upload the build to Revyl
+  run: |
+    npx --yes @revyl/verify@<version> upload "app/build/outputs/apk/debug/app-debug.apk" --app-id <app UUID> --platform android
+  env:
+    REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
 ```
-
-| Option | Meaning |
-| --- | --- |
-| `--platform ios\|android` | The platform your CI builds. Asked interactively when omitted. |
-| `--app-name <name>` | The Revyl app to upload to, matched by name (Revyl app names are unique per organization, ignoring case). Defaults to `<repository>-<platform>`. When no app has that name, Verify asks before creating one; `--yes` creates it without asking. |
-| `--app-id <id>` | Use an existing Revyl app instead of a name. |
-| `--artifact <path>` | Where your build step leaves the `.apk`, `.app` bundle, or `.zip`. Defaults to the usual Gradle debug APK or Xcode simulator `.app` path. |
-| `--force` | Overwrite existing `.revyl/config.yaml` or `.github/workflows/revyl-proof.yml`. |
-
-It writes two files and never publishes configuration or starts a session:
-
-- `.revyl/config.yaml` declares a CI-upload build for the app's UUID and turns Proof of Changes on with the Revyl harness:
-
-  ```yaml
-  project:
-    id: "<new project UUID>"
-
-  pr_review:
-    build:
-      kind: ci_upload_to_revyl
-      app_ids:
-        ios: "<app UUID>"
-    proof_of_changes:
-      enabled: true
-      harness:
-        kind: revyl
-  ```
-
-- `.github/workflows/revyl-proof.yml` runs on every pull request. It has a placeholder build step that fails until you replace it with your build, then an upload step:
-
-  ```yaml
-  - name: Upload the build to Revyl
-    run: |
-      npx --yes @revyl/verify@<version> upload "<artifact>" --app-id <app UUID> --platform ios
-    env:
-      REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
-  ```
-
-Then replace the build step, add the `REVYL_API_KEY` repository secret (`gh secret set REVYL_API_KEY`), commit both files to the default branch, and open a pull request.
 
 GitHub doesn't give secrets to workflows triggered by pull requests from forks, so uploads from forks fail authentication.
 

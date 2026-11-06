@@ -40,7 +40,7 @@ web: { platform: 'web', app: { appId: process.env.REVYL_APP_ID!, url: process.en
 
 ## Proof of Changes from your own builds
 
-To have Revyl run Proof of Changes on each pull request's build from your CI, scaffold the policy and workflow with `npx @revyl/verify init --proof` and upload each build with `npx @revyl/verify upload`. See [Proof of Changes from your CI](proof-of-changes.md).
+To have Revyl run Proof of Changes on each pull request's build from your CI, upload each build with `npx @revyl/verify upload`. See [Proof of Changes from your CI](proof-of-changes.md).
 
 ## Inside a test runner
 
