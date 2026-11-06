@@ -8,6 +8,7 @@ import { VerifyError, errorMessage, isVerifyError } from '../errors.js';
 import { PACKAGE_NAME, VERSION } from '../version.js';
 import { initProject, validateInitAnswers, type InitAnswers } from './init.js';
 import { uploadBuild, type UploadBuildResult } from '../upload.js';
+import { proof, type ProofHarness, type ProofRun } from '../proof.js';
 import { installVerify, packageHasVerify } from './install.js';
 import { signIn } from './login.js';
 
@@ -18,6 +19,8 @@ Usage
       Install Verify, write verify.config.ts and an example script, then check authentication
   npx ${PACKAGE_NAME} upload <artifact> --app-id <id> [--platform ios|android] [--version <label>] [--repo <owner/name> --commit <sha> [--pr <number>]] [--json]
       Upload a CI build (.apk, .app, or .zip) with its pull request identity, detected on GitHub Actions
+  npx ${PACKAGE_NAME} proof <artifact> --app-id <id> [--guidance <text>] [--harness revyl|cursor|capy|devin] [--env NAME[=value]]... [--timeout <minutes>] [--no-wait] [--json]
+      Upload a pull request's build and run Revyl Proof of Changes on it, on GitHub Actions. Exits 1 when the verdict is failed
   npx ${PACKAGE_NAME} whoami
       Check which Revyl account your credentials belong to
 
@@ -27,7 +30,7 @@ Authentication
 Docs: https://github.com/RevylAI/verify/tree/v${VERSION}/packages/verify/docs
 `;
 
-const USAGE_CODES = new Set(['INVALID_ARGUMENT', 'AUTH_MISSING', 'AUTH_REJECTED']);
+const USAGE_CODES = new Set(['INVALID_ARGUMENT', 'AUTH_MISSING', 'AUTH_REJECTED', 'PR_CONTEXT_MISSING']);
 
 export async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
@@ -46,6 +49,8 @@ export async function main(argv: string[]): Promise<number> {
       return initCommand(rest);
     case 'upload':
       return uploadCommand(rest);
+    case 'proof':
+      return proofCommand(rest);
     case 'whoami':
       return whoamiCommand();
     default:
@@ -181,6 +186,52 @@ function uploadSummary(result: UploadBuildResult): string {
     ...result.warnings.map((warning) => `Warning: ${warning}`),
     '',
   ].join('\n');
+}
+
+async function proofCommand(args: string[]): Promise<number> {
+  const { values, positionals } = parseArgs({
+    args,
+    allowPositionals: true,
+    options: {
+      'app-id': { type: 'string' },
+      guidance: { type: 'string' },
+      harness: { type: 'string' },
+      env: { type: 'string', multiple: true },
+      timeout: { type: 'string' },
+      'no-wait': { type: 'boolean' },
+      json: { type: 'boolean' },
+    },
+  });
+  const [build, ...extra] = positionals;
+  if (!build || extra.length > 0) throw new VerifyError('INVALID_ARGUMENT', 'verify proof takes exactly one artifact path.');
+  const appId = values['app-id'] ?? process.env.REVYL_APP_ID?.trim();
+  if (!appId) throw new VerifyError('INVALID_ARGUMENT', 'Pass --app-id (or set REVYL_APP_ID) with the Revyl app this build belongs to.');
+  if (values.timeout !== undefined && !/^[1-9][0-9]*$/.test(values.timeout)) throw new VerifyError('INVALID_ARGUMENT', '--timeout must be a positive number of minutes.');
+  const environment: Record<string, string> = {};
+  for (const entry of values.env ?? []) {
+    const separator = entry.indexOf('=');
+    const name = separator === -1 ? entry : entry.slice(0, separator);
+    const value = separator === -1 ? process.env[name] : entry.slice(separator + 1);
+    if (value === undefined) throw new VerifyError('INVALID_ARGUMENT', `--env ${name} has no value: pass NAME=value or set ${name} in the environment.`);
+    environment[name] = value;
+  }
+  const wait = !values['no-wait'];
+  const run = await proof({
+    build,
+    appId,
+    ...(values.guidance !== undefined ? { guidance: values.guidance } : {}),
+    ...(values.harness !== undefined ? { harness: values.harness as ProofHarness } : {}),
+    ...(Object.keys(environment).length > 0 ? { environment } : {}),
+    ...(values.timeout !== undefined ? { timeoutMs: Number(values.timeout) * 60_000 } : {}),
+    wait,
+  });
+  process.stdout.write(values.json ? `${JSON.stringify(run, null, 2)}\n` : proofSummary(run));
+  return run.verdict === 'failed' ? 1 : 0;
+}
+
+function proofSummary(run: ProofRun): string {
+  const subject = `Proof of Changes run ${run.id} for ${run.pullRequest.repository}#${run.pullRequest.number} (build ${run.build.buildId})`;
+  return [run.verdict ? `${subject}: ${run.verdict}.` : `Started ${subject}.`, `Report: ${run.reportUrl}`, ...run.build.warnings.map((warning) => `Warning: ${warning}`), ''].join('\n');
 }
 
 async function whoamiCommand(): Promise<number> {

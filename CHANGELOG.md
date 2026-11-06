@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add `proof()` and `npx @revyl/verify proof` to upload a pull request's CI build on GitHub Actions, start a Revyl Proof of Changes run with optional guidance, harness, and launch environment, and wait for its verdict (`ready`, `ready_with_polish`, `ready_with_issues`, `failed`, or `inconclusive`) and report URL. Interrupting the wait cancels the run. New error codes: `PR_CONTEXT_MISSING`, `GITHUB_APP_NOT_CONNECTED`, and `PROOF_RUN_ENDED`.
 - Add `uploadBuild()` and `npx @revyl/verify upload` to upload a CI build (`.apk`, `.app`, or `.zip`) with the pull request identity Revyl uses for Proof of Changes, detected on GitHub Actions or given with `--repo` and `--commit`. Errors are typed: `ARTIFACT_REJECTED`, `VERSION_EXISTS`, and `UPLOAD_FAILED` are new codes. `reviewCorrelation.status` is `unknown` until Revyl reports the review match.
 
 ## 0.3.1 (2026-11-03)
