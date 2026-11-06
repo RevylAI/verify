@@ -138,14 +138,11 @@ func UploadBuild(ctx context.Context, options UploadOptions) (*UploadResult, err
 	metadata["source"] = uploadSource
 	metadata["platform"] = platform
 	var build struct {
-		ID          string         `json:"id"`
-		Version     string         `json:"version"`
-		PackageName string         `json:"package_name"`
-		Metadata    map[string]any `json:"metadata"`
-		Correlation *struct {
-			Status             string `json:"status"`
-			MatchedTargetCount *int   `json:"matched_target_count"`
-		} `json:"review_correlation"`
+		ID          string          `json:"id"`
+		Version     string          `json:"version"`
+		PackageName string          `json:"package_name"`
+		Metadata    map[string]any  `json:"metadata"`
+		Correlation json.RawMessage `json:"review_correlation"`
 	}
 	r, err = c.sendWithHeaders(ctx, http.MethodPost, appPath, map[string]any{"upload_id": session.UploadID, "version": version, "metadata": metadata}, true, uploadFinalizeTimeout, false, headers)
 	if err := uploadCall(r, err, options.AppID, &build); err != nil {
@@ -157,13 +154,6 @@ func UploadBuild(ctx context.Context, options UploadOptions) (*UploadResult, err
 	if build.Version != "" {
 		version = build.Version
 	}
-	correlation := ReviewCorrelation{Status: "unknown"}
-	if build.Correlation != nil && build.Correlation.Status != "" {
-		correlation.Status = build.Correlation.Status
-		if count := build.Correlation.MatchedTargetCount; count != nil && *count >= 0 {
-			correlation.MatchedTargetCount = count
-		}
-	}
 	return &UploadResult{
 		BuildID:           build.ID,
 		Version:           version,
@@ -171,7 +161,7 @@ func UploadBuild(ctx context.Context, options UploadOptions) (*UploadResult, err
 		Platform:          platform,
 		PackageID:         build.PackageName,
 		Identity:          identity,
-		ReviewCorrelation: correlation,
+		ReviewCorrelation: reviewCorrelation(build.Correlation),
 		Warnings:          validationWarnings(build.Metadata),
 	}, nil
 }
@@ -534,6 +524,23 @@ func responseDetailText(r response) string {
 		}
 	}
 	return ""
+}
+
+func reviewCorrelation(raw json.RawMessage) ReviewCorrelation {
+	var wire map[string]any
+	if json.Unmarshal(raw, &wire) != nil {
+		return ReviewCorrelation{Status: "unknown"}
+	}
+	status, _ := wire["status"].(string)
+	if status == "" {
+		return ReviewCorrelation{Status: "unknown"}
+	}
+	correlation := ReviewCorrelation{Status: status}
+	if count, ok := wire["matched_target_count"].(float64); ok && count >= 0 && count == float64(int(count)) {
+		n := int(count)
+		correlation.MatchedTargetCount = &n
+	}
+	return correlation
 }
 
 func validationWarnings(metadata map[string]any) []string {
