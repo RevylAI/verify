@@ -28,6 +28,9 @@ _UPLOAD_SOURCE = "verify_upload"
 _SESSION_TIMEOUT = 30.0
 _PUT_TIMEOUT = 600.0
 _FINALIZE_TIMEOUT = 90.0
+_CREATE_ATTEMPTS = 4
+_CREATE_RETRY_BASE = 0.5
+_CREATE_RETRY_CAP = 10.0
 _PUT_RETRY_DELAYS = (1.0, 3.0)
 _RETRYABLE_PUT_STATUSES = frozenset({429, 500, 502, 503, 504})
 
@@ -51,10 +54,17 @@ class ScmIdentity:
 
 @dataclass(frozen=True)
 class ReviewCorrelation:
-    """Whether Revyl attached the build to a review; `unknown` when Revyl doesn't report it."""
+    """Whether Revyl attached the build to a review, as Revyl reports it.
+
+    ``status`` is ``associated``, ``not_owned``, ``ambiguous_review``, ``stale_review``,
+    ``closed_review``, or ``unmatched``; ``no_identity`` when no complete identity was sent, and
+    ``unknown`` when Revyl doesn't report it. Only ``associated`` is associated; ``not_owned`` and
+    ``unmatched`` builds can still associate later.
+    """
 
     status: str = "unknown"
     matched_target_count: int | None = None
+    associated: bool = False
 
 
 @dataclass(frozen=True)
@@ -127,14 +137,11 @@ def upload_build(
             "platform": resolved_platform,
         }
         build = _call(
-            client.request(
-                "POST",
+            _create_build(
+                client,
                 app_path,
                 {"upload_id": upload_id, "version": label, "metadata": metadata},
-                deadline=Deadline(_FINALIZE_TIMEOUT * 3),
-                timeout=_FINALIZE_TIMEOUT,
-                retry=True,
-                headers=headers,
+                headers,
             ),
             app_id,
         )
@@ -150,7 +157,7 @@ def upload_build(
         platform=resolved_platform,
         package_id=package if isinstance(package, str) and package else None,
         identity=identity,
-        review_correlation=_review_correlation(build.get("review_correlation")),
+        review_correlation=_review_correlation(build),
         warnings=_validation_warnings(build.get("metadata")),
     )
 
@@ -168,7 +175,15 @@ def detect_scm_identity(
         _github_actions_identity(environ) if environ.get("GITHUB_ACTIONS") == "true" else None
     )
     if repo is None and commit is None and pr is None:
-        return detected if detected and detected.repository and detected.commit else None
+        if not detected or not detected.repository or not detected.commit:
+            return None
+        if not _COMMIT.fullmatch(detected.commit):
+            raise VerifyError(
+                "INVALID_ARGUMENT",
+                "The detected pull request head commit is not a full SHA (40 or 64 hexadecimal "
+                "characters). Set REVYL_PR_HEAD_SHA to the PR head SHA, or pass repo and commit.",
+            )
+        return detected
     repository = (repo or "").strip()
     sha = (commit or "").strip().lower()
     if not repository or not sha:
@@ -228,12 +243,14 @@ def _github_actions_identity(env: Mapping[str, str]) -> ScmIdentity:
     return ScmIdentity(
         ci_system="github-actions",
         repository=repository,
-        commit=_first(
-            head_sha if isinstance(head_sha, str) else None,
-            env.get("REVYL_PR_HEAD_SHA"),
-            env.get("GITHUB_SHA"),
-        )
-        or "",
+        commit=(
+            _first(
+                head_sha if isinstance(head_sha, str) else None,
+                env.get("REVYL_PR_HEAD_SHA"),
+                env.get("GITHUB_SHA"),
+            )
+            or ""
+        ).lower(),
         pr=number
         if isinstance(number, int) and not isinstance(number, bool) and number > 0
         else None,
@@ -242,7 +259,7 @@ def _github_actions_identity(env: Mapping[str, str]) -> ScmIdentity:
         base_commit=_first(base_sha if isinstance(base_sha, str) else None),
         run_id=run_id or None,
         run_url=f"{server}/{repository}/actions/runs/{run_id}"
-        if server and repository and run_id
+        if urlsplit(server).scheme in ("http", "https") and repository and run_id
         else None,
         actor=actor or None,
         actor_url=f"{server}/{actor}" if server and actor else None,
@@ -480,15 +497,16 @@ def _call(response: Response, app_id: str) -> dict[str, Json]:
         raise VerifyError(
             "AUTH_REJECTED",
             f"Revyl rejected the upload credentials (HTTP 401){suffix}. Uploads need a Revyl "
-            "member's API key or a CI runner key; an organization API key that isn't tied to a "
-            "member can be rejected as an invalid API key.",
+            "member's API key, or the job's ci_runner key once the revyl-macos job's activation "
+            "hook has run; an organization API key with no runtime authenticator is rejected as "
+            "'Invalid API key'.",
             http_status=401,
         )
     if response.status == 403:
         raise VerifyError(
             "AUTH_REJECTED",
             f"Revyl rejected the upload (HTTP 403){suffix}. Uploading a build needs the Member "
-            "role or higher in the app's organization.",
+            "role or higher; a Viewer's key gets 403.",
             http_status=403,
         )
     if response.status == 404:
@@ -526,16 +544,47 @@ def _detail(response: Response) -> str | None:
     return detail[:500] if isinstance(detail, str) else None
 
 
-def _review_correlation(wire: Json) -> ReviewCorrelation:
-    if not isinstance(wire, dict):
+def _create_build(client: Client, path: str, body: Json, headers: dict[str, str]) -> Response:
+    """Creates the build like revyl-cli's doRequestWithRetryClient: a retry with the same upload_id
+    and version returns the existing build, so a 409 after a retry is a real version conflict."""
+    for attempt in range(_CREATE_ATTEMPTS):
+        last = attempt == _CREATE_ATTEMPTS - 1
+        try:
+            response = client.request(
+                "POST",
+                path,
+                body,
+                deadline=Deadline(_FINALIZE_TIMEOUT),
+                timeout=_FINALIZE_TIMEOUT,
+                headers=headers,
+            )
+        except VerifyError as error:
+            if last or error.code not in ("API_ERROR", "TIMEOUT"):
+                raise
+        else:
+            if last or not (response.status == 429 or response.status >= 500):
+                return response
+        time.sleep(min(_CREATE_RETRY_BASE * 2**attempt, _CREATE_RETRY_CAP))
+    raise AssertionError("unreachable")
+
+
+def _review_correlation(build: dict[str, Json]) -> ReviewCorrelation:
+    if "review_correlation" not in build:
         return ReviewCorrelation()
-    status = wire.get("status")
-    if not isinstance(status, str) or not status:
+    wire = build["review_correlation"]
+    if wire is None:
+        return ReviewCorrelation(status="no_identity")
+    status = wire.get("status") if isinstance(wire, dict) else None
+    if not isinstance(wire, dict) or not isinstance(status, str) or not status:
         return ReviewCorrelation()
     count = wire.get("matched_target_count")
-    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
-        return ReviewCorrelation(status=status)
-    return ReviewCorrelation(status=status, matched_target_count=count)
+    return ReviewCorrelation(
+        status=status,
+        matched_target_count=count
+        if isinstance(count, int) and not isinstance(count, bool) and count >= 0
+        else None,
+        associated=status == "associated",
+    )
 
 
 def _validation_warnings(metadata: Json) -> tuple[str, ...]:
