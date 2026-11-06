@@ -14,5 +14,6 @@ Both computer operating systems are early access; ask support@revyl.ai about acc
 - [Computers](computers.md#availability-and-errors): Mac/Linux early access, expiry, capacity errors, recording metadata, and confirmed release
 - [Verify working end to end](end-to-end.md): live verification scope, observed outcomes, and limits of the evidence
 - [CI and test runners](ci.md): GitHub Actions, node:test, Vitest, Jest, Playwright Test
+- [Proof of Changes from your CI](proof-of-changes.md): init --proof, verify upload, uploadBuild() and its errors
 - [Errors](errors.md): every error code and what to do about it
 - [For coding agents](agents.md): the workflow and rules for agents using Verify

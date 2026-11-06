@@ -80,6 +80,8 @@ Use the explicitly scoped package command below. Installing `@revyl/verify` prov
 
 ```text
 npx @revyl/verify init [--platform web|ios|android|mac] [--app-id <id>] [--url <https-url>] [--force] [--yes] [--no-install]
+npx @revyl/verify init --proof --platform ios|android [--app-name <name> | --app-id <id>] [--artifact <path>] [--force] [--yes]
+npx @revyl/verify upload <artifact> --app-id <id> [--platform ios|android] [--version <label>] [--repo <owner/name> --commit <sha> [--pr <number>]] [--json]
 npx @revyl/verify whoami
 npx @revyl/verify --help
 npx @revyl/verify --version
@@ -88,6 +90,7 @@ npx @revyl/verify --version
 - `init` writes `verify.config.ts` and `verify/example.ts`, and adds `.verify/` to `.gitignore`. Without `--platform` it asks its questions interactively. It never overwrites files unless you pass `--force`.
 - `npx @revyl/verify init --platform mac` needs no app id and generates a command/file script. `--app-id` is rejected for Mac, `--url` applies only to web, and Linux init is intentionally unavailable. Use `open({ platform: 'linux' })` or a Linux config target instead.
 - `init` installs Verify from the project's lockfile when needed and signs in through the Revyl CLI's browser approval flow when no credentials are available. Use `--yes` or `--no-install` to control installation. Non-interactive runs do not prompt or open a browser and require `REVYL_API_KEY`.
+- `init --proof` writes `.revyl/config.yaml` and `.github/workflows/revyl-proof.yml` for Proof of Changes on your CI's builds, and `upload` sends a build with its pull request identity. See [Proof of Changes from your CI](proof-of-changes.md).
 - `whoami` prints the Revyl account and organization your credentials belong to.
 
 Exit codes: `0` success, `1` a Revyl or file error, `2` a usage or authentication problem.
