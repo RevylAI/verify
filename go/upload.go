@@ -53,10 +53,14 @@ type ScmIdentity struct {
 	ActorURL   string `json:"actorUrl,omitempty"`
 }
 
-// ReviewCorrelation reports whether Revyl attached the build to a review, as Revyl reports it. Status is "unknown" when Revyl doesn't report it.
+// ReviewCorrelation reports whether Revyl attached the build to a review, as Revyl reports it. Status is associated,
+// not_owned, ambiguous_review, stale_review, closed_review, or unmatched; "no_identity" when no complete identity was
+// sent, and "unknown" when Revyl doesn't report it. Only associated is Associated; not_owned and unmatched builds can
+// still associate later.
 type ReviewCorrelation struct {
 	Status             string `json:"status"`
 	MatchedTargetCount *int   `json:"matchedTargetCount,omitempty"`
+	Associated         bool   `json:"associated"`
 }
 
 // UploadResult is the uploaded build. Identity is nil when no pull request identity was found, so no review can match it.
@@ -81,6 +85,9 @@ const (
 	uploadSessionTimeout  = 30 * time.Second
 	uploadPutTimeout      = 10 * time.Minute
 	uploadFinalizeTimeout = 90 * time.Second
+	uploadCreateAttempts  = 4
+	uploadCreateRetryBase = 500 * time.Millisecond
+	uploadCreateRetryCap  = 10 * time.Second
 )
 
 var uploadPutRetryDelays = []time.Duration{time.Second, 3 * time.Second}
@@ -144,7 +151,7 @@ func UploadBuild(ctx context.Context, options UploadOptions) (*UploadResult, err
 		Metadata    map[string]any  `json:"metadata"`
 		Correlation json.RawMessage `json:"review_correlation"`
 	}
-	r, err = c.sendWithHeaders(ctx, http.MethodPost, appPath, map[string]any{"upload_id": session.UploadID, "version": version, "metadata": metadata}, true, uploadFinalizeTimeout, false, headers)
+	r, err = createBuild(ctx, c, appPath, map[string]any{"upload_id": session.UploadID, "version": version, "metadata": metadata}, headers)
 	if err := uploadCall(r, err, options.AppID, &build); err != nil {
 		return nil, err
 	}
@@ -172,10 +179,13 @@ func detectScmIdentity(options UploadOptions, getenv func(string) string) (*ScmI
 		detected = githubActionsIdentity(getenv)
 	}
 	if options.Repo == "" && options.Commit == "" && options.PR == 0 {
-		if detected != nil && detected.Repository != "" && detected.Commit != "" {
-			return detected, nil
+		if detected == nil || detected.Repository == "" || detected.Commit == "" {
+			return nil, nil
 		}
-		return nil, nil
+		if !commitPattern.MatchString(detected.Commit) {
+			return nil, failure(ErrInvalidArgument, "The detected pull request head commit is not a full SHA (40 or 64 hexadecimal characters). Set REVYL_PR_HEAD_SHA to the PR head SHA, or set Repo and Commit.")
+		}
+		return detected, nil
 	}
 	repository := strings.TrimSpace(options.Repo)
 	commit := strings.ToLower(strings.TrimSpace(options.Commit))
@@ -225,7 +235,7 @@ func githubActionsIdentity(getenv func(string) string) *ScmIdentity {
 	identity := &ScmIdentity{
 		CISystem:   "github-actions",
 		Repository: repository,
-		Commit:     firstNonEmpty(event.PullRequest.Head.SHA, getenv("REVYL_PR_HEAD_SHA"), getenv("GITHUB_SHA")),
+		Commit:     strings.ToLower(firstNonEmpty(event.PullRequest.Head.SHA, getenv("REVYL_PR_HEAD_SHA"), getenv("GITHUB_SHA"))),
 		PRURL:      strings.TrimSpace(event.PullRequest.HTMLURL),
 		Branch:     firstNonEmpty(getenv("GITHUB_HEAD_REF"), getenv("GITHUB_REF_NAME")),
 		BaseCommit: strings.TrimSpace(event.PullRequest.Base.SHA),
@@ -235,7 +245,7 @@ func githubActionsIdentity(getenv func(string) string) *ScmIdentity {
 	if event.PullRequest.Number > 0 {
 		identity.PR = event.PullRequest.Number
 	}
-	if server != "" && repository != "" && runID != "" {
+	if serverURL, err := url.Parse(server); err == nil && (serverURL.Scheme == "http" || serverURL.Scheme == "https") && repository != "" && runID != "" {
 		identity.RunURL = server + "/" + repository + "/actions/runs/" + runID
 	}
 	if server != "" && actor != "" {
@@ -494,9 +504,9 @@ func uploadCall(r response, err error, appID string, into any) error {
 	}
 	switch r.status {
 	case 401:
-		return &Error{Code: ErrAuthRejected, HTTPStatus: 401, Message: "Revyl rejected the upload credentials (HTTP 401)" + suffix + ". Uploads need a Revyl member's API key or a CI runner key; an organization API key that isn't tied to a member can be rejected as an invalid API key."}
+		return &Error{Code: ErrAuthRejected, HTTPStatus: 401, Message: "Revyl rejected the upload credentials (HTTP 401)" + suffix + ". Uploads need a Revyl member's API key, or the job's ci_runner key once the revyl-macos job's activation hook has run; an organization API key with no runtime authenticator is rejected as 'Invalid API key'."}
 	case 403:
-		return &Error{Code: ErrAuthRejected, HTTPStatus: 403, Message: "Revyl rejected the upload (HTTP 403)" + suffix + ". Uploading a build needs the Member role or higher in the app's organization."}
+		return &Error{Code: ErrAuthRejected, HTTPStatus: 403, Message: "Revyl rejected the upload (HTTP 403)" + suffix + ". Uploading a build needs the Member role or higher; a Viewer's key gets 403."}
 	case 404:
 		return &Error{Code: ErrNotFound, HTTPStatus: 404, Message: "Revyl app " + appID + " was not found in this organization" + suffix + "."}
 	case 409:
@@ -526,7 +536,31 @@ func responseDetailText(r response) string {
 	return ""
 }
 
+// createBuild creates the build like revyl-cli's doRequestWithRetryClient. A retry with the same upload_id and version
+// returns the existing build, so a 409 after a retry is a real version conflict.
+func createBuild(ctx context.Context, c *client, path string, body any, headers map[string]string) (response, error) {
+	for attempt := 0; ; attempt++ {
+		r, err := c.sendWithHeaders(ctx, http.MethodPost, path, body, false, uploadFinalizeTimeout, false, headers)
+		retryable := r.status == 429 || r.status >= 500
+		if err != nil {
+			retryable = errors.Is(err, ErrAPI) || errors.Is(err, ErrTimeout)
+		}
+		if !retryable || attempt >= uploadCreateAttempts-1 || ctx.Err() != nil {
+			return r, err
+		}
+		if err := pause(ctx, min(uploadCreateRetryBase<<attempt, uploadCreateRetryCap)); err != nil {
+			return response{}, err
+		}
+	}
+}
+
 func reviewCorrelation(raw json.RawMessage) ReviewCorrelation {
+	if len(raw) == 0 {
+		return ReviewCorrelation{Status: "unknown"}
+	}
+	if string(raw) == "null" {
+		return ReviewCorrelation{Status: "no_identity"}
+	}
 	var wire map[string]any
 	if json.Unmarshal(raw, &wire) != nil {
 		return ReviewCorrelation{Status: "unknown"}
@@ -535,7 +569,7 @@ func reviewCorrelation(raw json.RawMessage) ReviewCorrelation {
 	if status == "" {
 		return ReviewCorrelation{Status: "unknown"}
 	}
-	correlation := ReviewCorrelation{Status: status}
+	correlation := ReviewCorrelation{Status: status, Associated: status == "associated"}
 	if count, ok := wire["matched_target_count"].(float64); ok && count >= 0 && count == float64(int(count)) {
 		n := int(count)
 		correlation.MatchedTargetCount = &n
