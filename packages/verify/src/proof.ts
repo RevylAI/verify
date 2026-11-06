@@ -141,7 +141,8 @@ export async function proof(options: ProofOptions): Promise<ProofRun> {
     },
     options.signal,
   );
-  const states = options.wait === false ? started : await waitForAll(client, started, timeoutMs, options.signal);
+  const ordered = targets.map((target, index) => started.find((state) => state.appId === target.appId) ?? started[index]!);
+  const states = options.wait === false ? ordered : await waitForAll(client, ordered, timeoutMs, options.signal);
   const runs = states.map((state, index): ProofTargetRun => ({ ...state, appId: state.appId ?? targets[index]!.appId, build: builds[index]! }));
   return { runs, ...overallVerdict(runs), ...(runs.find((run) => run.reportUrl)?.reportUrl ? { reportUrl: runs.find((run) => run.reportUrl)!.reportUrl! } : {}), pullRequest };
 }
