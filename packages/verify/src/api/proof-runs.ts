@@ -1,22 +1,22 @@
-import { apiError, parseJson, responseErrorCode, type RawResponse, type RevylClient } from './client.js';
-import { VerifyError } from '../errors.js';
+import { apiError, parseJson, type RawResponse, type RevylClient } from './client.js';
+import { VerifyError, type VerifyErrorCode } from '../errors.js';
 
 /*
- * The proof-runs endpoints are not declared by Revyl yet (REVL-860). This module is the only place that knows
- * their paths and wire shapes, so aligning to the declared contract changes nothing outside it.
+ * Built against Revyl's provisional proof-runs contract (REVL-18697), which is not declared yet. This module is the
+ * only place that knows the paths and wire shapes, so aligning to the declared contract changes nothing outside it.
  */
 
 export type ProofHarness = 'revyl' | 'cursor' | 'capy' | 'devin';
-export type ProofRunStatus = 'queued' | 'running' | 'completed' | 'cancelled' | 'errored';
-export type ProofVerdict = 'ready' | 'ready_with_polish' | 'ready_with_issues' | 'failed' | 'inconclusive';
 
 export interface PullRequestContext {
   provider: 'github';
   repository: string;
   number: number;
   headSha: string;
-  baseSha: string;
+  baseSha?: string;
 }
+
+export type ProofEnvironmentValue = string | { secretRef: string };
 
 export interface CreateProofRunRequest {
   appId: string;
@@ -24,29 +24,35 @@ export interface CreateProofRunRequest {
   pullRequest: PullRequestContext;
   harness: ProofHarness;
   guidance?: string;
-  environment?: Record<string, string>;
+  environment?: Record<string, ProofEnvironmentValue>;
 }
 
 export interface ProofRunState {
   id: string;
-  status: ProofRunStatus;
-  verdict?: ProofVerdict;
-  reportUrl: string;
+  status: string;
+  verdict?: string;
+  label?: string;
+  reportUrl?: string;
+  reviewUrl?: string;
+  createdAt?: string;
+  settledAt?: string;
 }
 
-const STATUSES = new Set<ProofRunStatus>(['queued', 'running', 'completed', 'cancelled', 'errored']);
-const VERDICTS = new Set<ProofVerdict>(['ready', 'ready_with_polish', 'ready_with_issues', 'failed', 'inconclusive']);
-const GITHUB_APP_REFUSALS = new Set(['github_app_not_connected', 'github_app_not_installed', 'github_repository_not_granted']);
 const PROOF_RUNS_PATH = '/api/v1/proof-runs';
 const CREATE_TIMEOUT_MS = 60_000;
 const CANCEL_TIMEOUT_MS = 15_000;
-
-interface ProofRunWire {
-  proof_run_id?: unknown;
-  status?: unknown;
-  verdict?: unknown;
-  report_url?: unknown;
-}
+const GITHUB_APP_FIX = 'Proof of Changes needs the Revyl GitHub App on the repository: run `revyl github connect`, or grant the repository to the Revyl GitHub App.';
+const REFUSALS: Record<string, VerifyErrorCode> = {
+  config_managed_review: 'CONFIG_MANAGED_REVIEW',
+  github_app_not_connected: 'GITHUB_APP_NOT_CONNECTED',
+  github_app_not_installed: 'GITHUB_APP_NOT_CONNECTED',
+  github_repository_not_granted: 'GITHUB_APP_NOT_CONNECTED',
+  pull_request_closed: 'PR_CLOSED',
+  head_sha_not_current: 'HEAD_NOT_CURRENT',
+  app_not_found: 'NOT_FOUND',
+  build_not_found: 'NOT_FOUND',
+  platform_mismatch: 'PLATFORM_MISMATCH',
+};
 
 export async function createProofRun(client: RevylClient, request: CreateProofRunRequest, signal?: AbortSignal): Promise<ProofRunState> {
   const { pullRequest } = request;
@@ -54,11 +60,17 @@ export async function createProofRun(client: RevylClient, request: CreateProofRu
     body: {
       app_id: request.appId,
       build_id: request.buildId,
-      scm: { provider: pullRequest.provider, repo: pullRequest.repository, pr_number: pullRequest.number, head_sha: pullRequest.headSha, base_sha: pullRequest.baseSha },
+      scm: {
+        provider: pullRequest.provider,
+        repo: pullRequest.repository,
+        pr_number: pullRequest.number,
+        head_sha: pullRequest.headSha,
+        ...(pullRequest.baseSha ? { base_sha: pullRequest.baseSha } : {}),
+      },
       settings: {
         harness: request.harness,
         ...(request.guidance !== undefined ? { guidance: request.guidance } : {}),
-        ...(request.environment !== undefined ? { environment: request.environment } : {}),
+        ...(request.environment !== undefined ? { environment: wireEnvironment(request.environment) } : {}),
       },
     },
     timeoutMs: CREATE_TIMEOUT_MS,
@@ -70,7 +82,7 @@ export async function createProofRun(client: RevylClient, request: CreateProofRu
 
 export async function getProofRun(client: RevylClient, id: string, signal?: AbortSignal): Promise<ProofRunState> {
   const path = `${PROOF_RUNS_PATH}/${encodeURIComponent(id)}`;
-  return proofRunState(await client.send('GET', path, { signal }), 'GET', path);
+  return proofRunState(await client.send('GET', path, { signal }), 'GET', path, id);
 }
 
 export async function cancelProofRun(client: RevylClient, id: string): Promise<void> {
@@ -80,29 +92,60 @@ export async function cancelProofRun(client: RevylClient, id: string): Promise<v
   if (response.status < 200 || response.status >= 300) throw apiError('POST', path, response);
 }
 
-function proofRunState(response: RawResponse, method: string, path: string): ProofRunState {
+function wireEnvironment(environment: Record<string, ProofEnvironmentValue>): Record<string, { value: string } | { secret_ref: string }> {
+  return Object.fromEntries(Object.entries(environment).map(([name, value]) => [name, typeof value === 'string' ? { value } : { secret_ref: value.secretRef }]));
+}
+
+function proofRunState(response: RawResponse, method: string, path: string, knownId?: string): ProofRunState {
   if (response.status < 200 || response.status >= 300) throw proofRunError(response, method, path);
-  const wire = parseJson<ProofRunWire>(response, `${method} ${path}`);
-  const { proof_run_id: id, status, verdict, report_url: reportUrl } = wire;
-  if (typeof id !== 'string' || id === '' || typeof reportUrl !== 'string' || !STATUSES.has(status as ProofRunStatus)) {
-    throw new VerifyError('API_ERROR', `Revyl returned a proof run to ${method} ${path} without a known id, status, and report URL.`, { httpStatus: response.status });
+  const wire = parseJson<Record<string, unknown>>(response, `${method} ${path}`);
+  const id = typeof wire.proof_run_id === 'string' && wire.proof_run_id !== '' ? wire.proof_run_id : knownId;
+  if (id === undefined || typeof wire.status !== 'string') {
+    throw new VerifyError('API_ERROR', `Revyl returned a proof run to ${method} ${path} without an id and status.`, { httpStatus: response.status });
   }
-  if (status === 'completed' && !VERDICTS.has(verdict as ProofVerdict)) {
-    throw new VerifyError('API_ERROR', `Revyl completed proof run ${id} with an unknown verdict.`, { httpStatus: response.status });
-  }
-  return { id, status: status as ProofRunStatus, ...(status === 'completed' ? { verdict: verdict as ProofVerdict } : {}), reportUrl };
+  const text = (key: string): string | undefined => (typeof wire[key] === 'string' && wire[key] !== '' ? (wire[key] as string) : undefined);
+  const fields: Array<[keyof ProofRunState, string | undefined]> = [
+    ['verdict', text('verdict')],
+    ['label', text('display_status_label')],
+    ['reportUrl', text('report_url')],
+    ['reviewUrl', text('review_url')],
+    ['createdAt', text('created_at')],
+    ['settledAt', text('settled_at')],
+  ];
+  return { id, status: wire.status, ...Object.fromEntries(fields.filter(([, value]) => value !== undefined)) };
 }
 
 function proofRunError(response: RawResponse, method: string, path: string): VerifyError {
   const error = apiError(method, path, response);
-  const code = responseErrorCode(response);
-  if (code !== undefined && GITHUB_APP_REFUSALS.has(code)) {
-    return new VerifyError(
-      'GITHUB_APP_NOT_CONNECTED',
-      `${error.message}. Proof of Changes needs the Revyl GitHub App installed with access to the repository: run \`revyl github connect\`, then \`revyl github status\`.`,
-      { httpStatus: response.status },
-    );
+  if (error.code === 'EDGE_BLOCKED') return error;
+  const { code, proofRunId } = refusal(response);
+  const mapped = code === undefined ? undefined : REFUSALS[code];
+  const options = { httpStatus: response.status, ...(proofRunId ? { proofRunId } : {}) };
+  if (mapped === 'GITHUB_APP_NOT_CONNECTED') return new VerifyError(mapped, `${error.message}. ${GITHUB_APP_FIX}`, options);
+  if (mapped === 'CONFIG_MANAGED_REVIEW') {
+    return new VerifyError(mapped, `${error.message}. The repository's .revyl/config.yaml already runs Proof of Changes for this head, so proof() can't start another run.`, options);
   }
-  if (response.status === 404 && method === 'GET') return new VerifyError('NOT_FOUND', error.message, { httpStatus: 404 });
+  if (mapped) return new VerifyError(mapped, error.message, options);
+  if (response.status === 409 && proofRunId) {
+    return new VerifyError('PROOF_RUN_CONFLICT', `${error.message}. Proof run ${proofRunId} already covers this head with different settings.`, options);
+  }
+  if (response.status === 404 && method === 'GET') return new VerifyError('NOT_FOUND', error.message, options);
   return error;
+}
+
+function refusal(response: RawResponse): { code?: string; proofRunId?: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(response.body));
+  } catch {
+    return {};
+  }
+  if (typeof parsed !== 'object' || parsed === null) return {};
+  const record = parsed as Record<string, unknown>;
+  const detail = typeof record.detail === 'object' && record.detail !== null ? (record.detail as Record<string, unknown>) : {};
+  const first = (...values: unknown[]): string | undefined => values.find((value): value is string => typeof value === 'string' && value !== '');
+  return {
+    code: first(record.error, record.code, detail.error, detail.code, record.detail),
+    proofRunId: first(record.proof_run_id, detail.proof_run_id),
+  };
 }

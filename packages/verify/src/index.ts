@@ -4,7 +4,7 @@ export type { OpenedSession, Session, StepOptions, StepResult, StepType, Validat
 export { uploadBuild } from './upload.js';
 export type { ReviewCorrelation, ScmIdentity, UploadBuildOptions, UploadBuildResult } from './upload.js';
 export { proof } from './proof.js';
-export type { ProofHarness, ProofOptions, ProofRun, ProofRunStatus, ProofVerdict, PullRequestContext } from './proof.js';
+export type { ProofEnvironmentValue, ProofHarness, ProofOptions, ProofRun, PullRequestContext } from './proof.js';
 export { defineConfig } from './config.js';
 export type { HostedTargetConfig, MobileAppConfig, MobileTargetConfig, ComputerTargetConfig, TargetConfig, VerifyConfig, WebAppConfig, WebTargetConfig } from './config.js';
 export type { Platform, ComputerPlatform, MobilePlatform } from './api/types.js';

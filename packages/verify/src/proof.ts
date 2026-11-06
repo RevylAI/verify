@@ -1,12 +1,12 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { RevylClient } from './api/client.js';
-import { cancelProofRun, createProofRun, getProofRun, type ProofHarness, type ProofRunState, type ProofRunStatus, type ProofVerdict, type PullRequestContext } from './api/proof-runs.js';
+import { cancelProofRun, createProofRun, getProofRun, type ProofEnvironmentValue, type ProofHarness, type ProofRunState, type PullRequestContext } from './api/proof-runs.js';
 import { missingCredentialsMessage, resolveCredentials } from './auth.js';
 import { trackSession, untrackSession } from './cleanup.js';
 import { VerifyError, errorMessage } from './errors.js';
 import { detectScmIdentity, uploadBuild, type UploadBuildResult } from './upload.js';
 
-export type { ProofHarness, ProofRunStatus, ProofVerdict, PullRequestContext };
+export type { ProofEnvironmentValue, ProofHarness, PullRequestContext };
 
 export interface ProofOptions {
   /** The CI build to prove: a debug `.apk`, a simulator `.app` bundle, or a `.zip` holding one. */
@@ -17,8 +17,11 @@ export interface ProofOptions {
   guidance?: string;
   /** The agent that runs the proof. Defaults to `revyl`. */
   harness?: ProofHarness;
-  /** Launch variables for this run, by name. Verify never prints their values. */
-  environment?: Record<string, string>;
+  /**
+   * Launch variables for this run, by name. A string is a plain value: Revyl stores it in the run's snapshot and it may
+   * appear in reports, so it must not be a secret. `{ secretRef }` names an organization launch variable that holds a secret.
+   */
+  environment?: Record<string, ProofEnvironmentValue>;
   /** Block until the run has a verdict. Defaults to true. */
   wait?: boolean;
   /** How long `wait` blocks before failing with `TIMEOUT`. Defaults to 30 minutes. The run keeps going on Revyl. */
@@ -34,10 +37,18 @@ export interface ProofOptions {
 
 export interface ProofRun {
   id: string;
-  status: ProofRunStatus;
-  /** Set once `status` is `completed`. */
-  verdict?: ProofVerdict;
-  reportUrl: string;
+  /** Revyl's run status, as reported. */
+  status: string;
+  /** `passed`, `failed`, or `inconclusive` once the run settles with a verdict. */
+  verdict?: string;
+  /** Revyl's display label, such as `Ready`, `Ready with polish`, `Ready with issues`, `Failed`, or `Partial coverage`. */
+  label?: string;
+  /** The pull request comment with the report. */
+  reportUrl?: string;
+  reviewUrl?: string;
+  createdAt?: string;
+  /** Set once the run is over. */
+  settledAt?: string;
   pullRequest: PullRequestContext;
   build: UploadBuildResult;
 }
@@ -89,13 +100,13 @@ async function waitForVerdict(client: RevylClient, started: ProofRunState, timeo
   try {
     let state = started;
     for (let poll = 0; ; poll += 1) {
-      if (state.status === 'completed') return state;
-      if (state.status === 'cancelled' || state.status === 'errored') {
-        throw new VerifyError('PROOF_RUN_ENDED', `Proof of Changes run ${state.id} ended as ${state.status} without a verdict. See ${state.reportUrl}`);
+      if (state.settledAt !== undefined) {
+        if (state.verdict !== undefined) return state;
+        throw new VerifyError('PROOF_RUN_ENDED', `Proof of Changes run ${state.id} ended without a verdict (${state.label ?? state.status}).${where(state)}`);
       }
       const remaining = deadline - Date.now();
       if (remaining <= 0) {
-        throw new VerifyError('TIMEOUT', `Proof of Changes run ${state.id} had no verdict after ${Math.round(timeoutMs / 1000)} s. It keeps running on Revyl: ${state.reportUrl}`);
+        throw new VerifyError('TIMEOUT', `Proof of Changes run ${state.id} had no verdict after ${Math.round(timeoutMs / 1000)} s. It keeps running on Revyl.${where(state)}`);
       }
       await delay(Math.min(POLL_INTERVALS_MS[poll] ?? POLL_INTERVALS_MS.at(-1)!, remaining), undefined, { signal });
       state = await getProofRun(client, state.id, signal);
@@ -115,18 +126,24 @@ async function waitForVerdict(client: RevylClient, started: ProofRunState, timeo
 
 function detectPullRequest(): PullRequestContext {
   const identity = detectScmIdentity();
-  if (identity?.ciSystem !== 'github-actions' || identity.pr === undefined || !identity.baseCommit) {
-    throw new VerifyError('PR_CONTEXT_MISSING', 'proof() needs a pull_request event on GitHub Actions to know the repository, pull request, and head and base commits.');
+  if (identity?.ciSystem !== 'github-actions' || identity.pr === undefined) {
+    throw new VerifyError('PR_CONTEXT_MISSING', 'proof() needs a pull_request event on GitHub Actions to know the repository, pull request, and head commit.');
   }
-  return { provider: 'github', repository: identity.repository, number: identity.pr, headSha: identity.commit, baseSha: identity.baseCommit };
+  return { provider: 'github', repository: identity.repository, number: identity.pr, headSha: identity.commit, ...(identity.baseCommit ? { baseSha: identity.baseCommit } : {}) };
 }
 
-function validEnvironment(environment: Record<string, string> | undefined): Record<string, string> | undefined {
+function where(state: ProofRunState): string {
+  const url = state.reportUrl ?? state.reviewUrl;
+  return url ? ` See ${url}` : '';
+}
+
+function validEnvironment(environment: Record<string, ProofEnvironmentValue> | undefined): Record<string, ProofEnvironmentValue> | undefined {
   if (environment === undefined) return undefined;
-  if (typeof environment !== 'object' || environment === null || Array.isArray(environment)) throw new VerifyError('INVALID_ARGUMENT', 'environment must map variable names to string values.');
+  if (typeof environment !== 'object' || environment === null || Array.isArray(environment)) throw new VerifyError('INVALID_ARGUMENT', 'environment must map variable names to values or { secretRef } references.');
   for (const [name, value] of Object.entries(environment)) {
     if (!ENVIRONMENT_NAME.test(name)) throw new VerifyError('INVALID_ARGUMENT', `environment has an invalid variable name "${name}": use letters, digits, and underscores, not starting with a digit.`);
-    if (typeof value !== 'string') throw new VerifyError('INVALID_ARGUMENT', `environment variable ${name} must be a string.`);
+    const isReference = typeof value === 'object' && value !== null && typeof value.secretRef === 'string' && value.secretRef.trim() !== '';
+    if (typeof value !== 'string' && !isReference) throw new VerifyError('INVALID_ARGUMENT', `environment variable ${name} must be a string or { secretRef: '<launch variable name>' }.`);
   }
   return Object.keys(environment).length > 0 ? environment : undefined;
 }

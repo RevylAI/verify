@@ -8,7 +8,7 @@ import { VerifyError, errorMessage, isVerifyError } from '../errors.js';
 import { PACKAGE_NAME, VERSION } from '../version.js';
 import { initProject, validateInitAnswers, type InitAnswers } from './init.js';
 import { uploadBuild, type UploadBuildResult } from '../upload.js';
-import { proof, type ProofHarness, type ProofRun } from '../proof.js';
+import { proof, type ProofEnvironmentValue, type ProofHarness, type ProofRun } from '../proof.js';
 import { installVerify, packageHasVerify } from './install.js';
 import { signIn } from './login.js';
 
@@ -19,8 +19,9 @@ Usage
       Install Verify, write verify.config.ts and an example script, then check authentication
   npx ${PACKAGE_NAME} upload <artifact> --app-id <id> [--platform ios|android] [--version <label>] [--repo <owner/name> --commit <sha> [--pr <number>]] [--json]
       Upload a CI build (.apk, .app, or .zip) with its pull request identity, detected on GitHub Actions
-  npx ${PACKAGE_NAME} proof <artifact> --app-id <id> [--guidance <text>] [--harness revyl|cursor|capy|devin] [--env NAME[=value]]... [--timeout <minutes>] [--no-wait] [--json]
-      Upload a pull request's build and run Revyl Proof of Changes on it, on GitHub Actions. Exits 1 when the verdict is failed
+  npx ${PACKAGE_NAME} proof <artifact> --app-id <id> [--guidance <text>] [--harness revyl|cursor|capy|devin] [--env NAME[=value]]... [--env-secret NAME=<launch variable>]... [--timeout <minutes>] [--no-wait] [--json]
+      Upload a pull request's build and run Revyl Proof of Changes on it, on GitHub Actions. Exits 1 when the verdict is failed.
+      --env values are stored with the run and may appear in reports; pass secrets with --env-secret, naming an organization launch variable
   npx ${PACKAGE_NAME} whoami
       Check which Revyl account your credentials belong to
 
@@ -197,6 +198,7 @@ async function proofCommand(args: string[]): Promise<number> {
       guidance: { type: 'string' },
       harness: { type: 'string' },
       env: { type: 'string', multiple: true },
+      'env-secret': { type: 'string', multiple: true },
       timeout: { type: 'string' },
       'no-wait': { type: 'boolean' },
       json: { type: 'boolean' },
@@ -207,13 +209,18 @@ async function proofCommand(args: string[]): Promise<number> {
   const appId = values['app-id'] ?? process.env.REVYL_APP_ID?.trim();
   if (!appId) throw new VerifyError('INVALID_ARGUMENT', 'Pass --app-id (or set REVYL_APP_ID) with the Revyl app this build belongs to.');
   if (values.timeout !== undefined && !/^[1-9][0-9]*$/.test(values.timeout)) throw new VerifyError('INVALID_ARGUMENT', '--timeout must be a positive number of minutes.');
-  const environment: Record<string, string> = {};
+  const environment: Record<string, ProofEnvironmentValue> = {};
   for (const entry of values.env ?? []) {
     const separator = entry.indexOf('=');
     const name = separator === -1 ? entry : entry.slice(0, separator);
     const value = separator === -1 ? process.env[name] : entry.slice(separator + 1);
     if (value === undefined) throw new VerifyError('INVALID_ARGUMENT', `--env ${name} has no value: pass NAME=value or set ${name} in the environment.`);
     environment[name] = value;
+  }
+  for (const entry of values['env-secret'] ?? []) {
+    const separator = entry.indexOf('=');
+    if (separator <= 0 || separator === entry.length - 1) throw new VerifyError('INVALID_ARGUMENT', '--env-secret takes NAME=<launch variable>, naming an organization launch variable that holds the secret.');
+    environment[entry.slice(0, separator)] = { secretRef: entry.slice(separator + 1) };
   }
   const wait = !values['no-wait'];
   const run = await proof({
@@ -231,7 +238,8 @@ async function proofCommand(args: string[]): Promise<number> {
 
 function proofSummary(run: ProofRun): string {
   const subject = `Proof of Changes run ${run.id} for ${run.pullRequest.repository}#${run.pullRequest.number} (build ${run.build.buildId})`;
-  return [run.verdict ? `${subject}: ${run.verdict}.` : `Started ${subject}.`, `Report: ${run.reportUrl}`, ...run.build.warnings.map((warning) => `Warning: ${warning}`), ''].join('\n');
+  const outcome = run.verdict ? `${subject}: ${run.label ?? run.verdict}.` : `Started ${subject}.`;
+  return [outcome, ...(run.reportUrl ? [`Report: ${run.reportUrl}`] : []), ...(run.reviewUrl ? [`Review: ${run.reviewUrl}`] : []), ...run.build.warnings.map((warning) => `Warning: ${warning}`), ''].join('\n');
 }
 
 async function whoamiCommand(): Promise<number> {
