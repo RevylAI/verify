@@ -71,6 +71,7 @@ const (
 	ErrPRClosed               Code = "PR_CLOSED"
 	ErrHeadNotCurrent         Code = "HEAD_NOT_CURRENT"
 	ErrPlatformMismatch       Code = "PLATFORM_MISMATCH"
+	ErrPreviewUnreachable     Code = "PREVIEW_UNREACHABLE"
 	ErrTimeout                Code = "TIMEOUT"
 )
 

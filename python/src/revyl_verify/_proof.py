@@ -19,7 +19,13 @@ from ._proof_runs import (
     get_proof_run,
 )
 from ._transport import Client, VerifyError, credentials
-from ._upload import UploadResult, detect_scm_identity, upload_build
+from ._upload import (
+    UploadResult,
+    UrlBuildResult,
+    detect_scm_identity,
+    register_url_build,
+    upload_build,
+)
 
 _ENVIRONMENT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _DEFAULT_TIMEOUT = 30 * 60.0
@@ -42,13 +48,15 @@ class ProofRun:
     settled_at: str | None
     """Set once the run is over."""
     pull_request: PullRequestContext
-    build: UploadResult
+    build: UploadResult | UrlBuildResult
+    """The uploaded mobile build, or the registered Web URL build."""
 
 
 def proof(
-    build: str | os.PathLike[str],
-    app_id: str,
+    build: str | os.PathLike[str] | None = None,
+    app_id: str | None = None,
     *,
+    url: str | None = None,
     guidance: str | None = None,
     harness: ProofHarness = "revyl",
     environment: Mapping[str, ProofEnvironmentValue] | None = None,
@@ -58,7 +66,19 @@ def proof(
     token: str | None = None,
     backend_url: str | None = None,
 ) -> ProofRun:
-    """Uploads a pull request's CI build and starts a Revyl Proof of Changes run on it.
+    """Uploads a pull request's CI build, or registers its deployment URL, and starts a Revyl
+    Proof of Changes run on it.
+
+    Pass exactly one target: ``build``, a debug ``.apk``, a simulator ``.app`` bundle, or a
+    ``.zip`` holding one, for a mobile app; or ``url``, a deployment to prove in a cloud browser,
+    for a Web app. ``app_id`` is the Revyl app (UUID) the target belongs to.
+
+    A ``url`` must be public HTTPS on port 443, and any HTTP status of 400 or above fails the
+    page. URL builds take no headers or basic auth, so the page must load signed in or without
+    sign-in. The URL must stay up from the call until the run settles, which can take minutes;
+    with ``wait=False``, keeping it up is the caller's job. The same build at the same head commit
+    returns the earlier run, so a stable hostname reuses it. ``environment`` and ``version``
+    apply only to mobile builds.
 
     With ``wait`` (the default) it polls until the run has a verdict, for at most ``timeout``
     seconds; the run keeps going on Revyl after a timeout. Interrupting the wait cancels the run.
@@ -66,6 +86,21 @@ def proof(
     reports, so it must not be a secret; ``{"secret_ref": "NAME"}`` names an organization launch
     variable that holds a secret. Needs a pull request on GitHub Actions.
     """
+    web = url is not None
+    if web == (build is not None):
+        raise VerifyError(
+            "INVALID_ARGUMENT",
+            "Pass either build (a mobile artifact) or url (a Web deployment), not both.",
+        )
+    if web and environment is not None:
+        raise VerifyError(
+            "INVALID_ARGUMENT",
+            "environment applies only to mobile builds; a URL build takes no launch variables.",
+        )
+    if web and version is not None:
+        raise VerifyError("INVALID_ARGUMENT", "version applies only to mobile builds.")
+    if not isinstance(app_id, str):
+        raise VerifyError("INVALID_ARGUMENT", "app_id must be a Revyl app id (a UUID).")
     if harness not in get_args(ProofHarness):
         raise VerifyError(
             "INVALID_ARGUMENT", f"harness must be one of {', '.join(get_args(ProofHarness))}."
@@ -87,13 +122,17 @@ def proof(
     resolved_token = credentials() if token is None else token
     client = Client(backend_url, resolved_token)
 
-    uploaded = upload_build(
-        build, app_id, version=version, token=resolved_token, backend_url=backend_url
+    target: UploadResult | UrlBuildResult = (
+        register_url_build(client, url, app_id)
+        if url is not None
+        else upload_build(
+            build or "", app_id, version=version, token=resolved_token, backend_url=backend_url
+        )
     )
     started = create_proof_run(
         client,
         app_id=app_id,
-        build_id=uploaded.build_id,
+        build_id=target.build_id,
         pull_request=pull_request,
         harness=harness,
         guidance=focus,
@@ -110,7 +149,7 @@ def proof(
         created_at=state.created_at,
         settled_at=state.settled_at,
         pull_request=pull_request,
-        build=uploaded,
+        build=target,
     )
 
 

@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // UploadOptions describes a finished CI build to upload for Proof of Changes.
@@ -173,6 +174,96 @@ func UploadBuild(ctx context.Context, options UploadOptions) (*UploadResult, err
 		ReviewCorrelation: reviewCorrelation(build.Correlation),
 		Warnings:          validationWarnings(build.Metadata),
 	}, nil
+}
+
+// URLBuildResult is a deployment URL registered as a Web app build.
+type URLBuildResult struct {
+	BuildID  string `json:"buildId"`
+	AppID    string `json:"appId"`
+	Platform string `json:"platform"`
+	URL      string `json:"url"`
+	Version  string `json:"version,omitempty"`
+	// Reused is true when Revyl returned the build it already had for this app, URL, and commit.
+	Reused   bool         `json:"reused"`
+	Identity *ScmIdentity `json:"identity,omitempty"`
+}
+
+var webURLPattern = regexp.MustCompile(`^https://[^/?#@\s\\]+(/[^?#\s\\]*)?$`)
+
+const webURLMaxLength = 2048
+
+// validateWebURL rejects what Revyl's URL-build route rejects: anything but HTTPS, credentials, a query, a fragment,
+// a bad port, or over 2048 characters.
+func validateWebURL(raw string) error {
+	invalid := len(raw) > webURLMaxLength || !webURLPattern.MatchString(raw) || strings.IndexFunc(raw, func(r rune) bool { return r < 0x20 || r == 0x7f || unicode.IsSpace(r) }) >= 0
+	if invalid {
+		return failure(ErrInvalidArgument, "URL must be an HTTPS URL of at most 2048 characters, without credentials, a query string, a fragment, backslashes, or whitespace.")
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return failure(ErrInvalidArgument, "URL must be a valid HTTPS URL.")
+	}
+	if port := u.Port(); port != "" {
+		if n, err := strconv.Atoi(port); err != nil || n > 65535 {
+			return failure(ErrInvalidArgument, "URL must be a valid HTTPS URL.")
+		}
+	}
+	if u.Hostname() == "" {
+		return failure(ErrInvalidArgument, "URL must name a host.")
+	}
+	return nil
+}
+
+// registerURLBuild registers a deployment URL as a build of a Web app, like revyl build upload --platform web --url.
+func registerURLBuild(ctx context.Context, c *client, rawURL, appID string) (*URLBuildResult, error) {
+	if !uuidPattern.MatchString(appID) {
+		return nil, failure(ErrInvalidArgument, "AppID must be a Revyl app id (a UUID).")
+	}
+	if err := validateWebURL(rawURL); err != nil {
+		return nil, err
+	}
+	identity, err := detectScmIdentity(UploadOptions{}, os.Getenv)
+	if err != nil {
+		return nil, err
+	}
+	body := map[string]any{"url": rawURL, "metadata": identityMetadata(identity, "web")}
+	if identity != nil {
+		body["commit_sha"] = identity.Commit
+	}
+	r, err := c.sendWithHeaders(ctx, http.MethodPost, "/api/v1/apps/"+url.PathEscape(appID)+"/builds/external", body, false, 30*time.Second, false, identityHeaders(identity))
+	if err != nil {
+		return nil, err
+	}
+	if r.status < 200 || r.status >= 300 {
+		failed := httpError(r).(*Error)
+		suffix := ""
+		if detail := responseDetailText(r); detail != "" {
+			suffix = ": " + detail
+		}
+		switch {
+		case r.status == 403 && failed.Code == ErrAuthRejected:
+			return nil, &Error{Code: ErrAuthRejected, HTTPStatus: 403, Message: "Revyl rejected the URL build (HTTP 403)" + suffix + ". Registering a URL build needs a Revyl member's own API key with the Member role or higher."}
+		case r.status == 404:
+			return nil, &Error{Code: ErrNotFound, HTTPStatus: 404, Message: "Revyl app " + appID + " was not found in this organization" + suffix + "."}
+		case r.status == 422:
+			return nil, &Error{Code: ErrInvalidArgument, HTTPStatus: 422, Message: "Revyl rejected the URL build (HTTP 422)" + suffix + "."}
+		}
+		return nil, failed
+	}
+	var build struct {
+		ID        string `json:"id"`
+		Version   any    `json:"version"`
+		WasReused any    `json:"was_reused"`
+	}
+	if err := decode(r, &build); err != nil {
+		return nil, err
+	}
+	if build.ID == "" {
+		return nil, failure(ErrAPI, "Revyl registered the URL build without returning its id.")
+	}
+	version, _ := build.Version.(string)
+	reused, _ := build.WasReused.(bool)
+	return &URLBuildResult{BuildID: build.ID, AppID: appID, Platform: "web", URL: rawURL, Version: version, Reused: reused, Identity: identity}, nil
 }
 
 func detectScmIdentity(options UploadOptions, getenv func(string) string) (*ScmIdentity, error) {

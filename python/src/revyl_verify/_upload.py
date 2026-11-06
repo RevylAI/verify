@@ -33,6 +33,9 @@ _CREATE_RETRY_BASE = 0.5
 _CREATE_RETRY_CAP = 10.0
 _PUT_RETRY_DELAYS = (1.0, 3.0)
 _RETRYABLE_PUT_STATUSES = frozenset({429, 500, 502, 503, 504})
+_WEB_URL = re.compile(r"^https://[^/?#@\s\\]+(/[^?#\s\\]*)?$")
+_WEB_URL_MAX_LENGTH = 2048
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 
 
 @dataclass(frozen=True)
@@ -162,6 +165,102 @@ def upload_build(
     )
 
 
+@dataclass(frozen=True)
+class UrlBuildResult:
+    """A deployment URL registered as a Web app build."""
+
+    build_id: str
+    app_id: str
+    platform: Literal["web"]
+    url: str
+    version: str | None
+    reused: bool
+    """True when Revyl returned the build it already had for this app, URL, and commit."""
+    identity: ScmIdentity | None
+
+
+def validate_web_url(url: object) -> str:
+    """Rejects what Revyl's URL-build route rejects: anything but HTTPS, credentials, a query,
+    a fragment, a bad port, or over 2048 characters."""
+    if (
+        not isinstance(url, str)
+        or len(url) > _WEB_URL_MAX_LENGTH
+        or not _WEB_URL.fullmatch(url)
+        or _CONTROL.search(url)
+    ):
+        raise VerifyError(
+            "INVALID_ARGUMENT",
+            "url must be an HTTPS URL of at most 2048 characters, without credentials, a query "
+            "string, a fragment, backslashes, or whitespace.",
+        )
+    try:
+        parsed = urlsplit(url)
+        _ = parsed.port
+    except ValueError:
+        raise VerifyError("INVALID_ARGUMENT", "url must be a valid HTTPS URL.") from None
+    if not parsed.hostname:
+        raise VerifyError("INVALID_ARGUMENT", "url must name a host.")
+    return url
+
+
+def register_url_build(client: Client, url: str, app_id: str) -> UrlBuildResult:
+    """Registers a deployment URL as a build of a Web app, like
+    `revyl build upload --platform web --url`."""
+    if not isinstance(app_id, str) or not UUID_PATTERN.fullmatch(app_id):
+        raise VerifyError("INVALID_ARGUMENT", "app_id must be a Revyl app id (a UUID).")
+    url = validate_web_url(url)
+    identity = detect_scm_identity()
+    body: dict[str, Json] = {"url": url, "metadata": _identity_metadata(identity, "web")}
+    if identity is not None:
+        body["commit_sha"] = identity.commit
+    response = client.request(
+        "POST",
+        f"/api/v1/apps/{quote(app_id, safe='')}/builds/external",
+        body,
+        deadline=Deadline(_SESSION_TIMEOUT),
+        timeout=_SESSION_TIMEOUT,
+        headers=_identity_headers(identity),
+    )
+    if not 200 <= response.status < 300:
+        error = http_error(response)
+        detail = _detail(response)
+        suffix = f": {detail}" if detail else ""
+        if response.status == 403 and error.code == "AUTH_REJECTED":
+            raise VerifyError(
+                "AUTH_REJECTED",
+                f"Revyl rejected the URL build (HTTP 403){suffix}. Registering a URL build needs a "
+                "Revyl member's own API key with the Member role or higher.",
+                http_status=403,
+            )
+        if response.status == 404:
+            raise VerifyError(
+                "NOT_FOUND",
+                f"Revyl app {app_id} was not found in this organization{suffix}.",
+                http_status=404,
+            )
+        if response.status == 422:
+            raise VerifyError(
+                "INVALID_ARGUMENT",
+                f"Revyl rejected the URL build (HTTP 422){suffix}.",
+                http_status=422,
+            )
+        raise error
+    build = obj(response.json())
+    build_id = build.get("id")
+    if not isinstance(build_id, str) or not build_id:
+        raise VerifyError("API_ERROR", "Revyl registered the URL build without returning its id.")
+    version = build.get("version")
+    return UrlBuildResult(
+        build_id=build_id,
+        app_id=app_id,
+        platform="web",
+        url=url,
+        version=version if isinstance(version, str) and version else None,
+        reused=build.get("was_reused") is True,
+        identity=identity,
+    )
+
+
 def detect_scm_identity(
     *,
     repo: str | None = None,
@@ -288,7 +387,9 @@ def _header_safe(value: str) -> bool:
     return all(32 <= ord(char) <= 126 for char in value)
 
 
-def _identity_metadata(identity: ScmIdentity | None, platform: MobilePlatform) -> dict[str, Json]:
+def _identity_metadata(
+    identity: ScmIdentity | None, platform: MobilePlatform | Literal["web"]
+) -> dict[str, Json]:
     if identity is None:
         return {}
     namespace, _, project = identity.repository.rpartition("/")
@@ -613,6 +714,7 @@ __all__ = [
     "ReviewCorrelation",
     "ScmIdentity",
     "UploadResult",
+    "UrlBuildResult",
     "detect_scm_identity",
     "upload_build",
 ]

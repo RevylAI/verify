@@ -30,6 +30,8 @@ var proofRunRefusals = map[string]Code{
 	"app_not_found":                 ErrNotFound,
 	"build_not_found":               ErrNotFound,
 	"platform_mismatch":             ErrPlatformMismatch,
+	"preview_unreachable":           ErrPreviewUnreachable,
+	"url_unreachable":               ErrPreviewUnreachable,
 }
 
 type proofRunState struct {
@@ -130,32 +132,41 @@ func proofRunError(r response, method, path string) error {
 	if failed.Code == ErrEdgeBlocked {
 		return failed
 	}
-	refusal, runID := proofRunRefusal(r)
+	refusal, said, runID := proofRunRefusal(r)
 	code, mapped := proofRunRefusals[refusal]
-	message := fmt.Sprintf("Revyl request %s %s failed (HTTP %d)", method, path, r.status)
+	message := fmt.Sprintf("Revyl refused the proof run (HTTP %d", r.status)
+	if refusal != "" {
+		message += ", " + refusal
+	}
+	message += ")"
+	if said != "" {
+		message += ": " + said
+	}
+	message += "."
 	switch {
 	case code == ErrGitHubAppNotConnected:
-		message += ": " + refusal + ". " + proofRunGitHubAppFix
+		message += " " + proofRunGitHubAppFix
 	case code == ErrConfigManagedReview:
-		message += ": " + refusal + ". The repository's .revyl/config.yaml already runs Proof of Changes for this head, so Proof can't start another run."
+		message += " The repository's .revyl/config.yaml already runs Proof of Changes for this head, so Proof can't start another run."
+	case code == ErrPreviewUnreachable:
+		message += " Revyl couldn't load the URL: it must be public HTTPS on port 443 and answer below HTTP 400 without headers or basic auth."
 	case mapped:
-		message += ": " + refusal + "."
 	case r.status == 409 && runID != "":
 		code = ErrProofRunConflict
-		message += ". Proof run " + runID + " already covers this head with different settings."
+		message += " Proof run " + runID + " already covers this head with different settings."
 	case r.status == 404 && method == http.MethodGet:
 		code = ErrNotFound
-		message += "."
+		message = fmt.Sprintf("Revyl request %s %s failed (HTTP 404).", method, path)
 	default:
 		return failed
 	}
 	return &Error{Code: code, Reason: failed.Reason, HTTPStatus: r.status, Message: message, ProofRunID: runID}
 }
 
-func proofRunRefusal(r response) (string, string) {
+func proofRunRefusal(r response) (string, string, string) {
 	var body map[string]any
 	if json.Unmarshal(r.body, &body) != nil {
-		return "", ""
+		return "", "", ""
 	}
 	detail, _ := body["detail"].(map[string]any)
 	first := func(values ...any) string {
@@ -166,5 +177,13 @@ func proofRunRefusal(r response) (string, string) {
 		}
 		return ""
 	}
-	return first(body["error"], body["code"], detail["error"], detail["code"], body["detail"]), first(body["proof_run_id"], detail["proof_run_id"])
+	code := first(body["error"], body["code"], detail["error"], detail["code"], body["detail"])
+	said := first(detail["message"], body["message"], body["detail"])
+	if said == code {
+		said = ""
+	}
+	if len(said) > 500 {
+		said = said[:500]
+	}
+	return code, said, first(body["proof_run_id"], detail["proof_run_id"])
 }

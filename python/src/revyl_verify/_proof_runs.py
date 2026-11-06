@@ -52,6 +52,10 @@ _GITHUB_APP_FIX = (
     "Proof of Changes needs the Revyl GitHub App on the repository: run `revyl github connect`, "
     "or grant the repository to the Revyl GitHub App."
 )
+_PREVIEW_UNREACHABLE = (
+    "Revyl couldn't load the URL: it must be public HTTPS on port 443 and answer below HTTP 400 "
+    "without headers or basic auth."
+)
 _REFUSALS = {
     "config_managed_review": "CONFIG_MANAGED_REVIEW",
     "github_app_not_connected": "GITHUB_APP_NOT_CONNECTED",
@@ -62,6 +66,8 @@ _REFUSALS = {
     "app_not_found": "NOT_FOUND",
     "build_not_found": "NOT_FOUND",
     "platform_mismatch": "PLATFORM_MISMATCH",
+    "preview_unreachable": "PREVIEW_UNREACHABLE",
+    "url_unreachable": "PREVIEW_UNREACHABLE",
 }
 
 
@@ -155,24 +161,29 @@ def _proof_run_error(response: Response, method: str, path: str) -> VerifyError:
     error = http_error(response)
     if error.code == "EDGE_BLOCKED":
         return error
-    code, run_id = _refusal(response)
+    code, said, run_id = _refusal(response)
     mapped = _REFUSALS.get(code) if code else None
-    message = f"Revyl request {method} {path} failed (HTTP {response.status})"
+    refused = (
+        f"Revyl refused the proof run (HTTP {response.status}{f', {code}' if code else ''})"
+        f"{f': {said}' if said else ''}."
+    )
     if mapped == "GITHUB_APP_NOT_CONNECTED":
-        message = f"{message}: {code}. {_GITHUB_APP_FIX}"
+        message = f"{refused} {_GITHUB_APP_FIX}"
     elif mapped == "CONFIG_MANAGED_REVIEW":
         message = (
-            f"{message}: {code}. The repository's .revyl/config.yaml already runs Proof of Changes "
-            "for this head, so proof() can't start another run."
+            f"{refused} The repository's .revyl/config.yaml already runs Proof of Changes for this "
+            "head, so proof() can't start another run."
         )
+    elif mapped == "PREVIEW_UNREACHABLE":
+        message = f"{refused} {_PREVIEW_UNREACHABLE}"
     elif mapped:
-        message = f"{message}: {code}."
+        message = refused
     elif response.status == 409 and run_id:
         mapped = "PROOF_RUN_CONFLICT"
-        message = f"{message}. Proof run {run_id} already covers this head with different settings."
+        message = f"{refused} Proof run {run_id} already covers this head with different settings."
     elif response.status == 404 and method == "GET":
         mapped = "NOT_FOUND"
-        message = f"{message}."
+        message = f"Revyl request {method} {path} failed (HTTP 404)."
     else:
         return error
     return VerifyError(
@@ -180,18 +191,21 @@ def _proof_run_error(response: Response, method: str, path: str) -> VerifyError:
     )
 
 
-def _refusal(response: Response) -> tuple[str | None, str | None]:
+def _refusal(response: Response) -> tuple[str | None, str | None, str | None]:
     try:
         raw = obj(response.json())
     except VerifyError:
-        return None, None
+        return None, None, None
     detail = raw.get("detail")
     nested = detail if isinstance(detail, dict) else {}
 
     def first(*values: Json) -> str | None:
         return next((value for value in values if isinstance(value, str) and value), None)
 
+    code = first(raw.get("error"), raw.get("code"), nested.get("error"), nested.get("code"), detail)
+    said = first(nested.get("message"), raw.get("message"), detail)
     return (
-        first(raw.get("error"), raw.get("code"), nested.get("error"), nested.get("code"), detail),
+        code,
+        said[:500] if said is not None and said != code else None,
         first(raw.get("proof_run_id"), nested.get("proof_run_id")),
     )

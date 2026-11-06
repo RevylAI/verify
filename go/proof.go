@@ -44,11 +44,17 @@ func (v EnvValue) String() string {
 
 func (v EnvValue) GoString() string { return v.String() }
 
-// ProofOptions describes a pull request build to prove.
+// ProofOptions describes a pull request build to prove. Set exactly one of Build and URL.
 type ProofOptions struct {
-	// Build is a debug .apk, a simulator .app bundle, or a .zip holding one.
+	// Build is a mobile build: a debug .apk, a simulator .app bundle, or a .zip holding one.
 	Build string
-	// AppID is the Revyl app (UUID) the build belongs to.
+	// URL is a Web deployment to prove in a cloud browser. It must be public HTTPS on port 443, and any HTTP status of
+	// 400 or above fails the page. URL builds take no headers or basic auth, so the page must load signed in or without
+	// sign-in. It must stay up from the call until the run settles, which can take minutes; with NoWait, keeping it up
+	// is the caller's job. The same build at the same head commit returns the earlier run, so a stable hostname reuses
+	// it. Environment and Version apply only to Build.
+	URL string
+	// AppID is the Revyl app (UUID): a mobile app for Build, a Web app for URL.
 	AppID string
 	// Guidance is what the agent should focus on.
 	Guidance string
@@ -93,7 +99,10 @@ type ProofRun struct {
 	// SettledAt is set once the run is over.
 	SettledAt   string             `json:"settledAt,omitempty"`
 	PullRequest PullRequestContext `json:"pullRequest"`
-	Build       *UploadResult      `json:"build"`
+	// Build is the uploaded mobile build; nil for a URL.
+	Build *UploadResult `json:"build,omitempty"`
+	// URLBuild is the registered Web URL build; nil for a mobile build.
+	URLBuild *URLBuildResult `json:"urlBuild,omitempty"`
 }
 
 var environmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -102,10 +111,20 @@ const defaultProofTimeout = 30 * time.Minute
 
 var proofPollIntervals = []time.Duration{5 * time.Second, 10 * time.Second, 15 * time.Second}
 
-// Proof uploads a pull request's CI build and starts a Revyl Proof of Changes run on it. Unless NoWait is set it
+// Proof uploads a pull request's CI build, or registers its deployment URL, and starts a Revyl Proof of Changes run
+// on it. Unless NoWait is set it
 // polls until the run has a verdict, and cancels the run if ctx is cancelled while waiting.
 // It needs a pull request on GitHub Actions.
 func Proof(ctx context.Context, options ProofOptions) (*ProofRun, error) {
+	web := options.URL != ""
+	switch {
+	case web == (options.Build != ""):
+		return nil, failure(ErrInvalidArgument, "Set either Build (a mobile artifact) or URL (a Web deployment), not both.")
+	case web && options.Environment != nil:
+		return nil, failure(ErrInvalidArgument, "Environment applies only to mobile builds; a URL build takes no launch variables.")
+	case web && options.Version != "":
+		return nil, failure(ErrInvalidArgument, "Version applies only to mobile builds.")
+	}
 	harness := options.Harness
 	if harness == "" {
 		harness = HarnessRevyl
@@ -138,13 +157,22 @@ func Proof(ctx context.Context, options ProofOptions) (*ProofRun, error) {
 	if err != nil {
 		return nil, err
 	}
-	build, err := UploadBuild(ctx, UploadOptions{File: options.Build, AppID: options.AppID, Version: options.Version, Token: c.token, BackendURL: options.BackendURL, HTTPClient: options.HTTPClient})
-	if err != nil {
-		return nil, err
+	run := &ProofRun{PullRequest: pullRequest}
+	var buildID string
+	if web {
+		if run.URLBuild, err = registerURLBuild(ctx, c, options.URL, options.AppID); err != nil {
+			return nil, err
+		}
+		buildID = run.URLBuild.BuildID
+	} else {
+		if run.Build, err = UploadBuild(ctx, UploadOptions{File: options.Build, AppID: options.AppID, Version: options.Version, Token: c.token, BackendURL: options.BackendURL, HTTPClient: options.HTTPClient}); err != nil {
+			return nil, err
+		}
+		buildID = run.Build.BuildID
 	}
 	state, err := createProofRun(ctx, c, createProofRunRequest{
 		appID:       options.AppID,
-		buildID:     build.BuildID,
+		buildID:     buildID,
 		pullRequest: pullRequest,
 		harness:     harness,
 		guidance:    strings.TrimSpace(options.Guidance),
@@ -158,18 +186,9 @@ func Proof(ctx context.Context, options ProofOptions) (*ProofRun, error) {
 			return nil, err
 		}
 	}
-	return &ProofRun{
-		ID:          state.id,
-		Status:      state.status,
-		Verdict:     state.verdict,
-		Label:       state.label,
-		ReportURL:   state.reportURL,
-		ReviewURL:   state.reviewURL,
-		CreatedAt:   state.createdAt,
-		SettledAt:   state.settledAt,
-		PullRequest: pullRequest,
-		Build:       build,
-	}, nil
+	run.ID, run.Status, run.Verdict, run.Label = state.id, state.status, state.verdict, state.label
+	run.ReportURL, run.ReviewURL, run.CreatedAt, run.SettledAt = state.reportURL, state.reviewURL, state.createdAt, state.settledAt
+	return run, nil
 }
 
 func waitForVerdict(ctx context.Context, c *client, started proofRunState, timeout time.Duration) (proofRunState, error) {
