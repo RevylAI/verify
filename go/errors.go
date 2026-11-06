@@ -60,6 +60,11 @@ const (
 	ErrCommandFailed          Code = "COMMAND_FAILED"
 	ErrNotFound               Code = "NOT_FOUND"
 	ErrAccessDenied           Code = "ACCESS_DENIED"
+	ErrEnvironmentStartFailed Code = "ENVIRONMENT_START_FAILED"
+	ErrEnvironmentNotReady    Code = "ENVIRONMENT_NOT_READY"
+	ErrTunnelFailed           Code = "TUNNEL_FAILED"
+	ErrTunnelUnavailable      Code = "TUNNEL_UNAVAILABLE"
+	ErrCleanupFailed          Code = "CLEANUP_FAILED"
 	ErrTimeout                Code = "TIMEOUT"
 )
 

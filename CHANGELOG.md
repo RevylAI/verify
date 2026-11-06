@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add `environment()` and `verify env` to run a pull request's stack on the CI runner for `proof()`. Each exposed port gets a Cloudflare quick tunnel (credential-free, public and unguessable, no access control, alive only for the run), created before the start command so the stack can be configured with its public origins. `environment()` waits until each name answers on localhost and through its public URL, runs an optional seed, and tears down the tunnels, the stop command and the start command's process group on close, an error, Ctrl+C or SIGTERM, with every step bounded. URLs are hidden in logs (and masked on GitHub Actions) unless `showUrls` or `--show-urls` is set. When `cloudflared` 2026.10.2 or later isn't on PATH, Verify downloads a pinned release into a user cache and checks its sha256 before running it. New error codes: `ENVIRONMENT_START_FAILED`, `ENVIRONMENT_NOT_READY`, `TUNNEL_FAILED`, `TUNNEL_UNAVAILABLE` and `CLEANUP_FAILED`.
+- Add the same per-PR environment to Python, as `environment()` (a context manager) and `async_environment()`, and to Go, as `verify.Environment(ctx, verify.EnvironmentOptions{...})` returning an `*Env` with `URLs()`, `Variables()` and `Close(ctx)`. Both match the TypeScript lifecycle, URL hiding, cloudflared pinning and error codes, with timeouts in seconds (Python) or `time.Duration` (Go). Python tears down on context exit, Ctrl+C, SIGTERM and interpreter exit; Go tears down when `ctx` is cancelled during setup and on `Close`. Neither adds a CLI.
 
 ## 0.3.1 (2026-11-03)
 
