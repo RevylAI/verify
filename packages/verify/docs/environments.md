@@ -34,6 +34,7 @@ npx @revyl/verify env --start "docker compose up -d" --stop "docker compose down
 - **Only for the run.** A tunnel lives as long as the `cloudflared` process Verify started. It's gone after `close()`, the end of the `await using` block, or the end of `verify env`.
 - **Best effort.** Quick tunnels need no Cloudflare account and come with no uptime guarantee. Cloudflare rate-limits how many one network address can create; Verify retries a refusal twice and then fails with `TUNNEL_FAILED`.
 - **Hidden in logs.** Verify never prints a URL unless you pass `showUrls: true` or `--show-urls`. It replaces any quick-tunnel URL in the commands' output with `<tunnel url>`, and on GitHub Actions it also masks each URL. Treat a URL like a password while it's up, and don't put one in a pull request comment.
+- **Command output is printed.** Output from `start`, `stop` and `seed` goes to the log with only tunnel URLs hidden. Send anything that prints a secret, such as a sign-in link, to a file instead.
 - **Your secrets stay yours.** The stack runs on your runner with the job's own environment and secrets. Verify sends nothing to Revyl; `proof()` receives only what you pass in `environment`. Plain values there are stored with the run and can appear in reports, so pass secrets as `{ secretRef }`.
 
 If anyone reaching the stack would be a problem (for example a dashboard served already signed in), keep that stack off a public URL.
