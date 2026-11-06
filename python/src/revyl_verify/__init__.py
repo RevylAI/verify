@@ -74,8 +74,8 @@ def open(
     seconds(step_timeout, 1, 3600, "step_timeout")
     if log is not None and not callable(log):
         raise VerifyError("INVALID_ARGUMENT", "log must be a callable or None.")
-    client = Client(backend_url)
     viewer = origin(app_url or "https://app.revyl.ai", app=True)
+    client = Client(backend_url, app_url, _cancellation)
     session = (ComputerSession if target.platform in ("mac", "linux") else Session).start(
         client, viewer, target, step_timeout, log, _cancellation
     )
@@ -103,8 +103,8 @@ def attach(
     if log is not None and not callable(log):
         raise VerifyError("INVALID_ARGUMENT", "log must be a callable or None.")
     install_signal_cleanup()
-    client = Client(backend_url)
     viewer = origin(app_url or "https://app.revyl.ai", app=True)
+    client = Client(backend_url, app_url, _cancellation)
     return ComputerSession.attach(
         client, viewer, computer_id, step_timeout, log, _cancellation, stop_on_close=stop_on_close
     )
