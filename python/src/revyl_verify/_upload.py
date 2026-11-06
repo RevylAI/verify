@@ -51,9 +51,10 @@ class ScmIdentity:
 
 @dataclass(frozen=True)
 class ReviewCorrelation:
-    """Whether Revyl attached the build to a review. Revyl does not report it yet."""
+    """Whether Revyl attached the build to a review; `unknown` when Revyl doesn't report it."""
 
-    status: Literal["unknown"] = "unknown"
+    status: str = "unknown"
+    matched_target_count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -147,7 +148,7 @@ def upload_build(
         platform=resolved_platform,
         package_id=package if isinstance(package, str) and package else None,
         identity=identity,
-        review_correlation=ReviewCorrelation(),
+        review_correlation=_review_correlation(build.get("review_correlation")),
         warnings=_validation_warnings(build.get("metadata")),
     )
 
@@ -521,6 +522,18 @@ def _detail(response: Response) -> str | None:
         return None
     detail = raw.get("detail", raw.get("message"))
     return detail[:500] if isinstance(detail, str) else None
+
+
+def _review_correlation(wire: Json) -> ReviewCorrelation:
+    if not isinstance(wire, dict):
+        return ReviewCorrelation()
+    status = wire.get("status")
+    if not isinstance(status, str) or not status:
+        return ReviewCorrelation()
+    count = wire.get("matched_target_count")
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+        return ReviewCorrelation(status=status)
+    return ReviewCorrelation(status=status, matched_target_count=count)
 
 
 def _validation_warnings(metadata: Json) -> tuple[str, ...]:

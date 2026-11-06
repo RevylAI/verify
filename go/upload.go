@@ -53,9 +53,10 @@ type ScmIdentity struct {
 	ActorURL   string `json:"actorUrl,omitempty"`
 }
 
-// ReviewCorrelation reports whether Revyl attached the build to a review. Revyl does not report it yet, so Status is always "unknown".
+// ReviewCorrelation reports whether Revyl attached the build to a review, as Revyl reports it. Status is "unknown" when Revyl doesn't report it.
 type ReviewCorrelation struct {
-	Status string `json:"status"`
+	Status             string `json:"status"`
+	MatchedTargetCount *int   `json:"matchedTargetCount,omitempty"`
 }
 
 // UploadResult is the uploaded build. Identity is nil when no pull request identity was found, so no review can match it.
@@ -141,6 +142,10 @@ func UploadBuild(ctx context.Context, options UploadOptions) (*UploadResult, err
 		Version     string         `json:"version"`
 		PackageName string         `json:"package_name"`
 		Metadata    map[string]any `json:"metadata"`
+		Correlation *struct {
+			Status             string `json:"status"`
+			MatchedTargetCount *int   `json:"matched_target_count"`
+		} `json:"review_correlation"`
 	}
 	r, err = c.sendWithHeaders(ctx, http.MethodPost, appPath, map[string]any{"upload_id": session.UploadID, "version": version, "metadata": metadata}, true, uploadFinalizeTimeout, false, headers)
 	if err := uploadCall(r, err, options.AppID, &build); err != nil {
@@ -152,6 +157,13 @@ func UploadBuild(ctx context.Context, options UploadOptions) (*UploadResult, err
 	if build.Version != "" {
 		version = build.Version
 	}
+	correlation := ReviewCorrelation{Status: "unknown"}
+	if build.Correlation != nil && build.Correlation.Status != "" {
+		correlation.Status = build.Correlation.Status
+		if count := build.Correlation.MatchedTargetCount; count != nil && *count >= 0 {
+			correlation.MatchedTargetCount = count
+		}
+	}
 	return &UploadResult{
 		BuildID:           build.ID,
 		Version:           version,
@@ -159,7 +171,7 @@ func UploadBuild(ctx context.Context, options UploadOptions) (*UploadResult, err
 		Platform:          platform,
 		PackageID:         build.PackageName,
 		Identity:          identity,
-		ReviewCorrelation: ReviewCorrelation{Status: "unknown"},
+		ReviewCorrelation: correlation,
 		Warnings:          validationWarnings(build.Metadata),
 	}, nil
 }
