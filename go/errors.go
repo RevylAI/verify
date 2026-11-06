@@ -63,6 +63,14 @@ const (
 	ErrArtifactRejected       Code = "ARTIFACT_REJECTED"
 	ErrVersionExists          Code = "VERSION_EXISTS"
 	ErrUploadFailed           Code = "UPLOAD_FAILED"
+	ErrPRContextMissing       Code = "PR_CONTEXT_MISSING"
+	ErrGitHubAppNotConnected  Code = "GITHUB_APP_NOT_CONNECTED"
+	ErrProofRunEnded          Code = "PROOF_RUN_ENDED"
+	ErrProofRunConflict       Code = "PROOF_RUN_CONFLICT"
+	ErrConfigManagedReview    Code = "CONFIG_MANAGED_REVIEW"
+	ErrPRClosed               Code = "PR_CLOSED"
+	ErrHeadNotCurrent         Code = "HEAD_NOT_CURRENT"
+	ErrPlatformMismatch       Code = "PLATFORM_MISMATCH"
 	ErrTimeout                Code = "TIMEOUT"
 )
 
@@ -73,6 +81,8 @@ type Error struct {
 	Message    string
 	Cause      error
 	ExecResult *ExecResult
+	// ProofRunID is the existing Proof of Changes run, on PROOF_RUN_CONFLICT.
+	ProofRunID string
 }
 
 func (e *Error) Error() string { return fmt.Sprintf("%s: %s", e.Code, e.Message) }

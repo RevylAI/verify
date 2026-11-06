@@ -33,7 +33,9 @@ type UploadOptions struct {
 	// Commit is the full pull request head SHA, never a merge commit. It requires Repo.
 	Commit string
 	// PR selects the pull request explicitly; zero matches by commit. It requires Repo and Commit.
-	PR         int
+	PR int
+	// Token defaults to REVYL_API_KEY or the Revyl CLI login.
+	Token      string
 	BackendURL string
 	HTTPClient *http.Client
 }
@@ -103,7 +105,7 @@ func UploadBuild(ctx context.Context, options UploadOptions) (*UploadResult, err
 	if version == "" {
 		version = defaultUploadVersion(identity)
 	}
-	c, _, err := newClient(OpenOptions{BackendURL: options.BackendURL, HTTPClient: options.HTTPClient})
+	c, _, err := newTokenClient(OpenOptions{BackendURL: options.BackendURL, HTTPClient: options.HTTPClient}, options.Token)
 	if err != nil {
 		return nil, err
 	}

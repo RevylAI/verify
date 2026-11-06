@@ -78,18 +78,20 @@ def upload_build(
     repo: str | None = None,
     commit: str | None = None,
     pr: int | None = None,
+    token: str | None = None,
     backend_url: str | None = None,
 ) -> UploadResult:
     """Uploads a finished CI build with the pull request identity Revyl matches to a review.
 
     The identity is detected on GitHub Actions; pass ``repo`` and ``commit`` elsewhere.
+    ``token`` defaults to REVYL_API_KEY or the Revyl CLI login.
     """
     if not isinstance(app_id, str) or not UUID_PATTERN.fullmatch(app_id):
         raise VerifyError("INVALID_ARGUMENT", "app_id must be a Revyl app id (a UUID).")
     path, resolved_platform, is_bundle = _inspect_artifact(Path(file), platform)
     identity = detect_scm_identity(repo=repo, commit=commit, pr=pr)
     label = (version or "").strip() or _default_version(identity)
-    client = Client(backend_url)
+    client = Client(backend_url, token)
     headers = _identity_headers(identity)
     app_path = f"/api/v1/apps/{quote(app_id, safe='')}/builds"
     with tempfile.TemporaryDirectory(prefix="verify-upload-") as scratch:

@@ -17,6 +17,8 @@ from ._models import (
     Target,
     Viewport,
 )
+from ._proof import ProofRun, proof
+from ._proof_runs import ProofEnvironmentValue, ProofHarness, PullRequestContext, SecretRef
 from ._session import Session
 from ._transport import Cancellation, CleanupStatus, RefusalReason, VerifyError, origin, seconds
 from ._upload import ReviewCorrelation, ScmIdentity, UploadResult, upload_build
@@ -31,9 +33,14 @@ __all__ = [
     "ExecResult",
     "FileStat",
     "Platform",
+    "ProofEnvironmentValue",
+    "ProofHarness",
+    "ProofRun",
+    "PullRequestContext",
     "RefusalReason",
     "ReviewCorrelation",
     "ScmIdentity",
+    "SecretRef",
     "Session",
     "SignIn",
     "StepResult",
@@ -47,6 +54,7 @@ __all__ = [
     "async_open",
     "current_computer",
     "open",
+    "proof",
     "upload_build",
 ]
 
