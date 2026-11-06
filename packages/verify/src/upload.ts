@@ -295,7 +295,7 @@ async function putArtifact(uploadUrl: string, contentType: string, filePath: str
     if (outcome instanceof Response) await outcome.body?.cancel();
     const wait = PUT_RETRY_DELAYS_MS[attempt];
     if (!retryable || wait === undefined) throw failure;
-    await delay(wait, undefined, { signal });
+    await backoff(wait, signal);
   }
 }
 
@@ -327,6 +327,14 @@ async function call<T>(pending: Promise<RawResponse>, method: string, path: stri
   }
 }
 
+async function backoff(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  try {
+    await delay(ms, undefined, { signal });
+  } catch (error) {
+    throw new VerifyError('TIMEOUT', "The upload ran past its caller's deadline.", { cause: error });
+  }
+}
+
 function reviewCorrelation(present: boolean, wire: unknown): ReviewCorrelation {
   if (present && wire === null) return { status: 'no_identity', associated: false };
   if (typeof wire !== 'object' || wire === null) return { status: 'unknown', associated: false };
@@ -350,7 +358,7 @@ async function createBuild(client: RevylClient, path: string, body: unknown, hea
       if (outcome instanceof VerifyError) throw outcome;
       return outcome;
     }
-    await delay(wait, undefined, { signal });
+    await backoff(wait, signal);
   }
 }
 
