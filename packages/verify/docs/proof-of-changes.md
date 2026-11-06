@@ -49,7 +49,8 @@ It writes two files and never publishes configuration or starts a session:
 
   ```yaml
   - name: Upload the build to Revyl
-    run: npx --yes @revyl/verify@<version> upload "<artifact>" --app-id <app UUID> --platform ios
+    run: |
+      npx --yes @revyl/verify@<version> upload "<artifact>" --app-id <app UUID> --platform ios
     env:
       REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
   ```
@@ -71,6 +72,7 @@ npx @revyl/verify upload <artifact> --app-id <id> [--platform ios|android] [--ve
 - On GitHub Actions the pull request identity is detected: the repository, the pull request number, and the PR **head** commit (never the merge commit GitHub checks out).
 - On another runner, pass `--repo` (the base repository receiving the pull request) and `--commit` (the full PR head SHA). Add `--pr` to pick the pull request explicitly; without it Revyl matches by head commit.
 - `--json` prints the result object below.
+- Header values that aren't plain ASCII, such as a non-ASCII branch name, are sent only in the build metadata.
 
 The same call from code:
 
