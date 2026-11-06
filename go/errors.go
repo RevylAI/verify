@@ -70,7 +70,11 @@ const (
 	ErrConfigManagedReview    Code = "CONFIG_MANAGED_REVIEW"
 	ErrPRClosed               Code = "PR_CLOSED"
 	ErrHeadNotCurrent         Code = "HEAD_NOT_CURRENT"
-	ErrPlatformMismatch       Code = "PLATFORM_MISMATCH"
+	ErrBuildRejected          Code = "BUILD_REJECTED"
+	ErrUntrustedPRHead        Code = "UNTRUSTED_PR_HEAD"
+	ErrSecretRefNotAllowed    Code = "SECRET_REF_NOT_ALLOWED"
+	ErrProofRunLimit          Code = "PROOF_RUN_LIMIT"
+	ErrProviderUnavailable    Code = "PROVIDER_UNAVAILABLE"
 	ErrPreviewUnreachable     Code = "PREVIEW_UNREACHABLE"
 	ErrTimeout                Code = "TIMEOUT"
 )
@@ -82,8 +86,8 @@ type Error struct {
 	Message    string
 	Cause      error
 	ExecResult *ExecResult
-	// ProofRunID is the existing Proof of Changes run, on PROOF_RUN_CONFLICT.
-	ProofRunID string
+	// ProofRunIDs are the existing Proof of Changes runs for the head, on PROOF_RUN_CONFLICT.
+	ProofRunIDs []string
 }
 
 func (e *Error) Error() string { return fmt.Sprintf("%s: %s", e.Code, e.Message) }

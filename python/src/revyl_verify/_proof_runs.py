@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal, TypeAlias, TypedDict
@@ -7,15 +8,14 @@ from urllib.parse import quote
 
 from ._transport import Client, Deadline, Json, Response, VerifyError, http_error, obj
 
-# Built against Revyl's provisional proof-runs contract (REVL-18697), which is not declared
-# yet. This module is the only place that knows the paths and wire shapes, so aligning to the
-# declared contract changes nothing outside it.
+# Revyl's Proof API, as declared in revyl-cli/docs/proof-api.md. This module is the only place
+# that knows its paths, wire shapes, and refusal codes.
 
-ProofHarness = Literal["revyl", "cursor", "capy", "devin"]
+ProofHarness = Literal["revyl"]
 
 
 class SecretRef(TypedDict):
-    """Names an organization launch variable that holds a secret."""
+    """Uses the organization launch variable of the same name, which holds a secret."""
 
     secret_ref: str
 
@@ -56,28 +56,85 @@ class ProofRunState:
 
 _PROOF_RUNS_PATH = "/api/v1/proof-runs"
 _CREATE_TIMEOUT = 60.0
+_CREATE_RETRY_DELAYS = (0.5, 1.0, 2.0)
 _GET_TIMEOUT = 30.0
 _CANCEL_TIMEOUT = 15.0
-_GITHUB_APP_FIX = (
-    "Proof of Changes needs the Revyl GitHub App on the repository: run `revyl github connect`, "
-    "or grant the repository to the Revyl GitHub App."
-)
-_PREVIEW_UNREACHABLE = (
-    "Revyl couldn't load the URL: it must be public HTTPS on port 443 and answer below HTTP 400 "
-    "without headers or basic auth."
-)
-_REFUSALS = {
-    "config_managed_review": "CONFIG_MANAGED_REVIEW",
-    "github_app_not_connected": "GITHUB_APP_NOT_CONNECTED",
-    "github_app_not_installed": "GITHUB_APP_NOT_CONNECTED",
-    "github_repository_not_granted": "GITHUB_APP_NOT_CONNECTED",
-    "pull_request_closed": "PR_CLOSED",
-    "head_sha_not_current": "HEAD_NOT_CURRENT",
-    "app_not_found": "NOT_FOUND",
-    "build_not_found": "NOT_FOUND",
-    "platform_mismatch": "PLATFORM_MISMATCH",
-    "preview_unreachable": "PREVIEW_UNREACHABLE",
-    "url_unreachable": "PREVIEW_UNREACHABLE",
+_VERDICT_STATUSES = frozenset({"passed", "failed", "inconclusive"})
+_TERMINAL_STATUSES = _VERDICT_STATUSES | {"cancelled", "superseded"}
+_REFUSALS: dict[str, tuple[str, str | None]] = {
+    "principal_not_allowed": (
+        "AUTH_REJECTED",
+        "The Proof API takes a Revyl member API key or a Revyl CI runner job key.",
+    ),
+    "access_denied": (
+        "AUTH_REJECTED",
+        "Starting proofs needs the Member role or higher; a Viewer's key is refused.",
+    ),
+    "environment_secret_ref_not_allowed": (
+        "SECRET_REF_NOT_ALLOWED",
+        "Only a member API key can reference a secret launch variable; a CI runner job key "
+        "cannot. Use a member key, or pass the variable as a plain non-secret value.",
+    ),
+    "repository_not_accessible": (
+        "GITHUB_APP_NOT_CONNECTED",
+        "Grant the repository to the Revyl GitHub App, then run `revyl github status`.",
+    ),
+    "github_app_not_connected": (
+        "GITHUB_APP_NOT_CONNECTED",
+        "Run `revyl github connect`, or grant the repository to the Revyl GitHub App.",
+    ),
+    "pull_request_not_found": ("NOT_FOUND", None),
+    "app_not_found": ("NOT_FOUND", None),
+    "build_not_found": ("NOT_FOUND", None),
+    "proof_run_not_found": ("NOT_FOUND", None),
+    "pull_request_not_open": ("PR_CLOSED", None),
+    "head_sha_mismatch": ("HEAD_NOT_CURRENT", "The pull request moved on; prove its current head."),
+    "base_sha_mismatch": (
+        "HEAD_NOT_CURRENT",
+        "The pull request's base moved on; prove it again from a fresh run of the job.",
+    ),
+    "config_managed_review": (
+        "CONFIG_MANAGED_REVIEW",
+        "The repository's own Revyl config already proves this head.",
+    ),
+    "proof_settings_conflict": (
+        "PROOF_RUN_CONFLICT",
+        "Proofs with other apps, settings, or environment already cover this head; upload a new "
+        "build or push a new commit to prove again.",
+    ),
+    "untrusted_pull_request_head": (
+        "UNTRUSTED_PR_HEAD",
+        "Pull requests from forks are not proved.",
+    ),
+    "build_not_supported": ("BUILD_REJECTED", None),
+    "build_scm_mismatch": (
+        "BUILD_REJECTED",
+        "The build was uploaded for another repository, pull request, or commit.",
+    ),
+    "unsupported_platform": ("BUILD_REJECTED", None),
+    "duplicate_target_platform": ("INVALID_ARGUMENT", None),
+    "web_build_unreachable": (
+        "PREVIEW_UNREACHABLE",
+        "The Web URL must be reachable from the request until its run settles.",
+    ),
+    "environment_not_supported_on_web": ("INVALID_ARGUMENT", None),
+    "environment_secret_ref_not_found": (
+        "INVALID_ARGUMENT",
+        "Create the organization launch variable first.",
+    ),
+    "environment_secret_ref_alias_unsupported": ("INVALID_ARGUMENT", None),
+    "environment_secret_value_refused": (
+        "INVALID_ARGUMENT",
+        "Reference the secret launch variable by name instead of sending its value.",
+    ),
+    "harness_not_supported": ("INVALID_ARGUMENT", None),
+    "invalid_request": ("INVALID_ARGUMENT", None),
+    "proof_run_limit_reached": (
+        "PROOF_RUN_LIMIT",
+        "Too many Proof API runs are queued or running for the organization; try again once some "
+        "settle.",
+    ),
+    "provider_unavailable": ("PROVIDER_UNAVAILABLE", "Revyl could not reach GitHub."),
 }
 
 
@@ -89,8 +146,8 @@ def create_proof_runs(
     harness: ProofHarness,
     guidance: str | None,
 ) -> list[ProofRunState]:
-    """Starts one run per target. Revyl returns the existing runs when the same target set was
-    already started at this head."""
+    """Starts one run per target, retrying 5xx and network errors like an upload does: a repeat
+    of the same request returns the existing runs, so it is safe to send again."""
     wire_targets: list[Json] = []
     for target in targets:
         wire: dict[str, Json] = {"app_id": target.app_id, "build_id": target.build_id}
@@ -113,13 +170,7 @@ def create_proof_runs(
     settings: dict[str, Json] = {"harness": harness}
     if guidance is not None:
         settings["guidance"] = guidance
-    response = client.request(
-        "POST",
-        _PROOF_RUNS_PATH,
-        {"targets": wire_targets, "scm": scm, "settings": settings},
-        deadline=Deadline(_CREATE_TIMEOUT),
-        timeout=_CREATE_TIMEOUT,
-    )
+    response = _send_create(client, {"targets": wire_targets, "scm": scm, "settings": settings})
     if not 200 <= response.status < 300:
         raise _proof_run_error(response, "POST", _PROOF_RUNS_PATH)
     runs = obj(response.json()).get("runs")
@@ -132,6 +183,27 @@ def create_proof_runs(
     return [_wire_state(run, response.status, f"POST {_PROOF_RUNS_PATH}") for run in runs]
 
 
+def _send_create(client: Client, body: Json) -> Response:
+    for attempt in range(len(_CREATE_RETRY_DELAYS) + 1):
+        last = attempt == len(_CREATE_RETRY_DELAYS)
+        try:
+            response = client.request(
+                "POST",
+                _PROOF_RUNS_PATH,
+                body,
+                deadline=Deadline(_CREATE_TIMEOUT),
+                timeout=_CREATE_TIMEOUT,
+            )
+        except VerifyError as error:
+            if last or error.code not in ("API_ERROR", "TIMEOUT"):
+                raise
+        else:
+            if last or response.status < 500:
+                return response
+        time.sleep(_CREATE_RETRY_DELAYS[attempt])
+    raise AssertionError("unreachable")
+
+
 def get_proof_run(client: Client, run_id: str) -> ProofRunState:
     path = f"{_PROOF_RUNS_PATH}/{quote(run_id, safe='')}"
     response = client.request(
@@ -141,12 +213,18 @@ def get_proof_run(client: Client, run_id: str) -> ProofRunState:
 
 
 def cancel_proof_run(client: Client, run_id: str) -> None:
+    """Stops the run's agent and releases its device; cancelling a settled run changes nothing."""
     path = f"{_PROOF_RUNS_PATH}/{quote(run_id, safe='')}/cancel"
     response = client.request(
         "POST", path, deadline=Deadline(_CANCEL_TIMEOUT), timeout=_CANCEL_TIMEOUT, retry=True
     )
-    if response.status != 409 and not 200 <= response.status < 300:
-        raise http_error(response)
+    if not 200 <= response.status < 300:
+        raise _proof_run_error(response, "POST", path)
+
+
+def is_settled(state: ProofRunState) -> bool:
+    """Whether the run is over: it has settled, or its status is one Revyl never leaves."""
+    return state.settled_at is not None or state.status in _TERMINAL_STATUSES
 
 
 def _state(response: Response, method: str, path: str, known_id: str) -> ProofRunState:
@@ -177,7 +255,7 @@ def _wire_state(
         status=status,
         app_id=text("app_id"),
         platform=text("platform"),
-        verdict=text("verdict"),
+        verdict=text("verdict") or (status if status in _VERDICT_STATUSES else None),
         label=text("display_status_label"),
         report_url=text("report_url"),
         review_url=text("review_url"),
@@ -190,51 +268,41 @@ def _proof_run_error(response: Response, method: str, path: str) -> VerifyError:
     error = http_error(response)
     if error.code == "EDGE_BLOCKED":
         return error
-    code, said, run_id = _refusal(response)
-    mapped = _REFUSALS.get(code) if code else None
-    refused = (
-        f"Revyl refused the proof run (HTTP {response.status}{f', {code}' if code else ''})"
-        f"{f': {said}' if said else ''}."
-    )
-    if mapped == "GITHUB_APP_NOT_CONNECTED":
-        message = f"{refused} {_GITHUB_APP_FIX}"
-    elif mapped == "CONFIG_MANAGED_REVIEW":
-        message = (
-            f"{refused} The repository's .revyl/config.yaml already runs Proof of Changes for this "
-            "head, so proof() can't start another run."
-        )
-    elif mapped == "PREVIEW_UNREACHABLE":
-        message = f"{refused} {_PREVIEW_UNREACHABLE}"
-    elif mapped:
-        message = refused
-    elif response.status == 409 and run_id:
-        mapped = "PROOF_RUN_CONFLICT"
-        message = f"{refused} Proof run {run_id} already covers this head with different settings."
-    elif response.status == 404 and method == "GET":
-        mapped = "NOT_FOUND"
-        message = f"Revyl request {method} {path} failed (HTTP 404)."
-    else:
+    code, said, run_ids = _refusal(response)
+    if code is None:
         return error
+    known = _REFUSALS.get(code)
+    if known is None:
+        return VerifyError(
+            error.code,
+            f"{error.message} ({code})",
+            reason=error.reason,
+            http_status=response.status,
+            proof_run_ids=run_ids,
+        )
+    mapped, hint = known
+    message = (
+        f"Revyl refused the proof (HTTP {response.status}, {code}){f': {said}' if said else ''}."
+    )
     return VerifyError(
-        mapped, message, reason=error.reason, http_status=response.status, proof_run_id=run_id
+        mapped,
+        f"{message} {hint}" if hint else message,
+        http_status=response.status,
+        proof_run_ids=run_ids,
     )
 
 
-def _refusal(response: Response) -> tuple[str | None, str | None, str | None]:
+def _refusal(response: Response) -> tuple[str | None, str | None, list[str] | None]:
     try:
         raw = obj(response.json())
     except VerifyError:
         return None, None, None
-    detail = raw.get("detail")
-    nested = detail if isinstance(detail, dict) else {}
-
-    def first(*values: Json) -> str | None:
-        return next((value for value in values if isinstance(value, str) and value), None)
-
-    code = first(raw.get("error"), raw.get("code"), nested.get("error"), nested.get("code"), detail)
-    said = first(nested.get("message"), raw.get("message"), detail)
+    code, detail, ids = raw.get("code"), raw.get("detail"), raw.get("existing_proof_run_ids")
+    run_ids = (
+        [item for item in ids if isinstance(item, str) and item] if isinstance(ids, list) else []
+    )
     return (
-        code,
-        said[:500] if said is not None and said != code else None,
-        first(raw.get("proof_run_id"), nested.get("proof_run_id")),
+        code if isinstance(code, str) and code else None,
+        detail[:500] if isinstance(detail, str) and detail else None,
+        run_ids or None,
     )

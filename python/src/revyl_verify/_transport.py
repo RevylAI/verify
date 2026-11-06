@@ -61,14 +61,14 @@ class VerifyError(Exception):
         result: object | None = None,
         reason: RefusalReason | None = None,
         http_status: int | None = None,
-        proof_run_id: str | None = None,
+        proof_run_ids: list[str] | None = None,
     ) -> None:
         self.code = code
         self.message = message
         self.result = result
         self.reason: RefusalReason | None = reason
         self.http_status: int | None = http_status
-        self.proof_run_id: str | None = proof_run_id
+        self.proof_run_ids: list[str] | None = proof_run_ids
         self.platform: Platform | None = None
         self.session_id: str | None = None
         self.workflow_run_id: str | None = None

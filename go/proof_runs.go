@@ -3,35 +3,59 @@ package verify
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"time"
 )
 
-// Built against Revyl's provisional proof-runs contract (REVL-18697), which is not declared yet. This file is the
-// only place that knows the paths and wire shapes, so aligning to the declared contract changes nothing outside it.
+// Revyl's Proof API, as declared in revyl-cli/docs/proof-api.md. This file is the only place that knows its paths, wire
+// shapes, and refusal codes.
 
 const (
 	proofRunsPath         = "/api/v1/proof-runs"
 	proofRunCreateTimeout = 60 * time.Second
 	proofRunGetTimeout    = 30 * time.Second
 	proofRunCancelTimeout = 15 * time.Second
-	proofRunGitHubAppFix  = "Proof of Changes needs the Revyl GitHub App on the repository: run `revyl github connect`, or grant the repository to the Revyl GitHub App."
 )
 
-var proofRunRefusals = map[string]Code{
-	"config_managed_review":         ErrConfigManagedReview,
-	"github_app_not_connected":      ErrGitHubAppNotConnected,
-	"github_app_not_installed":      ErrGitHubAppNotConnected,
-	"github_repository_not_granted": ErrGitHubAppNotConnected,
-	"pull_request_closed":           ErrPRClosed,
-	"head_sha_not_current":          ErrHeadNotCurrent,
-	"app_not_found":                 ErrNotFound,
-	"build_not_found":               ErrNotFound,
-	"platform_mismatch":             ErrPlatformMismatch,
-	"preview_unreachable":           ErrPreviewUnreachable,
-	"url_unreachable":               ErrPreviewUnreachable,
+var proofRunCreateRetryDelays = []time.Duration{500 * time.Millisecond, time.Second, 2 * time.Second}
+
+type proofRefusal struct {
+	code Code
+	hint string
+}
+
+var proofRunRefusals = map[string]proofRefusal{
+	"principal_not_allowed":                    {ErrAuthRejected, "The Proof API takes a Revyl member API key or a Revyl CI runner job key."},
+	"access_denied":                            {ErrAuthRejected, "Starting proofs needs the Member role or higher; a Viewer's key is refused."},
+	"environment_secret_ref_not_allowed":       {ErrSecretRefNotAllowed, "Only a member API key can reference a secret launch variable; a CI runner job key cannot. Use a member key, or pass the variable as a plain non-secret value."},
+	"repository_not_accessible":                {ErrGitHubAppNotConnected, "Grant the repository to the Revyl GitHub App, then run `revyl github status`."},
+	"github_app_not_connected":                 {ErrGitHubAppNotConnected, "Run `revyl github connect`, or grant the repository to the Revyl GitHub App."},
+	"pull_request_not_found":                   {ErrNotFound, ""},
+	"app_not_found":                            {ErrNotFound, ""},
+	"build_not_found":                          {ErrNotFound, ""},
+	"proof_run_not_found":                      {ErrNotFound, ""},
+	"pull_request_not_open":                    {ErrPRClosed, ""},
+	"head_sha_mismatch":                        {ErrHeadNotCurrent, "The pull request moved on; prove its current head."},
+	"base_sha_mismatch":                        {ErrHeadNotCurrent, "The pull request's base moved on; prove it again from a fresh run of the job."},
+	"config_managed_review":                    {ErrConfigManagedReview, "The repository's own Revyl config already proves this head."},
+	"proof_settings_conflict":                  {ErrProofRunConflict, "Proofs with other apps, settings, or environment already cover this head; upload a new build or push a new commit to prove again."},
+	"untrusted_pull_request_head":              {ErrUntrustedPRHead, "Pull requests from forks are not proved."},
+	"build_not_supported":                      {ErrBuildRejected, ""},
+	"build_scm_mismatch":                       {ErrBuildRejected, "The build was uploaded for another repository, pull request, or commit."},
+	"unsupported_platform":                     {ErrBuildRejected, ""},
+	"duplicate_target_platform":                {ErrInvalidArgument, ""},
+	"web_build_unreachable":                    {ErrPreviewUnreachable, "The Web URL must be reachable from the request until its run settles."},
+	"environment_not_supported_on_web":         {ErrInvalidArgument, ""},
+	"environment_secret_ref_not_found":         {ErrInvalidArgument, "Create the organization launch variable first."},
+	"environment_secret_ref_alias_unsupported": {ErrInvalidArgument, ""},
+	"environment_secret_value_refused":         {ErrInvalidArgument, "Reference the secret launch variable by name instead of sending its value."},
+	"harness_not_supported":                    {ErrInvalidArgument, ""},
+	"invalid_request":                          {ErrInvalidArgument, ""},
+	"proof_run_limit_reached":                  {ErrProofRunLimit, "Too many Proof API runs are queued or running for the organization; try again once some settle."},
+	"provider_unavailable":                     {ErrProviderUnavailable, "Revyl could not reach GitHub."},
 }
 
 // proofRunState is one run as Revyl reports it. appID and platform come from the create response; a GET may not repeat them.
@@ -51,8 +75,8 @@ type createProofRunsRequest struct {
 	guidance    string
 }
 
-// createProofRuns starts one run per target. Revyl returns the existing runs when the same target set was already
-// started at this head.
+// createProofRuns starts one run per target, retrying 5xx and network errors like an upload does: a repeat of the
+// same request returns the existing runs, so it is safe to send again.
 func createProofRuns(ctx context.Context, c *client, request createProofRunsRequest) ([]proofRunState, error) {
 	targets := make([]map[string]any, 0, len(request.targets))
 	for _, target := range request.targets {
@@ -83,7 +107,7 @@ func createProofRuns(ctx context.Context, c *client, request createProofRunsRequ
 	if request.guidance != "" {
 		settings["guidance"] = request.guidance
 	}
-	r, err := c.send(ctx, http.MethodPost, proofRunsPath, map[string]any{"targets": targets, "scm": scm, "settings": settings}, false, proofRunCreateTimeout, false)
+	r, err := sendProofRunsCreate(ctx, c, map[string]any{"targets": targets, "scm": scm, "settings": settings})
 	if err != nil {
 		return nil, err
 	}
@@ -110,6 +134,22 @@ func createProofRuns(ctx context.Context, c *client, request createProofRunsRequ
 	return states, nil
 }
 
+func sendProofRunsCreate(ctx context.Context, c *client, body any) (response, error) {
+	for attempt := 0; ; attempt++ {
+		r, err := c.send(ctx, http.MethodPost, proofRunsPath, body, false, proofRunCreateTimeout, false)
+		retryable := r.status >= 500
+		if err != nil {
+			retryable = errors.Is(err, ErrAPI) || errors.Is(err, ErrTimeout)
+		}
+		if !retryable || attempt >= len(proofRunCreateRetryDelays) || ctx.Err() != nil {
+			return r, err
+		}
+		if err := pause(ctx, proofRunCreateRetryDelays[attempt]); err != nil {
+			return response{}, err
+		}
+	}
+}
+
 func getProofRun(ctx context.Context, c *client, id string) (proofRunState, error) {
 	path := proofRunsPath + "/" + url.PathEscape(id)
 	r, err := c.send(ctx, http.MethodGet, path, nil, true, proofRunGetTimeout, false)
@@ -119,15 +159,32 @@ func getProofRun(ctx context.Context, c *client, id string) (proofRunState, erro
 	return decodeProofRun(r, http.MethodGet, path, id)
 }
 
+// cancelProofRun stops the run's agent and releases its device; cancelling a settled run changes nothing.
 func cancelProofRun(ctx context.Context, c *client, id string) error {
-	r, err := c.send(ctx, http.MethodPost, proofRunsPath+"/"+url.PathEscape(id)+"/cancel", nil, true, proofRunCancelTimeout, false)
+	path := proofRunsPath + "/" + url.PathEscape(id) + "/cancel"
+	r, err := c.send(ctx, http.MethodPost, path, nil, true, proofRunCancelTimeout, false)
 	if err != nil {
 		return err
 	}
-	if r.status == 409 || (r.status >= 200 && r.status < 300) {
-		return nil
+	if r.status < 200 || r.status >= 300 {
+		return proofRunError(r, http.MethodPost, path)
 	}
-	return httpError(r)
+	return nil
+}
+
+// withIdentity keeps the app and platform the create response named for the run.
+func (s proofRunState) withIdentity(known proofRunState) proofRunState {
+	s.appID, s.platform = firstNonEmpty(known.appID, s.appID), firstNonEmpty(known.platform, s.platform)
+	return s
+}
+
+// isSettled reports whether the run is over: it has settled, or its status is one Revyl never leaves.
+func (s proofRunState) isSettled() bool {
+	switch s.status {
+	case "passed", "failed", "inconclusive", "cancelled", "superseded":
+		return true
+	}
+	return s.settledAt != ""
 }
 
 func decodeProofRun(r response, method, path, knownID string) (proofRunState, error) {
@@ -161,6 +218,9 @@ func wireProofRun(raw json.RawMessage, status int, what, knownID string) (proofR
 	if state.id == "" || json.Unmarshal(wire["status"], &state.status) != nil {
 		return proofRunState{}, &Error{Code: ErrAPI, HTTPStatus: status, Message: "Revyl returned a proof run to " + what + " without an id and status."}
 	}
+	if state.verdict == "" && (state.status == "passed" || state.status == "failed" || state.status == "inconclusive") {
+		state.verdict = state.status
+	}
 	return state, nil
 }
 
@@ -169,58 +229,40 @@ func proofRunError(r response, method, path string) error {
 	if failed.Code == ErrEdgeBlocked {
 		return failed
 	}
-	refusal, said, runID := proofRunRefusal(r)
-	code, mapped := proofRunRefusals[refusal]
-	message := fmt.Sprintf("Revyl refused the proof run (HTTP %d", r.status)
-	if refusal != "" {
-		message += ", " + refusal
+	var body struct {
+		Code                any `json:"code"`
+		Detail              any `json:"detail"`
+		ExistingProofRunIDs any `json:"existing_proof_run_ids"`
 	}
-	message += ")"
-	if said != "" {
-		message += ": " + said
+	_ = json.Unmarshal(r.body, &body)
+	code, _ := body.Code.(string)
+	detail, _ := body.Detail.(string)
+	if len(detail) > 500 {
+		detail = detail[:500]
 	}
-	message += "."
-	switch {
-	case code == ErrGitHubAppNotConnected:
-		message += " " + proofRunGitHubAppFix
-	case code == ErrConfigManagedReview:
-		message += " The repository's .revyl/config.yaml already runs Proof of Changes for this head, so Proof can't start another run."
-	case code == ErrPreviewUnreachable:
-		message += " Revyl couldn't load the URL: it must be public HTTPS on port 443 and answer below HTTP 400 without headers or basic auth."
-	case mapped:
-	case r.status == 409 && runID != "":
-		code = ErrProofRunConflict
-		message += " Proof run " + runID + " already covers this head with different settings."
-	case r.status == 404 && method == http.MethodGet:
-		code = ErrNotFound
-		message = fmt.Sprintf("Revyl request %s %s failed (HTTP 404).", method, path)
-	default:
+	var runIDs []string
+	ids, _ := body.ExistingProofRunIDs.([]any)
+	for _, id := range ids {
+		if text, ok := id.(string); ok && text != "" {
+			runIDs = append(runIDs, text)
+		}
+	}
+	if code == "" {
 		return failed
 	}
-	return &Error{Code: code, Reason: failed.Reason, HTTPStatus: r.status, Message: message, ProofRunID: runID}
-}
-
-func proofRunRefusal(r response) (string, string, string) {
-	var body map[string]any
-	if json.Unmarshal(r.body, &body) != nil {
-		return "", "", ""
+	known, ok := proofRunRefusals[code]
+	if !ok {
+		failed.Message += " (" + code + ")"
+		failed.ProofRunIDs = runIDs
+		return failed
 	}
-	detail, _ := body["detail"].(map[string]any)
-	first := func(values ...any) string {
-		for _, value := range values {
-			if text, ok := value.(string); ok && text != "" {
-				return text
-			}
-		}
-		return ""
+	message := fmt.Sprintf("Revyl refused the proof (HTTP %d, %s)", r.status, code)
+	if detail != "" {
+		message += ": " + detail
 	}
-	code := first(body["error"], body["code"], detail["error"], detail["code"], body["detail"])
-	said := first(detail["message"], body["message"], body["detail"])
-	if said == code {
-		said = ""
+	message += "."
+	if known.hint != "" {
+		message += " " + known.hint
 	}
-	if len(said) > 500 {
-		said = said[:500]
-	}
-	return code, said, first(body["proof_run_id"], detail["proof_run_id"])
+	return &Error{Code: known.code, HTTPStatus: r.status, Message: message, ProofRunIDs: runIDs}
 }

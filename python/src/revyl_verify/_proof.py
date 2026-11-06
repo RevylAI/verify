@@ -6,7 +6,7 @@ import re
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Literal, get_args
+from typing import Literal
 
 from ._models import UUID_PATTERN
 from ._proof_runs import (
@@ -19,6 +19,7 @@ from ._proof_runs import (
     cancel_proof_run,
     create_proof_runs,
     get_proof_run,
+    is_settled,
 )
 from ._transport import Client, VerifyError, credentials
 from ._upload import (
@@ -42,8 +43,10 @@ class ProofTarget:
 
     ``build`` is a mobile build: a debug ``.apk``, a simulator ``.app`` bundle, or a ``.zip``
     holding one, with ``app_id`` its Revyl mobile app. In ``environment``, a string is a plain
-    launch value that Revyl stores with the run and may show in reports, so it must not be a secret;
-    ``{"secret_ref": "NAME"}`` names an organization launch variable that holds a secret.
+    launch value that Revyl stores with the run and may show in reports, so it must not be a
+    secret. ``{"secret_ref": "NAME"}``, under the key ``NAME``, uses the organization launch
+    variable of the same name, which holds a secret: its value stays in Revyl, and only a member
+    API key can reference it.
     ``version`` is a label unique within the app; it defaults to the short head commit plus a UTC
     timestamp.
 
@@ -117,18 +120,21 @@ def proof(
 
     Pass up to three ``targets``, one per platform, or a single target inline as ``build`` or
     ``url`` with ``app_id`` (and, for ``build``, ``environment`` and ``version``); see
-    ``ProofTarget``. Revyl reuses the earlier runs when the same target set (the same builds) is
-    started again at the same head commit, so a stable hostname reuses a Web run.
+    ``ProofTarget``. Starting the same targets (the same builds and settings) again at the same
+    head returns the earlier runs in whatever state they are in; to prove again, upload a new
+    build or push a new commit. ``harness`` is the agent that runs the proof; ``revyl`` is the
+    only one.
 
     With ``wait`` (the default) it polls until every run settles, for at most ``timeout`` seconds;
     the runs keep going on Revyl after a timeout. Interrupting the wait cancels the runs that
     haven't settled. Needs a pull request on GitHub Actions.
+
+    Revyl reports on the pull request in a comment but adds no check run, so the result is the CI
+    gate: fail the job unless ``verdict`` is ``passed``.
     """
     chosen = _proof_targets(build, app_id, url, environment, version, targets)
-    if harness not in get_args(ProofHarness):
-        raise VerifyError(
-            "INVALID_ARGUMENT", f"harness must be one of {', '.join(get_args(ProofHarness))}."
-        )
+    if harness != "revyl":
+        raise VerifyError("INVALID_ARGUMENT", "harness must be 'revyl'.")
     if not isinstance(wait, bool):
         raise VerifyError("INVALID_ARGUMENT", "wait must be a boolean.")
     if (
@@ -174,11 +180,11 @@ def proof(
         harness=harness,
         guidance=focus,
     )
-    ordered = [
-        next((state for state in started if state.app_id == target.app_id), started[index])
-        for index, target in enumerate(chosen)
+    current = [
+        _with_identity(get_proof_run(client, state.id), state) if is_settled(state) else state
+        for state in started
     ]
-    states = _wait_for_all(client, ordered, timeout) if wait else ordered
+    states = _wait_for_all(client, current, timeout) if wait else current
     runs = tuple(
         ProofTargetRun(
             id=state.id,
@@ -293,7 +299,7 @@ def _wait_for_all(
     states = list(started)
 
     def unsettled() -> list[ProofRunState]:
-        return [state for state in states if state.settled_at is None]
+        return [state for state in states if not is_settled(state)]
 
     poll = 0
     try:
@@ -309,13 +315,8 @@ def _wait_for_all(
             time.sleep(min(_POLL_INTERVALS[min(poll, len(_POLL_INTERVALS) - 1)], remaining))
             poll += 1
             for index, state in enumerate(states):
-                if state.settled_at is None:
-                    fresh = get_proof_run(client, state.id)
-                    states[index] = replace(
-                        fresh,
-                        app_id=fresh.app_id or state.app_id,
-                        platform=fresh.platform or state.platform,
-                    )
+                if not is_settled(state):
+                    states[index] = _with_identity(get_proof_run(client, state.id), state)
     except KeyboardInterrupt:
         failures: list[VerifyError] = []
         for state in unsettled():
@@ -339,6 +340,12 @@ def _wait_for_all(
             f"ended without a verdict.{_where(states)}",
         )
     return states
+
+
+def _with_identity(state: ProofRunState, known: ProofRunState) -> ProofRunState:
+    return replace(
+        state, app_id=known.app_id or state.app_id, platform=known.platform or state.platform
+    )
 
 
 def _detect_pull_request() -> PullRequestContext:
@@ -392,11 +399,16 @@ def _valid_environment(
             valid[name] = value
             continue
         reference = value.get("secret_ref") if isinstance(value, Mapping) else None
-        if not isinstance(reference, str) or not reference.strip():
+        if not isinstance(reference, str):
             raise VerifyError(
                 "INVALID_ARGUMENT",
-                f"environment variable {name} must be a string or "
-                '{"secret_ref": "<launch variable name>"}.',
+                f'environment variable {name} must be a string or {{"secret_ref": "{name}"}}.',
+            )
+        if reference != name:
+            raise VerifyError(
+                "INVALID_ARGUMENT",
+                f"environment variable {name} must reference the launch variable of the same "
+                f'name: {{"secret_ref": "{name}"}}.',
             )
         valid[name] = SecretRef(secret_ref=reference)
     return valid or None

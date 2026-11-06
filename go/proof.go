@@ -11,15 +11,10 @@ import (
 	"time"
 )
 
-// ProofHarness is the agent that runs a Proof of Changes run.
+// ProofHarness is the agent that runs a Proof of Changes run. HarnessRevyl is the only one.
 type ProofHarness string
 
-const (
-	HarnessRevyl  ProofHarness = "revyl"
-	HarnessCursor ProofHarness = "cursor"
-	HarnessCapy   ProofHarness = "capy"
-	HarnessDevin  ProofHarness = "devin"
-)
+const HarnessRevyl ProofHarness = "revyl"
 
 // EnvValue is one launch variable for a Proof of Changes run: a plain value from EnvPlain, or a reference to an
 // organization launch variable from EnvSecretRef. Formatting it never prints a plain value.
@@ -32,7 +27,8 @@ type EnvValue struct {
 // EnvPlain is a plain launch value. Revyl stores it with the run and it may appear in reports, so it must not be a secret.
 func EnvPlain(value string) EnvValue { return EnvValue{value: value} }
 
-// EnvSecretRef names an organization launch variable that holds a secret.
+// EnvSecretRef uses the organization launch variable of the same name, which holds a secret: its value stays in Revyl,
+// and only a member API key can reference it. Put it under the key name: Environment["TOKEN"] = EnvSecretRef("TOKEN").
 func EnvSecretRef(name string) EnvValue { return EnvValue{secretRef: name, secret: true} }
 
 func (v EnvValue) String() string {
@@ -55,15 +51,17 @@ type ProofTarget struct {
 	// sign-in. It must stay up from the call until the run settles, which can take minutes; with NoWait, keeping it up
 	// is the caller's job.
 	URL string
-	// Environment holds launch variables for a Build target's run, by name.
+	// Environment holds launch variables for a Build target's run, by name. An EnvPlain value may appear in reports; an
+	// EnvSecretRef uses the organization launch variable of the same name and needs a member API key.
 	Environment map[string]EnvValue
 	// Version is a Build target's label, unique within the app; empty uses the short head commit plus a UTC timestamp.
 	Version string
 }
 
 // ProofOptions describes what to prove: up to three Targets, one per platform, or a single target given inline with
-// Build or URL, AppID, Environment, and Version. Revyl reuses the earlier runs when the same target set (the same
-// builds) is started again at the same head commit, so a stable hostname reuses a Web run.
+// Build or URL, AppID, Environment, and Version. Starting the same targets (the same builds and settings) again at the
+// same head returns the earlier runs in whatever state they are in; to prove again, upload a new build or push a new
+// commit.
 type ProofOptions struct {
 	Targets []ProofTarget
 	// Build, URL, AppID, Environment, and Version give a single target inline, as in ProofTarget.
@@ -74,7 +72,7 @@ type ProofOptions struct {
 	Version     string
 	// Guidance is what the agent should focus on.
 	Guidance string
-	// Harness defaults to HarnessRevyl.
+	// Harness is the agent that runs the proof; HarnessRevyl, the default, is the only one.
 	Harness ProofHarness
 	// NoWait returns as soon as the runs start instead of waiting for them to settle.
 	NoWait bool
@@ -144,6 +142,9 @@ var proofPollIntervals = []time.Duration{5 * time.Second, 10 * time.Second, 15 *
 // Proof uploads each target's mobile build or registers its Web deployment URL, then starts one Revyl Proof of Changes
 // run per target on the pull request. Unless NoWait is set it polls until every run settles, and cancels the runs
 // still going if ctx is cancelled while waiting. It needs a pull request on GitHub Actions.
+//
+// Revyl reports on the pull request in a comment but adds no check run, so the result is the CI gate: fail the job
+// unless Verdict is "passed".
 func Proof(ctx context.Context, options ProofOptions) (*ProofRun, error) {
 	targets, err := proofTargets(options)
 	if err != nil {
@@ -153,10 +154,8 @@ func Proof(ctx context.Context, options ProofOptions) (*ProofRun, error) {
 	if harness == "" {
 		harness = HarnessRevyl
 	}
-	switch harness {
-	case HarnessRevyl, HarnessCursor, HarnessCapy, HarnessDevin:
-	default:
-		return nil, failure(ErrInvalidArgument, "Harness must be one of revyl, cursor, capy, devin.")
+	if harness != HarnessRevyl {
+		return nil, failure(ErrInvalidArgument, "harness must be 'revyl'.")
 	}
 	timeout := options.Timeout
 	if timeout < 0 {
@@ -203,14 +202,14 @@ func Proof(ctx context.Context, options ProofOptions) (*ProofRun, error) {
 	if err != nil {
 		return nil, err
 	}
-	states := make([]proofRunState, len(targets))
-	for i, target := range targets {
-		states[i] = started[i]
-		for _, state := range started {
-			if state.appID == target.AppID {
-				states[i] = state
-				break
+	states := started
+	for i, state := range states {
+		if state.isSettled() {
+			fresh, err := getProofRun(ctx, c, state.id)
+			if err != nil {
+				return nil, err
 			}
+			states[i] = fresh.withIdentity(state)
 		}
 	}
 	if !options.NoWait {
@@ -268,8 +267,8 @@ func proofTargets(options ProofOptions) ([]ProofTarget, error) {
 			if !environmentNamePattern.MatchString(name) {
 				return nil, failure(ErrInvalidArgument, "Environment has an invalid variable name: use letters, digits, and underscores, not starting with a digit.")
 			}
-			if value.secret && strings.TrimSpace(value.secretRef) == "" {
-				return nil, failure(ErrInvalidArgument, "Environment variable "+name+" has an empty EnvSecretRef; name the launch variable that holds the secret.")
+			if value.secret && value.secretRef != name {
+				return nil, failure(ErrInvalidArgument, "environment variable "+name+" must reference the launch variable of the same name: EnvSecretRef(\""+name+"\").")
 			}
 		}
 		appIDs[target.AppID] = true
@@ -314,7 +313,7 @@ func waitForAll(ctx context.Context, c *client, states []proofRunState, timeout 
 	unsettled := func() []string {
 		var ids []string
 		for _, state := range states {
-			if state.settledAt == "" {
+			if !state.isSettled() {
 				ids = append(ids, state.id)
 			}
 		}
@@ -327,13 +326,12 @@ func waitForAll(ctx context.Context, c *client, states []proofRunState, timeout 
 		}
 		err := pause(ctx, min(proofPollIntervals[min(poll, len(proofPollIntervals)-1)], remaining))
 		for i := 0; err == nil && i < len(states); i++ {
-			if states[i].settledAt != "" {
+			if states[i].isSettled() {
 				continue
 			}
 			var fresh proofRunState
 			if fresh, err = getProofRun(ctx, c, states[i].id); err == nil {
-				fresh.appID, fresh.platform = firstNonEmpty(fresh.appID, states[i].appID), firstNonEmpty(fresh.platform, states[i].platform)
-				states[i] = fresh
+				states[i] = fresh.withIdentity(states[i])
 			}
 		}
 		if ctx.Err() != nil {
