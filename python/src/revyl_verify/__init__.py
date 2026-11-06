@@ -17,7 +17,7 @@ from ._models import (
     Target,
     Viewport,
 )
-from ._proof import ProofRun, proof
+from ._proof import ProofRun, ProofTarget, ProofTargetRun, proof
 from ._proof_runs import ProofEnvironmentValue, ProofHarness, PullRequestContext, SecretRef
 from ._session import Session
 from ._transport import Cancellation, CleanupStatus, RefusalReason, VerifyError, origin, seconds
@@ -36,6 +36,8 @@ __all__ = [
     "ProofEnvironmentValue",
     "ProofHarness",
     "ProofRun",
+    "ProofTarget",
+    "ProofTargetRun",
     "PullRequestContext",
     "RefusalReason",
     "ReviewCorrelation",

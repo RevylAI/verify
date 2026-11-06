@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, TypeAlias, TypedDict
 from urllib.parse import quote
 
@@ -33,9 +33,19 @@ class PullRequestContext:
 
 
 @dataclass(frozen=True)
+class ProofRunTarget:
+    app_id: str
+    build_id: str
+    environment: Mapping[str, ProofEnvironmentValue] | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True)
 class ProofRunState:
     id: str
     status: str
+    app_id: str | None = None
+    """Known from the create response; a GET may not repeat it."""
+    platform: str | None = None
     verdict: str | None = None
     label: str | None = None
     report_url: str | None = None
@@ -71,16 +81,27 @@ _REFUSALS = {
 }
 
 
-def create_proof_run(
+def create_proof_runs(
     client: Client,
     *,
-    app_id: str,
-    build_id: str,
+    targets: list[ProofRunTarget],
     pull_request: PullRequestContext,
     harness: ProofHarness,
     guidance: str | None,
-    environment: Mapping[str, ProofEnvironmentValue] | None,
-) -> ProofRunState:
+) -> list[ProofRunState]:
+    """Starts one run per target. Revyl returns the existing runs when the same target set was
+    already started at this head."""
+    wire_targets: list[Json] = []
+    for target in targets:
+        wire: dict[str, Json] = {"app_id": target.app_id, "build_id": target.build_id}
+        if target.environment is not None:
+            wire["environment"] = {
+                name: {"value": value}
+                if isinstance(value, str)
+                else {"secret_ref": value["secret_ref"]}
+                for name, value in target.environment.items()
+            }
+        wire_targets.append(wire)
     scm: dict[str, Json] = {
         "provider": pull_request.provider,
         "repo": pull_request.repository,
@@ -92,21 +113,23 @@ def create_proof_run(
     settings: dict[str, Json] = {"harness": harness}
     if guidance is not None:
         settings["guidance"] = guidance
-    if environment is not None:
-        settings["environment"] = {
-            name: {"value": value}
-            if isinstance(value, str)
-            else {"secret_ref": value["secret_ref"]}
-            for name, value in environment.items()
-        }
     response = client.request(
         "POST",
         _PROOF_RUNS_PATH,
-        {"app_id": app_id, "build_id": build_id, "scm": scm, "settings": settings},
+        {"targets": wire_targets, "scm": scm, "settings": settings},
         deadline=Deadline(_CREATE_TIMEOUT),
         timeout=_CREATE_TIMEOUT,
     )
-    return _state(response, "POST", _PROOF_RUNS_PATH)
+    if not 200 <= response.status < 300:
+        raise _proof_run_error(response, "POST", _PROOF_RUNS_PATH)
+    runs = obj(response.json()).get("runs")
+    if not isinstance(runs, list) or len(runs) != len(targets):
+        raise VerifyError(
+            "API_ERROR",
+            f"Revyl answered POST {_PROOF_RUNS_PATH} without one run per target.",
+            http_status=response.status,
+        )
+    return [_wire_state(run, response.status, f"POST {_PROOF_RUNS_PATH}") for run in runs]
 
 
 def get_proof_run(client: Client, run_id: str) -> ProofRunState:
@@ -126,12 +149,16 @@ def cancel_proof_run(client: Client, run_id: str) -> None:
         raise http_error(response)
 
 
-def _state(
-    response: Response, method: str, path: str, known_id: str | None = None
-) -> ProofRunState:
+def _state(response: Response, method: str, path: str, known_id: str) -> ProofRunState:
     if not 200 <= response.status < 300:
         raise _proof_run_error(response, method, path)
-    wire = obj(response.json())
+    return _wire_state(response.json(), response.status, f"{method} {path}", known_id)
+
+
+def _wire_state(
+    value: Json, http_status: int, what: str, known_id: str | None = None
+) -> ProofRunState:
+    wire = value if isinstance(value, dict) else {}
 
     def text(key: str) -> str | None:
         value = wire.get(key)
@@ -142,12 +169,14 @@ def _state(
     if run_id is None or not isinstance(status, str):
         raise VerifyError(
             "API_ERROR",
-            f"Revyl returned a proof run to {method} {path} without an id and status.",
-            http_status=response.status,
+            f"Revyl returned a proof run to {what} without an id and status.",
+            http_status=http_status,
         )
     return ProofRunState(
         id=run_id,
         status=status,
+        app_id=text("app_id"),
+        platform=text("platform"),
         verdict=text("verdict"),
         label=text("display_status_label"),
         report_url=text("report_url"),

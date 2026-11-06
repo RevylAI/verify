@@ -34,19 +34,42 @@ var proofRunRefusals = map[string]Code{
 	"url_unreachable":               ErrPreviewUnreachable,
 }
 
+// proofRunState is one run as Revyl reports it. appID and platform come from the create response; a GET may not repeat them.
 type proofRunState struct {
-	id, status, verdict, label, reportURL, reviewURL, createdAt, settledAt string
+	id, appID, platform, status, verdict, label, reportURL, reviewURL, createdAt, settledAt string
 }
 
-type createProofRunRequest struct {
+type proofRunTarget struct {
 	appID, buildID string
-	pullRequest    PullRequestContext
-	harness        ProofHarness
-	guidance       string
 	environment    map[string]EnvValue
 }
 
-func createProofRun(ctx context.Context, c *client, request createProofRunRequest) (proofRunState, error) {
+type createProofRunsRequest struct {
+	pullRequest PullRequestContext
+	targets     []proofRunTarget
+	harness     ProofHarness
+	guidance    string
+}
+
+// createProofRuns starts one run per target. Revyl returns the existing runs when the same target set was already
+// started at this head.
+func createProofRuns(ctx context.Context, c *client, request createProofRunsRequest) ([]proofRunState, error) {
+	targets := make([]map[string]any, 0, len(request.targets))
+	for _, target := range request.targets {
+		wire := map[string]any{"app_id": target.appID, "build_id": target.buildID}
+		if len(target.environment) > 0 {
+			environment := make(map[string]map[string]string, len(target.environment))
+			for name, value := range target.environment {
+				if value.secret {
+					environment[name] = map[string]string{"secret_ref": value.secretRef}
+				} else {
+					environment[name] = map[string]string{"value": value.value}
+				}
+			}
+			wire["environment"] = environment
+		}
+		targets = append(targets, wire)
+	}
 	scm := map[string]any{
 		"provider":  request.pullRequest.Provider,
 		"repo":      request.pullRequest.Repository,
@@ -60,23 +83,31 @@ func createProofRun(ctx context.Context, c *client, request createProofRunReques
 	if request.guidance != "" {
 		settings["guidance"] = request.guidance
 	}
-	if len(request.environment) > 0 {
-		environment := make(map[string]map[string]string, len(request.environment))
-		for name, value := range request.environment {
-			if value.secret {
-				environment[name] = map[string]string{"secret_ref": value.secretRef}
-			} else {
-				environment[name] = map[string]string{"value": value.value}
-			}
-		}
-		settings["environment"] = environment
-	}
-	body := map[string]any{"app_id": request.appID, "build_id": request.buildID, "scm": scm, "settings": settings}
-	r, err := c.send(ctx, http.MethodPost, proofRunsPath, body, false, proofRunCreateTimeout, false)
+	r, err := c.send(ctx, http.MethodPost, proofRunsPath, map[string]any{"targets": targets, "scm": scm, "settings": settings}, false, proofRunCreateTimeout, false)
 	if err != nil {
-		return proofRunState{}, err
+		return nil, err
 	}
-	return decodeProofRun(r, http.MethodPost, proofRunsPath, "")
+	if r.status < 200 || r.status >= 300 {
+		return nil, proofRunError(r, http.MethodPost, proofRunsPath)
+	}
+	var wire struct {
+		Runs []json.RawMessage `json:"runs"`
+	}
+	if err := decode(r, &wire); err != nil {
+		return nil, err
+	}
+	if len(wire.Runs) != len(request.targets) {
+		return nil, &Error{Code: ErrAPI, HTTPStatus: r.status, Message: "Revyl answered POST " + proofRunsPath + " without one run per target."}
+	}
+	states := make([]proofRunState, 0, len(wire.Runs))
+	for _, raw := range wire.Runs {
+		state, err := wireProofRun(raw, r.status, "POST "+proofRunsPath, "")
+		if err != nil {
+			return nil, err
+		}
+		states = append(states, state)
+	}
+	return states, nil
 }
 
 func getProofRun(ctx context.Context, c *client, id string) (proofRunState, error) {
@@ -103,9 +134,13 @@ func decodeProofRun(r response, method, path, knownID string) (proofRunState, er
 	if r.status < 200 || r.status >= 300 {
 		return proofRunState{}, proofRunError(r, method, path)
 	}
+	return wireProofRun(r.body, r.status, method+" "+path, knownID)
+}
+
+func wireProofRun(raw json.RawMessage, status int, what, knownID string) (proofRunState, error) {
 	var wire map[string]json.RawMessage
-	if err := decode(r, &wire); err != nil {
-		return proofRunState{}, err
+	if json.Unmarshal(raw, &wire) != nil {
+		wire = nil
 	}
 	text := func(key string) string {
 		var value string
@@ -114,6 +149,8 @@ func decodeProofRun(r response, method, path, knownID string) (proofRunState, er
 	}
 	state := proofRunState{
 		id:        firstNonEmpty(text("proof_run_id"), knownID),
+		appID:     text("app_id"),
+		platform:  text("platform"),
 		verdict:   text("verdict"),
 		label:     text("display_status_label"),
 		reportURL: text("report_url"),
@@ -122,7 +159,7 @@ func decodeProofRun(r response, method, path, knownID string) (proofRunState, er
 		settledAt: text("settled_at"),
 	}
 	if state.id == "" || json.Unmarshal(wire["status"], &state.status) != nil {
-		return proofRunState{}, &Error{Code: ErrAPI, HTTPStatus: r.status, Message: "Revyl returned a proof run to " + method + " " + path + " without an id and status."}
+		return proofRunState{}, &Error{Code: ErrAPI, HTTPStatus: status, Message: "Revyl returned a proof run to " + what + " without an id and status."}
 	}
 	return state, nil
 }

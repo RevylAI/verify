@@ -44,30 +44,42 @@ func (v EnvValue) String() string {
 
 func (v EnvValue) GoString() string { return v.String() }
 
-// ProofOptions describes a pull request build to prove. Set exactly one of Build and URL.
-type ProofOptions struct {
+// ProofTarget is one target of a Proof of Changes run. Set exactly one of Build and URL.
+type ProofTarget struct {
+	// AppID is the Revyl app (UUID): a mobile app for Build, a Web app for URL.
+	AppID string
 	// Build is a mobile build: a debug .apk, a simulator .app bundle, or a .zip holding one.
 	Build string
 	// URL is a Web deployment to prove in a cloud browser. It must be public HTTPS on port 443, and any HTTP status of
 	// 400 or above fails the page. URL builds take no headers or basic auth, so the page must load signed in or without
 	// sign-in. It must stay up from the call until the run settles, which can take minutes; with NoWait, keeping it up
-	// is the caller's job. The same build at the same head commit returns the earlier run, so a stable hostname reuses
-	// it. Environment and Version apply only to Build.
+	// is the caller's job.
 	URL string
-	// AppID is the Revyl app (UUID): a mobile app for Build, a Web app for URL.
-	AppID string
+	// Environment holds launch variables for a Build target's run, by name.
+	Environment map[string]EnvValue
+	// Version is a Build target's label, unique within the app; empty uses the short head commit plus a UTC timestamp.
+	Version string
+}
+
+// ProofOptions describes what to prove: up to three Targets, one per platform, or a single target given inline with
+// Build or URL, AppID, Environment, and Version. Revyl reuses the earlier runs when the same target set (the same
+// builds) is started again at the same head commit, so a stable hostname reuses a Web run.
+type ProofOptions struct {
+	Targets []ProofTarget
+	// Build, URL, AppID, Environment, and Version give a single target inline, as in ProofTarget.
+	Build       string
+	URL         string
+	AppID       string
+	Environment map[string]EnvValue
+	Version     string
 	// Guidance is what the agent should focus on.
 	Guidance string
 	// Harness defaults to HarnessRevyl.
 	Harness ProofHarness
-	// Environment holds launch variables for this run, by name.
-	Environment map[string]EnvValue
-	// NoWait returns as soon as the run starts instead of waiting for its verdict.
+	// NoWait returns as soon as the runs start instead of waiting for them to settle.
 	NoWait bool
-	// Timeout bounds the wait for a verdict and defaults to 30 minutes. The run keeps going on Revyl after it.
+	// Timeout bounds the wait and defaults to 30 minutes. The runs keep going on Revyl after it.
 	Timeout time.Duration
-	// Version is a label unique within the app; empty uses the short head commit plus a UTC timestamp.
-	Version string
 	// Token defaults to REVYL_API_KEY or the Revyl CLI login.
 	Token      string
 	BackendURL string
@@ -83,9 +95,12 @@ type PullRequestContext struct {
 	BaseSHA    string `json:"baseSha,omitempty"`
 }
 
-// ProofRun is a Proof of Changes run.
-type ProofRun struct {
-	ID string `json:"id"`
+// ProofTargetRun is the Proof of Changes run of one target.
+type ProofTargetRun struct {
+	ID    string `json:"id"`
+	AppID string `json:"appId"`
+	// Platform is ios, android, or web, as Revyl reports it.
+	Platform string `json:"platform,omitempty"`
 	// Status is Revyl's run status, as reported.
 	Status string `json:"status"`
 	// Verdict is passed, failed, or inconclusive once the run settles with a verdict.
@@ -97,33 +112,42 @@ type ProofRun struct {
 	ReviewURL string `json:"reviewUrl,omitempty"`
 	CreatedAt string `json:"createdAt,omitempty"`
 	// SettledAt is set once the run is over.
-	SettledAt   string             `json:"settledAt,omitempty"`
-	PullRequest PullRequestContext `json:"pullRequest"`
-	// Build is the uploaded mobile build; nil for a URL.
+	SettledAt string `json:"settledAt,omitempty"`
+	// Build is the uploaded mobile build; nil for a URL target.
 	Build *UploadResult `json:"build,omitempty"`
-	// URLBuild is the registered Web URL build; nil for a mobile build.
+	// URLBuild is the registered Web URL build; nil for a mobile target.
 	URLBuild *URLBuildResult `json:"urlBuild,omitempty"`
+}
+
+// ProofRun is a Proof of Changes run on a pull request: one run per target.
+type ProofRun struct {
+	Runs []ProofTargetRun `json:"runs"`
+	// Verdict is set once every run has a verdict: failed if any run failed, otherwise inconclusive if any run is
+	// inconclusive (a verdict Verify doesn't recognize counts as inconclusive), otherwise passed.
+	Verdict string `json:"verdict,omitempty"`
+	// Label is the label of the first run whose verdict decided Verdict.
+	Label string `json:"label,omitempty"`
+	// ReportURL is the pull request comment with the report, from the first run that has one.
+	ReportURL   string             `json:"reportUrl,omitempty"`
+	PullRequest PullRequestContext `json:"pullRequest"`
 }
 
 var environmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-const defaultProofTimeout = 30 * time.Minute
+const (
+	maxProofTargets     = 3
+	defaultProofTimeout = 30 * time.Minute
+)
 
 var proofPollIntervals = []time.Duration{5 * time.Second, 10 * time.Second, 15 * time.Second}
 
-// Proof uploads a pull request's CI build, or registers its deployment URL, and starts a Revyl Proof of Changes run
-// on it. Unless NoWait is set it
-// polls until the run has a verdict, and cancels the run if ctx is cancelled while waiting.
-// It needs a pull request on GitHub Actions.
+// Proof uploads each target's mobile build or registers its Web deployment URL, then starts one Revyl Proof of Changes
+// run per target on the pull request. Unless NoWait is set it polls until every run settles, and cancels the runs
+// still going if ctx is cancelled while waiting. It needs a pull request on GitHub Actions.
 func Proof(ctx context.Context, options ProofOptions) (*ProofRun, error) {
-	web := options.URL != ""
-	switch {
-	case web == (options.Build != ""):
-		return nil, failure(ErrInvalidArgument, "Set either Build (a mobile artifact) or URL (a Web deployment), not both.")
-	case web && options.Environment != nil:
-		return nil, failure(ErrInvalidArgument, "Environment applies only to mobile builds; a URL build takes no launch variables.")
-	case web && options.Version != "":
-		return nil, failure(ErrInvalidArgument, "Version applies only to mobile builds.")
+	targets, err := proofTargets(options)
+	if err != nil {
+		return nil, err
 	}
 	harness := options.Harness
 	if harness == "" {
@@ -133,14 +157,6 @@ func Proof(ctx context.Context, options ProofOptions) (*ProofRun, error) {
 	case HarnessRevyl, HarnessCursor, HarnessCapy, HarnessDevin:
 	default:
 		return nil, failure(ErrInvalidArgument, "Harness must be one of revyl, cursor, capy, devin.")
-	}
-	for name, value := range options.Environment {
-		if !environmentNamePattern.MatchString(name) {
-			return nil, failure(ErrInvalidArgument, "Environment has an invalid variable name: use letters, digits, and underscores, not starting with a digit.")
-		}
-		if value.secret && strings.TrimSpace(value.secretRef) == "" {
-			return nil, failure(ErrInvalidArgument, "Environment variable "+name+" has an empty EnvSecretRef; name the launch variable that holds the secret.")
-		}
 	}
 	timeout := options.Timeout
 	if timeout < 0 {
@@ -157,72 +173,199 @@ func Proof(ctx context.Context, options ProofOptions) (*ProofRun, error) {
 	if err != nil {
 		return nil, err
 	}
-	run := &ProofRun{PullRequest: pullRequest}
-	var buildID string
-	if web {
-		if run.URLBuild, err = registerURLBuild(ctx, c, options.URL, options.AppID); err != nil {
-			return nil, err
+
+	runs := make([]ProofTargetRun, len(targets))
+	request := createProofRunsRequest{pullRequest: pullRequest, harness: harness, guidance: strings.TrimSpace(options.Guidance)}
+	platforms := map[string]bool{}
+	var seen []string
+	for i, target := range targets {
+		var buildID, platform string
+		if target.URL != "" {
+			if runs[i].URLBuild, err = registerURLBuild(ctx, c, target.URL, target.AppID); err != nil {
+				return nil, err
+			}
+			buildID, platform = runs[i].URLBuild.BuildID, runs[i].URLBuild.Platform
+		} else {
+			if runs[i].Build, err = UploadBuild(ctx, UploadOptions{File: target.Build, AppID: target.AppID, Version: target.Version, Token: c.token, BackendURL: options.BackendURL, HTTPClient: options.HTTPClient}); err != nil {
+				return nil, err
+			}
+			buildID, platform = runs[i].Build.BuildID, runs[i].Build.Platform
 		}
-		buildID = run.URLBuild.BuildID
-	} else {
-		if run.Build, err = UploadBuild(ctx, UploadOptions{File: options.Build, AppID: options.AppID, Version: options.Version, Token: c.token, BackendURL: options.BackendURL, HTTPClient: options.HTTPClient}); err != nil {
-			return nil, err
-		}
-		buildID = run.Build.BuildID
+		seen = append(seen, platform)
+		platforms[platform] = true
+		request.targets = append(request.targets, proofRunTarget{appID: target.AppID, buildID: buildID, environment: target.Environment})
 	}
-	state, err := createProofRun(ctx, c, createProofRunRequest{
-		appID:       options.AppID,
-		buildID:     buildID,
-		pullRequest: pullRequest,
-		harness:     harness,
-		guidance:    strings.TrimSpace(options.Guidance),
-		environment: options.Environment,
-	})
+	if len(platforms) != len(seen) {
+		return nil, failure(ErrInvalidArgument, "Targets must be one per platform; got "+strings.Join(seen, ", ")+".")
+	}
+
+	started, err := createProofRuns(ctx, c, request)
 	if err != nil {
 		return nil, err
 	}
+	states := make([]proofRunState, len(targets))
+	for i, target := range targets {
+		states[i] = started[i]
+		for _, state := range started {
+			if state.appID == target.AppID {
+				states[i] = state
+				break
+			}
+		}
+	}
 	if !options.NoWait {
-		if state, err = waitForVerdict(ctx, c, state, timeout); err != nil {
+		if states, err = waitForAll(ctx, c, states, timeout); err != nil {
 			return nil, err
 		}
 	}
-	run.ID, run.Status, run.Verdict, run.Label = state.id, state.status, state.verdict, state.label
-	run.ReportURL, run.ReviewURL, run.CreatedAt, run.SettledAt = state.reportURL, state.reviewURL, state.createdAt, state.settledAt
-	return run, nil
-}
-
-func waitForVerdict(ctx context.Context, c *client, started proofRunState, timeout time.Duration) (proofRunState, error) {
-	deadline := time.Now().Add(timeout)
-	state := started
-	for poll := 0; ; poll++ {
-		if state.settledAt != "" {
-			if state.verdict != "" {
-				return state, nil
-			}
-			return state, failure(ErrProofRunEnded, "Proof of Changes run "+state.id+" ended without a verdict ("+firstNonEmpty(state.label, state.status)+")."+proofRunLink(state))
-		}
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			return state, failure(ErrTimeout, "Proof of Changes run "+state.id+" had no verdict after "+strconv.Itoa(int(math.Round(timeout.Seconds())))+" s. It keeps running on Revyl."+proofRunLink(state))
-		}
-		var err error
-		if err = pause(ctx, min(proofPollIntervals[min(poll, len(proofPollIntervals)-1)], remaining)); err == nil {
-			state, err = getProofRun(ctx, c, state.id)
-		}
-		if ctx.Err() != nil {
-			return state, cancelInterruptedProofRun(ctx, c, started.id)
-		}
-		if err != nil {
-			return state, err
+	result := &ProofRun{Runs: runs, PullRequest: pullRequest}
+	for i, state := range states {
+		run := &result.Runs[i]
+		run.ID, run.AppID, run.Platform, run.Status = state.id, firstNonEmpty(state.appID, targets[i].AppID), state.platform, state.status
+		run.Verdict, run.Label, run.ReportURL, run.ReviewURL = state.verdict, state.label, state.reportURL, state.reviewURL
+		run.CreatedAt, run.SettledAt = state.createdAt, state.settledAt
+		if result.ReportURL == "" {
+			result.ReportURL = state.reportURL
 		}
 	}
+	result.Verdict, result.Label = overallVerdict(result.Runs)
+	return result, nil
 }
 
-func cancelInterruptedProofRun(ctx context.Context, c *client, id string) error {
+func proofTargets(options ProofOptions) ([]ProofTarget, error) {
+	inline := options.Build != "" || options.URL != "" || options.AppID != "" || options.Environment != nil || options.Version != ""
+	if options.Targets != nil && inline {
+		return nil, failure(ErrInvalidArgument, "Set Targets, or a single Build or URL with AppID, not both.")
+	}
+	targets := options.Targets
+	if options.Targets == nil && (options.Build != "" || options.URL != "") {
+		targets = []ProofTarget{{AppID: options.AppID, Build: options.Build, URL: options.URL, Environment: options.Environment, Version: options.Version}}
+	}
+	if len(targets) == 0 || len(targets) > maxProofTargets {
+		return nil, failure(ErrInvalidArgument, "Proof needs 1 to 3 targets, one per platform.")
+	}
+	appIDs := map[string]bool{}
+	urls := 0
+	for _, target := range targets {
+		web := target.URL != ""
+		switch {
+		case web == (target.Build != ""):
+			return nil, failure(ErrInvalidArgument, "Each target takes either Build (a mobile artifact) or URL (a Web deployment), not both.")
+		case web && target.Environment != nil:
+			return nil, failure(ErrInvalidArgument, "Environment applies only to mobile builds; a URL target takes no launch variables.")
+		case web && target.Version != "":
+			return nil, failure(ErrInvalidArgument, "Version applies only to mobile builds.")
+		case !uuidPattern.MatchString(target.AppID):
+			return nil, failure(ErrInvalidArgument, "AppID must be a Revyl app id (a UUID).")
+		}
+		if web {
+			if err := validateWebURL(target.URL); err != nil {
+				return nil, err
+			}
+			urls++
+		}
+		for name, value := range target.Environment {
+			if !environmentNamePattern.MatchString(name) {
+				return nil, failure(ErrInvalidArgument, "Environment has an invalid variable name: use letters, digits, and underscores, not starting with a digit.")
+			}
+			if value.secret && strings.TrimSpace(value.secretRef) == "" {
+				return nil, failure(ErrInvalidArgument, "Environment variable "+name+" has an empty EnvSecretRef; name the launch variable that holds the secret.")
+			}
+		}
+		appIDs[target.AppID] = true
+	}
+	if len(appIDs) != len(targets) {
+		return nil, failure(ErrInvalidArgument, "Each target needs its own AppID, one per platform.")
+	}
+	if urls > 1 {
+		return nil, failure(ErrInvalidArgument, "Targets take at most one URL: one target per platform.")
+	}
+	return targets, nil
+}
+
+func overallVerdict(runs []ProofTargetRun) (string, string) {
+	decide := func(verdict string) string {
+		if verdict == "passed" || verdict == "failed" {
+			return verdict
+		}
+		return "inconclusive"
+	}
+	verdict := "passed"
+	for _, run := range runs {
+		switch {
+		case run.Verdict == "":
+			return "", ""
+		case decide(run.Verdict) == "failed":
+			verdict = "failed"
+		case decide(run.Verdict) == "inconclusive" && verdict == "passed":
+			verdict = "inconclusive"
+		}
+	}
+	for _, run := range runs {
+		if decide(run.Verdict) == verdict {
+			return verdict, run.Label
+		}
+	}
+	return verdict, ""
+}
+
+func waitForAll(ctx context.Context, c *client, states []proofRunState, timeout time.Duration) ([]proofRunState, error) {
+	deadline := time.Now().Add(timeout)
+	unsettled := func() []string {
+		var ids []string
+		for _, state := range states {
+			if state.settledAt == "" {
+				ids = append(ids, state.id)
+			}
+		}
+		return ids
+	}
+	for poll := 0; len(unsettled()) > 0; poll++ {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return states, failure(ErrTimeout, "Proof of Changes had no verdict for "+strings.Join(unsettled(), ", ")+" after "+strconv.Itoa(int(math.Round(timeout.Seconds())))+" s. The runs keep going on Revyl."+proofRunLink(states))
+		}
+		err := pause(ctx, min(proofPollIntervals[min(poll, len(proofPollIntervals)-1)], remaining))
+		for i := 0; err == nil && i < len(states); i++ {
+			if states[i].settledAt != "" {
+				continue
+			}
+			var fresh proofRunState
+			if fresh, err = getProofRun(ctx, c, states[i].id); err == nil {
+				fresh.appID, fresh.platform = firstNonEmpty(fresh.appID, states[i].appID), firstNonEmpty(fresh.platform, states[i].platform)
+				states[i] = fresh
+			}
+		}
+		if ctx.Err() != nil {
+			return states, cancelUnsettledProofRuns(ctx, c, unsettled())
+		}
+		if err != nil {
+			return states, err
+		}
+	}
+	var ended []string
+	for _, state := range states {
+		if state.verdict == "" {
+			ended = append(ended, state.id+" ("+firstNonEmpty(state.label, state.status)+")")
+		}
+	}
+	if len(ended) > 0 {
+		return states, failure(ErrProofRunEnded, "Proof of Changes run "+strings.Join(ended, ", ")+" ended without a verdict."+proofRunLink(states))
+	}
+	return states, nil
+}
+
+func cancelUnsettledProofRuns(ctx context.Context, c *client, ids []string) error {
 	cancelCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), proofRunCancelTimeout)
 	defer cancel()
-	if err := cancelProofRun(cancelCtx, c, id); err != nil {
-		return &Error{Code: ErrAPI, Message: "Proof of Changes run " + id + " was interrupted, but cancelling it failed: " + err.Error(), Cause: err}
+	var failed error
+	for _, id := range ids {
+		if err := cancelProofRun(cancelCtx, c, id); err != nil && failed == nil {
+			failed = err
+		}
+	}
+	if failed != nil {
+		return &Error{Code: ErrAPI, Message: "Proof of Changes was interrupted, but cancelling its runs failed: " + failed.Error(), Cause: failed}
 	}
 	return ctx.Err()
 }
@@ -238,9 +381,11 @@ func detectPullRequest() (PullRequestContext, error) {
 	return PullRequestContext{Provider: "github", Repository: identity.Repository, Number: identity.PR, HeadSHA: identity.Commit, BaseSHA: identity.BaseCommit}, nil
 }
 
-func proofRunLink(state proofRunState) string {
-	if link := firstNonEmpty(state.reportURL, state.reviewURL); link != "" {
-		return " See " + link
+func proofRunLink(states []proofRunState) string {
+	for _, state := range states {
+		if link := firstNonEmpty(state.reportURL, state.reviewURL); link != "" {
+			return " See " + link
+		}
 	}
 	return ""
 }

@@ -4,18 +4,20 @@ import math
 import os
 import re
 import time
-from collections.abc import Mapping
-from dataclasses import dataclass
-from typing import get_args
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field, replace
+from typing import Literal, get_args
 
+from ._models import UUID_PATTERN
 from ._proof_runs import (
     ProofEnvironmentValue,
     ProofHarness,
     ProofRunState,
+    ProofRunTarget,
     PullRequestContext,
     SecretRef,
     cancel_proof_run,
-    create_proof_run,
+    create_proof_runs,
     get_proof_run,
 )
 from ._transport import Client, VerifyError, credentials
@@ -25,16 +27,46 @@ from ._upload import (
     detect_scm_identity,
     register_url_build,
     upload_build,
+    validate_web_url,
 )
 
 _ENVIRONMENT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_MAX_TARGETS = 3
 _DEFAULT_TIMEOUT = 30 * 60.0
 _POLL_INTERVALS = (5.0, 10.0, 15.0)
 
 
 @dataclass(frozen=True)
-class ProofRun:
+class ProofTarget:
+    """One target of a Proof of Changes run: set exactly one of ``build`` and ``url``.
+
+    ``build`` is a mobile build: a debug ``.apk``, a simulator ``.app`` bundle, or a ``.zip``
+    holding one, with ``app_id`` its Revyl mobile app. In ``environment``, a string is a plain
+    launch value that Revyl stores with the run and may show in reports, so it must not be a secret;
+    ``{"secret_ref": "NAME"}`` names an organization launch variable that holds a secret.
+    ``version`` is a label unique within the app; it defaults to the short head commit plus a UTC
+    timestamp.
+
+    ``url`` is a Web deployment to prove in a cloud browser, with ``app_id`` its Revyl Web app. It
+    must be public HTTPS on port 443, and any HTTP status of 400 or above fails the page. URL builds
+    take no headers or basic auth, so the page must load signed in or without sign-in. It must stay
+    up from the call until the run settles, which can take minutes; with ``wait=False``, keeping it
+    up is the caller's job. ``environment`` and ``version`` apply only to ``build``.
+    """
+
+    app_id: str
+    build: str | os.PathLike[str] | None = None
+    url: str | None = None
+    environment: Mapping[str, ProofEnvironmentValue] | None = field(default=None, repr=False)
+    version: str | None = None
+
+
+@dataclass(frozen=True)
+class ProofTargetRun:
     id: str
+    app_id: str
+    platform: str | None
+    """``ios``, ``android``, or ``web``, as Revyl reports it."""
     status: str
     """Revyl's run status, as reported."""
     verdict: str | None
@@ -47,9 +79,22 @@ class ProofRun:
     created_at: str | None
     settled_at: str | None
     """Set once the run is over."""
-    pull_request: PullRequestContext
     build: UploadResult | UrlBuildResult
     """The uploaded mobile build, or the registered Web URL build."""
+
+
+@dataclass(frozen=True)
+class ProofRun:
+    runs: tuple[ProofTargetRun, ...]
+    verdict: Literal["passed", "failed", "inconclusive"] | None
+    """Set once every run has a verdict: ``failed`` if any run failed, otherwise ``inconclusive`` if
+    any run is inconclusive (a verdict Verify doesn't recognize counts as inconclusive), otherwise
+    ``passed``."""
+    label: str | None
+    """The label of the first run whose verdict decided ``verdict``."""
+    report_url: str | None
+    """The pull request comment with the report, from the first run that has one."""
+    pull_request: PullRequestContext
 
 
 def proof(
@@ -57,55 +102,33 @@ def proof(
     app_id: str | None = None,
     *,
     url: str | None = None,
+    environment: Mapping[str, ProofEnvironmentValue] | None = None,
+    version: str | None = None,
+    targets: Sequence[ProofTarget] | None = None,
     guidance: str | None = None,
     harness: ProofHarness = "revyl",
-    environment: Mapping[str, ProofEnvironmentValue] | None = None,
     wait: bool = True,
     timeout: float = _DEFAULT_TIMEOUT,
-    version: str | None = None,
     token: str | None = None,
     backend_url: str | None = None,
 ) -> ProofRun:
-    """Uploads a pull request's CI build, or registers its deployment URL, and starts a Revyl
-    Proof of Changes run on it.
+    """Uploads each target's mobile build or registers its Web deployment URL, then starts one
+    Revyl Proof of Changes run per target on the pull request.
 
-    Pass exactly one target: ``build``, a debug ``.apk``, a simulator ``.app`` bundle, or a
-    ``.zip`` holding one, for a mobile app; or ``url``, a deployment to prove in a cloud browser,
-    for a Web app. ``app_id`` is the Revyl app (UUID) the target belongs to.
+    Pass up to three ``targets``, one per platform, or a single target inline as ``build`` or
+    ``url`` with ``app_id`` (and, for ``build``, ``environment`` and ``version``); see
+    ``ProofTarget``. Revyl reuses the earlier runs when the same target set (the same builds) is
+    started again at the same head commit, so a stable hostname reuses a Web run.
 
-    A ``url`` must be public HTTPS on port 443, and any HTTP status of 400 or above fails the
-    page. URL builds take no headers or basic auth, so the page must load signed in or without
-    sign-in. The URL must stay up from the call until the run settles, which can take minutes;
-    with ``wait=False``, keeping it up is the caller's job. The same build at the same head commit
-    returns the earlier run, so a stable hostname reuses it. ``environment`` and ``version``
-    apply only to mobile builds.
-
-    With ``wait`` (the default) it polls until the run has a verdict, for at most ``timeout``
-    seconds; the run keeps going on Revyl after a timeout. Interrupting the wait cancels the run.
-    In ``environment``, a string is a plain value that Revyl stores with the run and may show in
-    reports, so it must not be a secret; ``{"secret_ref": "NAME"}`` names an organization launch
-    variable that holds a secret. Needs a pull request on GitHub Actions.
+    With ``wait`` (the default) it polls until every run settles, for at most ``timeout`` seconds;
+    the runs keep going on Revyl after a timeout. Interrupting the wait cancels the runs that
+    haven't settled. Needs a pull request on GitHub Actions.
     """
-    web = url is not None
-    if web == (build is not None):
-        raise VerifyError(
-            "INVALID_ARGUMENT",
-            "Pass either build (a mobile artifact) or url (a Web deployment), not both.",
-        )
-    if web and environment is not None:
-        raise VerifyError(
-            "INVALID_ARGUMENT",
-            "environment applies only to mobile builds; a URL build takes no launch variables.",
-        )
-    if web and version is not None:
-        raise VerifyError("INVALID_ARGUMENT", "version applies only to mobile builds.")
-    if not isinstance(app_id, str):
-        raise VerifyError("INVALID_ARGUMENT", "app_id must be a Revyl app id (a UUID).")
+    chosen = _proof_targets(build, app_id, url, environment, version, targets)
     if harness not in get_args(ProofHarness):
         raise VerifyError(
             "INVALID_ARGUMENT", f"harness must be one of {', '.join(get_args(ProofHarness))}."
         )
-    launch = _valid_environment(environment)
     if not isinstance(wait, bool):
         raise VerifyError("INVALID_ARGUMENT", "wait must be a boolean.")
     if (
@@ -122,71 +145,200 @@ def proof(
     resolved_token = credentials() if token is None else token
     client = Client(backend_url, resolved_token)
 
-    target: UploadResult | UrlBuildResult = (
-        register_url_build(client, url, app_id)
-        if url is not None
-        else upload_build(
-            build or "", app_id, version=version, token=resolved_token, backend_url=backend_url
+    builds: list[UploadResult | UrlBuildResult] = []
+    for target in chosen:
+        builds.append(
+            register_url_build(client, target.url, target.app_id)
+            if target.url is not None
+            else upload_build(
+                target.build or "",
+                target.app_id,
+                version=target.version,
+                token=resolved_token,
+                backend_url=backend_url,
+            )
         )
-    )
-    started = create_proof_run(
+    platforms = [built.platform for built in builds]
+    if len(set(platforms)) != len(platforms):
+        raise VerifyError(
+            "INVALID_ARGUMENT", f"targets must be one per platform; got {', '.join(platforms)}."
+        )
+
+    started = create_proof_runs(
         client,
-        app_id=app_id,
-        build_id=target.build_id,
+        targets=[
+            ProofRunTarget(target.app_id, built.build_id, target.environment)
+            for target, built in zip(chosen, builds)
+        ],
         pull_request=pull_request,
         harness=harness,
         guidance=focus,
-        environment=launch,
     )
-    state = _wait_for_verdict(client, started, timeout) if wait else started
+    ordered = [
+        next((state for state in started if state.app_id == target.app_id), started[index])
+        for index, target in enumerate(chosen)
+    ]
+    states = _wait_for_all(client, ordered, timeout) if wait else ordered
+    runs = tuple(
+        ProofTargetRun(
+            id=state.id,
+            app_id=state.app_id or target.app_id,
+            platform=state.platform,
+            status=state.status,
+            verdict=state.verdict,
+            label=state.label,
+            report_url=state.report_url,
+            review_url=state.review_url,
+            created_at=state.created_at,
+            settled_at=state.settled_at,
+            build=built,
+        )
+        for state, target, built in zip(states, chosen, builds)
+    )
+    verdict, label = _overall_verdict(runs)
     return ProofRun(
-        id=state.id,
-        status=state.status,
-        verdict=state.verdict,
-        label=state.label,
-        report_url=state.report_url,
-        review_url=state.review_url,
-        created_at=state.created_at,
-        settled_at=state.settled_at,
+        runs=runs,
+        verdict=verdict,
+        label=label,
+        report_url=next((run.report_url for run in runs if run.report_url), None),
         pull_request=pull_request,
-        build=target,
     )
 
 
-def _wait_for_verdict(client: Client, started: ProofRunState, timeout: float) -> ProofRunState:
+def _proof_targets(
+    build: str | os.PathLike[str] | None,
+    app_id: str | None,
+    url: str | None,
+    environment: Mapping[str, ProofEnvironmentValue] | None,
+    version: str | None,
+    targets: Sequence[ProofTarget] | None,
+) -> list[ProofTarget]:
+    inline = any(value is not None for value in (build, app_id, url, environment, version))
+    if targets is not None and inline:
+        raise VerifyError(
+            "INVALID_ARGUMENT", "Pass targets, or a single build or url with app_id, not both."
+        )
+    if targets is None:
+        chosen = (
+            [ProofTarget(app_id or "", build, url, environment, version)]
+            if build is not None or url is not None
+            else []
+        )
+    elif isinstance(targets, Sequence) and not isinstance(targets, str):
+        chosen = list(targets)
+    else:
+        chosen = []
+    if not 1 <= len(chosen) <= _MAX_TARGETS:
+        raise VerifyError(
+            "INVALID_ARGUMENT", f"proof() needs 1 to {_MAX_TARGETS} targets, one per platform."
+        )
+    valid: list[ProofTarget] = []
+    for target in chosen:
+        if not isinstance(target, ProofTarget):
+            raise VerifyError("INVALID_ARGUMENT", "targets must be ProofTarget values.")
+        if (target.url is None) == (target.build is None):
+            raise VerifyError(
+                "INVALID_ARGUMENT",
+                "Each target takes either build (a mobile artifact) or url (a Web deployment), "
+                "not both.",
+            )
+        if target.url is not None and target.environment is not None:
+            raise VerifyError(
+                "INVALID_ARGUMENT",
+                "environment applies only to mobile builds; a URL target takes no launch "
+                "variables.",
+            )
+        if target.url is not None and target.version is not None:
+            raise VerifyError("INVALID_ARGUMENT", "version applies only to mobile builds.")
+        if not isinstance(target.app_id, str) or not UUID_PATTERN.fullmatch(target.app_id):
+            raise VerifyError("INVALID_ARGUMENT", "app_id must be a Revyl app id (a UUID).")
+        if target.url is not None:
+            validate_web_url(target.url)
+        valid.append(replace(target, environment=_valid_environment(target.environment)))
+    if len({target.app_id for target in valid}) != len(valid):
+        raise VerifyError("INVALID_ARGUMENT", "Each target needs its own app_id, one per platform.")
+    if sum(target.url is not None for target in valid) > 1:
+        raise VerifyError(
+            "INVALID_ARGUMENT", "targets take at most one url: one target per platform."
+        )
+    return valid
+
+
+def _overall_verdict(
+    runs: Sequence[ProofTargetRun],
+) -> tuple[Literal["passed", "failed", "inconclusive"] | None, str | None]:
+    if any(run.verdict is None for run in runs):
+        return None, None
+
+    def decide(verdict: str | None) -> Literal["passed", "failed", "inconclusive"]:
+        return (
+            "failed" if verdict == "failed" else "passed" if verdict == "passed" else "inconclusive"
+        )
+
+    decided = [decide(run.verdict) for run in runs]
+    verdict: Literal["passed", "failed", "inconclusive"] = (
+        "failed"
+        if "failed" in decided
+        else "inconclusive"
+        if "inconclusive" in decided
+        else "passed"
+    )
+    return verdict, next(run.label for run, own in zip(runs, decided) if own == verdict)
+
+
+def _wait_for_all(
+    client: Client, started: list[ProofRunState], timeout: float
+) -> list[ProofRunState]:
     deadline = time.monotonic() + timeout
-    state = started
+    states = list(started)
+
+    def unsettled() -> list[ProofRunState]:
+        return [state for state in states if state.settled_at is None]
+
     poll = 0
     try:
-        while True:
-            if state.settled_at is not None:
-                if state.verdict is not None:
-                    return state
-                raise VerifyError(
-                    "PROOF_RUN_ENDED",
-                    f"Proof of Changes run {state.id} ended without a verdict "
-                    f"({state.label or state.status}).{_where(state)}",
-                )
+        while unsettled():
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise VerifyError(
                     "TIMEOUT",
-                    f"Proof of Changes run {state.id} had no verdict after {round(timeout)} s. "
-                    f"It keeps running on Revyl.{_where(state)}",
+                    "Proof of Changes had no verdict for "
+                    f"{', '.join(state.id for state in unsettled())} after {round(timeout)} s. "
+                    f"The runs keep going on Revyl.{_where(states)}",
                 )
             time.sleep(min(_POLL_INTERVALS[min(poll, len(_POLL_INTERVALS) - 1)], remaining))
             poll += 1
-            state = get_proof_run(client, state.id)
+            for index, state in enumerate(states):
+                if state.settled_at is None:
+                    fresh = get_proof_run(client, state.id)
+                    states[index] = replace(
+                        fresh,
+                        app_id=fresh.app_id or state.app_id,
+                        platform=fresh.platform or state.platform,
+                    )
     except KeyboardInterrupt:
-        try:
-            cancel_proof_run(client, started.id)
-        except VerifyError as error:
+        failures: list[VerifyError] = []
+        for state in unsettled():
+            try:
+                cancel_proof_run(client, state.id)
+            except VerifyError as error:
+                failures.append(error)
+        if failures:
             raise VerifyError(
                 "API_ERROR",
-                f"Proof of Changes run {started.id} was interrupted, but cancelling it failed: "
-                f"{error.message}",
-            ) from error
+                "Proof of Changes was interrupted, but cancelling its runs failed: "
+                f"{failures[0].message}",
+            ) from failures[0]
         raise
+    ended = [state for state in states if state.verdict is None]
+    if ended:
+        raise VerifyError(
+            "PROOF_RUN_ENDED",
+            "Proof of Changes run "
+            f"{', '.join(f'{state.id} ({state.label or state.status})' for state in ended)} "
+            f"ended without a verdict.{_where(states)}",
+        )
+    return states
 
 
 def _detect_pull_request() -> PullRequestContext:
@@ -206,8 +358,15 @@ def _detect_pull_request() -> PullRequestContext:
     )
 
 
-def _where(state: ProofRunState) -> str:
-    url = state.report_url or state.review_url
+def _where(states: Sequence[ProofRunState]) -> str:
+    url = next(
+        (
+            state.report_url or state.review_url
+            for state in states
+            if state.report_url or state.review_url
+        ),
+        None,
+    )
     return f" See {url}" if url else ""
 
 
@@ -243,4 +402,4 @@ def _valid_environment(
     return valid or None
 
 
-__all__ = ["ProofRun", "proof"]
+__all__ = ["ProofRun", "ProofTarget", "ProofTargetRun", "proof"]
