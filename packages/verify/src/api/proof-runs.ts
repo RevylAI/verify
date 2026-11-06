@@ -118,22 +118,23 @@ function proofRunState(response: RawResponse, method: string, path: string, know
 function proofRunError(response: RawResponse, method: string, path: string): VerifyError {
   const error = apiError(method, path, response);
   if (error.code === 'EDGE_BLOCKED') return error;
-  const { code, proofRunId } = refusal(response);
+  const { code, message, proofRunId } = refusal(response);
   const mapped = code === undefined ? undefined : REFUSALS[code];
   const options = { httpStatus: response.status, ...(proofRunId ? { proofRunId } : {}) };
-  if (mapped === 'GITHUB_APP_NOT_CONNECTED') return new VerifyError(mapped, `${error.message}. ${GITHUB_APP_FIX}`, options);
+  const refused = `Revyl refused the proof run (HTTP ${response.status}${code ? `, ${code}` : ''})${message ? `: ${message}` : ''}.`;
+  if (mapped === 'GITHUB_APP_NOT_CONNECTED') return new VerifyError(mapped, `${refused} ${GITHUB_APP_FIX}`, options);
   if (mapped === 'CONFIG_MANAGED_REVIEW') {
-    return new VerifyError(mapped, `${error.message}. The repository's .revyl/config.yaml already runs Proof of Changes for this head, so proof() can't start another run.`, options);
+    return new VerifyError(mapped, `${refused} The repository's .revyl/config.yaml already runs Proof of Changes for this head, so proof() can't start another run.`, options);
   }
-  if (mapped) return new VerifyError(mapped, error.message, options);
+  if (mapped) return new VerifyError(mapped, refused, options);
   if (response.status === 409 && proofRunId) {
-    return new VerifyError('PROOF_RUN_CONFLICT', `${error.message}. Proof run ${proofRunId} already covers this head with different settings.`, options);
+    return new VerifyError('PROOF_RUN_CONFLICT', `${refused} Proof run ${proofRunId} already covers this head with different settings.`, options);
   }
   if (response.status === 404 && method === 'GET') return new VerifyError('NOT_FOUND', error.message, options);
   return error;
 }
 
-function refusal(response: RawResponse): { code?: string; proofRunId?: string } {
+function refusal(response: RawResponse): { code?: string; message?: string; proofRunId?: string } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(new TextDecoder().decode(response.body));
@@ -144,8 +145,11 @@ function refusal(response: RawResponse): { code?: string; proofRunId?: string } 
   const record = parsed as Record<string, unknown>;
   const detail = typeof record.detail === 'object' && record.detail !== null ? (record.detail as Record<string, unknown>) : {};
   const first = (...values: unknown[]): string | undefined => values.find((value): value is string => typeof value === 'string' && value !== '');
+  const code = first(record.error, record.code, detail.error, detail.code, record.detail);
+  const message = first(detail.message, record.message, record.detail);
   return {
-    code: first(record.error, record.code, detail.error, detail.code, record.detail),
+    code,
+    ...(message !== undefined && message !== code ? { message: message.slice(0, 500) } : {}),
     proofRunId: first(record.proof_run_id, detail.proof_run_id),
   };
 }
