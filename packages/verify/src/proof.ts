@@ -4,7 +4,7 @@ import { cancelProofRun, createProofRuns, getProofRun, type ProofEnvironmentValu
 import { missingCredentialsMessage, resolveCredentials } from './auth.js';
 import { trackSession, untrackSession } from './cleanup.js';
 import { VerifyError, errorMessage } from './errors.js';
-import { detectScmIdentity, registerUrlBuild, uploadBuild, type UploadBuildResult, type UrlBuildResult } from './upload.js';
+import { detectScmIdentity, registerUrlBuild, uploadBuild, validateWebUrl, type UploadBuildResult, type UrlBuildResult } from './upload.js';
 
 export type { ProofEnvironmentValue, ProofHarness, PullRequestContext };
 
@@ -99,6 +99,7 @@ export interface ProofRun {
 const HARNESSES = new Set<ProofHarness>(['revyl', 'cursor', 'capy', 'devin']);
 const ENVIRONMENT_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const MAX_TARGETS = 3;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DEFAULT_TIMEOUT_MS = 30 * 60_000;
 const POLL_INTERVALS_MS = [5_000, 10_000, 15_000];
 
@@ -156,6 +157,8 @@ function proofTargets(options: ProofOptions): ProofTarget[] {
   }
   for (const target of targets) {
     if ((target.url !== undefined) === (target.build !== undefined)) throw new VerifyError('INVALID_ARGUMENT', 'Each target takes either build (a mobile artifact) or url (a Web deployment), not both.');
+    if (typeof target.appId !== 'string' || !UUID.test(target.appId)) throw new VerifyError('INVALID_ARGUMENT', 'Each target needs an appId that is a Revyl app id (a UUID).');
+    if (target.url !== undefined) validateWebUrl(target.url);
     if (target.url !== undefined && target.environment !== undefined) throw new VerifyError('INVALID_ARGUMENT', 'environment applies only to mobile builds; a URL target takes no launch variables.');
     if (target.url !== undefined && target.version !== undefined) throw new VerifyError('INVALID_ARGUMENT', 'version applies only to mobile builds.');
     validEnvironment(target.environment);
