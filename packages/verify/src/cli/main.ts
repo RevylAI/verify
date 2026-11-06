@@ -8,7 +8,7 @@ import { VerifyError, errorMessage, isVerifyError } from '../errors.js';
 import { PACKAGE_NAME, VERSION } from '../version.js';
 import { initProject, validateInitAnswers, type InitAnswers } from './init.js';
 import { uploadBuild, type UploadBuildResult } from '../upload.js';
-import { proof, type ProofEnvironmentValue, type ProofHarness, type ProofRun, type ProofTarget } from '../proof.js';
+import { proof, type ProofEnvironmentValue, type ProofRun, type ProofTarget } from '../proof.js';
 import { installVerify, packageHasVerify } from './install.js';
 import { signIn } from './login.js';
 
@@ -19,11 +19,13 @@ Usage
       Install Verify, write verify.config.ts and an example script, then check authentication
   npx ${PACKAGE_NAME} upload <artifact> --app-id <id> [--platform ios|android] [--version <label>] [--repo <owner/name> --commit <sha> [--pr <number>]] [--json]
       Upload a CI build (.apk, .app, or .zip) with its pull request identity, detected on GitHub Actions
-  npx ${PACKAGE_NAME} proof <artifact> | --url <https-url> --app-id <id> [--guidance <text>] [--harness revyl|cursor|capy|devin] [--env NAME[=value]]... [--env-secret NAME=<launch variable>]... [--timeout <minutes>] [--no-wait] [--json]
+  npx ${PACKAGE_NAME} proof <artifact> | --url <https-url> --app-id <id> [--guidance <text>] [--env NAME[=value]]... [--env-secret NAME]... [--timeout <minutes>] [--no-wait] [--json]
   npx ${PACKAGE_NAME} proof --target <app-id>=<artifact-or-https-url>... [same options]
       Upload each pull request build or register its Web URL, and run Revyl Proof of Changes on it, on GitHub Actions.
-      Up to 3 targets, one per platform; --env and --env-secret apply to every mobile target. A URL must stay up until its run settles.
-      Exits 1 when the overall verdict is failed: failed if any run failed, else inconclusive if any is, else passed
+      Up to 3 targets, one per platform; --env and --env-secret apply to every mobile target. --env-secret NAME uses the
+      organization launch variable NAME and needs a member API key. A URL must stay up until its run settles.
+      Revyl adds no check run, so this is the CI gate: it exits 0 only when the overall verdict is passed (failed if any
+      run failed, else inconclusive if any is, else passed), and 1 otherwise. With --no-wait it exits 0 once the runs start
   npx ${PACKAGE_NAME} whoami
       Check which Revyl account your credentials belong to
 
@@ -207,7 +209,6 @@ async function proofCommand(args: string[]): Promise<number> {
       url: { type: 'string' },
       target: { type: 'string', multiple: true },
       guidance: { type: 'string' },
-      harness: { type: 'string' },
       env: { type: 'string', multiple: true },
       'env-secret': { type: 'string', multiple: true },
       timeout: { type: 'string' },
@@ -229,10 +230,9 @@ async function proofCommand(args: string[]): Promise<number> {
     if (value === undefined) throw new VerifyError('INVALID_ARGUMENT', `--env ${name} has no value: pass NAME=value or set ${name} in the environment.`);
     environment[name] = value;
   }
-  for (const entry of values['env-secret'] ?? []) {
-    const separator = entry.indexOf('=');
-    if (separator <= 0 || separator === entry.length - 1) throw new VerifyError('INVALID_ARGUMENT', '--env-secret takes NAME=<launch variable>, naming an organization launch variable that holds the secret.');
-    environment[entry.slice(0, separator)] = { secretRef: entry.slice(separator + 1) };
+  for (const name of values['env-secret'] ?? []) {
+    if (name.includes('=')) throw new VerifyError('INVALID_ARGUMENT', '--env-secret takes NAME, the organization launch variable that holds the secret, with no value.');
+    environment[name] = { secretRef: name };
   }
   const hasEnvironment = Object.keys(environment).length > 0;
   const target = (appId: string, artifactOrUrl: string): ProofTarget =>
@@ -256,12 +256,11 @@ async function proofCommand(args: string[]): Promise<number> {
   const run = await proof({
     targets,
     ...(values.guidance !== undefined ? { guidance: values.guidance } : {}),
-    ...(values.harness !== undefined ? { harness: values.harness as ProofHarness } : {}),
     ...(values.timeout !== undefined ? { timeoutMs: Number(values.timeout) * 60_000 } : {}),
     wait: !values['no-wait'],
   });
   process.stdout.write(values.json ? `${JSON.stringify(run, null, 2)}\n` : proofSummary(run));
-  return run.verdict === 'failed' ? 1 : 0;
+  return values['no-wait'] || run.verdict === 'passed' ? 0 : 1;
 }
 
 function proofSummary(run: ProofRun): string {

@@ -1,6 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { RevylClient } from './api/client.js';
-import { cancelProofRun, createProofRuns, getProofRun, type ProofEnvironmentValue, type ProofHarness, type ProofRunState, type PullRequestContext } from './api/proof-runs.js';
+import { cancelProofRun, createProofRuns, getProofRun, isSettled, type ProofEnvironmentValue, type ProofHarness, type ProofRunState, type PullRequestContext } from './api/proof-runs.js';
 import { missingCredentialsMessage, resolveCredentials } from './auth.js';
 import { trackSession, untrackSession } from './cleanup.js';
 import { VerifyError, errorMessage } from './errors.js';
@@ -16,7 +16,8 @@ export interface ProofBuildTarget {
   appId: string;
   /**
    * Launch variables for this target's run, by name. A string is a plain value: Revyl stores it in the run's snapshot and
-   * it may appear in reports, so it must not be a secret. `{ secretRef }` names an organization launch variable that holds a secret.
+   * it may appear in reports, so it must not be a secret. `{ secretRef }` uses the organization launch variable of the same
+   * name, which holds a secret: its value stays in Revyl, and only a member API key can reference it.
    */
   environment?: Record<string, ProofEnvironmentValue>;
   /** A version label unique within the app. Defaults to the short head commit plus a UTC timestamp. */
@@ -43,7 +44,7 @@ export type ProofTarget = ProofBuildTarget | ProofUrlTarget;
 export interface ProofSettings {
   /** What the agent should focus on. */
   guidance?: string;
-  /** The agent that runs the proof. Defaults to `revyl`. */
+  /** The agent that runs the proof. `revyl` is the only one. */
   harness?: ProofHarness;
   /** Block until every run has settled. Defaults to true. */
   wait?: boolean;
@@ -57,8 +58,9 @@ export interface ProofSettings {
 }
 
 /**
- * Up to three targets, one per platform, or a single target given inline. Revyl reuses the earlier runs when the same
- * target set (the same builds) is started again at the same head commit, so a stable hostname reuses a Web run.
+ * Up to three targets, one per platform, or a single target given inline. Starting the same targets (the same builds and
+ * settings) again at the same head returns the earlier runs in whatever state they are in; to prove again, upload a new
+ * build or push a new commit.
  */
 export type ProofOptions = ProofSettings & ({ targets: ProofTarget[]; build?: never; url?: never; appId?: never; environment?: never; version?: never } | (ProofTarget & { targets?: never }));
 
@@ -96,7 +98,6 @@ export interface ProofRun {
   pullRequest: PullRequestContext;
 }
 
-const HARNESSES = new Set<ProofHarness>(['revyl', 'cursor', 'capy', 'devin']);
 const ENVIRONMENT_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const MAX_TARGETS = 3;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -107,11 +108,14 @@ const POLL_INTERVALS_MS = [5_000, 10_000, 15_000];
  * Uploads each target's mobile build or registers its Web deployment URL, then starts one Revyl Proof of Changes run
  * per target on the pull request. With `wait` (the default) it polls until every run settles, and cancels the runs
  * still going if the process is interrupted or `signal` aborts. Needs a pull request on GitHub Actions.
+ *
+ * Revyl reports on the pull request in a comment but adds no check run, so the result is the CI gate: fail the job
+ * unless `verdict` is `passed`.
  */
 export async function proof(options: ProofOptions): Promise<ProofRun> {
   const targets = proofTargets(options);
   const harness = options.harness ?? 'revyl';
-  if (!HARNESSES.has(harness)) throw new VerifyError('INVALID_ARGUMENT', `harness must be one of ${[...HARNESSES].join(', ')}.`);
+  if (harness !== 'revyl') throw new VerifyError('INVALID_ARGUMENT', "harness must be 'revyl'.");
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new VerifyError('INVALID_ARGUMENT', 'timeoutMs must be a positive number of milliseconds.');
   const guidance = options.guidance?.trim() || undefined;
@@ -142,8 +146,8 @@ export async function proof(options: ProofOptions): Promise<ProofRun> {
     },
     options.signal,
   );
-  const ordered = targets.map((target, index) => started.find((state) => state.appId === target.appId) ?? started[index]!);
-  const states = options.wait === false ? ordered : await waitForAll(client, ordered, timeoutMs, options.signal);
+  const current = await Promise.all(started.map(async (state) => (isSettled(state) ? withIdentity(await getProofRun(client, state.id, options.signal), state) : state)));
+  const states = options.wait === false ? current : await waitForAll(client, current, timeoutMs, options.signal);
   const runs = states.map((state, index): ProofTargetRun => ({ ...state, appId: state.appId ?? targets[index]!.appId, build: builds[index]! }));
   return { runs, ...overallVerdict(runs), ...(runs.find((run) => run.reportUrl)?.reportUrl ? { reportUrl: runs.find((run) => run.reportUrl)!.reportUrl! } : {}), pullRequest };
 }
@@ -179,7 +183,7 @@ function overallVerdict(runs: ProofTargetRun[]): Pick<ProofRun, 'verdict' | 'lab
 async function waitForAll(client: RevylClient, started: ProofRunState[], timeoutMs: number, signal: AbortSignal | undefined): Promise<ProofRunState[]> {
   const deadline = Date.now() + timeoutMs;
   const states = [...started];
-  const unsettled = () => states.filter((state) => state.settledAt === undefined);
+  const unsettled = () => states.filter((state) => !isSettled(state));
   const cancelUnsettled = async () => {
     await Promise.all(unsettled().map((state) => cancelProofRun(client, state.id)));
   };
@@ -193,7 +197,7 @@ async function waitForAll(client: RevylClient, started: ProofRunState[], timeout
       }
       await delay(Math.min(POLL_INTERVALS_MS[poll] ?? POLL_INTERVALS_MS.at(-1)!, remaining), undefined, { signal });
       for (const [index, state] of states.entries()) {
-        if (state.settledAt === undefined) states[index] = { ...(await getProofRun(client, state.id, signal)), ...(state.appId ? { appId: state.appId } : {}), ...(state.platform ? { platform: state.platform } : {}) };
+        if (!isSettled(state)) states[index] = withIdentity(await getProofRun(client, state.id, signal), state);
       }
     }
   } catch (error) {
@@ -214,6 +218,10 @@ async function waitForAll(client: RevylClient, started: ProofRunState[], timeout
   return states;
 }
 
+function withIdentity(state: ProofRunState, known: ProofRunState): ProofRunState {
+  return { ...state, ...(known.appId ? { appId: known.appId } : {}), ...(known.platform ? { platform: known.platform } : {}) };
+}
+
 function detectPullRequest(): PullRequestContext {
   const identity = detectScmIdentity();
   if (identity?.ciSystem !== 'github-actions' || identity.pr === undefined) {
@@ -232,7 +240,8 @@ function validEnvironment(environment: Record<string, ProofEnvironmentValue> | u
   if (typeof environment !== 'object' || environment === null || Array.isArray(environment)) throw new VerifyError('INVALID_ARGUMENT', 'environment must map variable names to values or { secretRef } references.');
   for (const [name, value] of Object.entries(environment)) {
     if (!ENVIRONMENT_NAME.test(name)) throw new VerifyError('INVALID_ARGUMENT', 'environment has an invalid variable name: use letters, digits, and underscores, not starting with a digit.');
-    const isReference = typeof value === 'object' && value !== null && typeof value.secretRef === 'string' && value.secretRef.trim() !== '';
-    if (typeof value !== 'string' && !isReference) throw new VerifyError('INVALID_ARGUMENT', `environment variable ${name} must be a string or { secretRef: '<launch variable name>' }.`);
+    if (typeof value === 'string') continue;
+    if (typeof value !== 'object' || value === null || typeof value.secretRef !== 'string') throw new VerifyError('INVALID_ARGUMENT', `environment variable ${name} must be a string or { secretRef: '${name}' }.`);
+    if (value.secretRef !== name) throw new VerifyError('INVALID_ARGUMENT', `environment variable ${name} must reference the launch variable of the same name: { secretRef: '${name}' }.`);
   }
 }

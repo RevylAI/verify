@@ -30,7 +30,11 @@ export type VerifyErrorCode =
   | 'CONFIG_MANAGED_REVIEW'
   | 'PR_CLOSED'
   | 'HEAD_NOT_CURRENT'
-  | 'PLATFORM_MISMATCH'
+  | 'BUILD_REJECTED'
+  | 'UNTRUSTED_PR_HEAD'
+  | 'SECRET_REF_NOT_ALLOWED'
+  | 'PROOF_RUN_LIMIT'
+  | 'PROVIDER_UNAVAILABLE'
   | 'PREVIEW_UNREACHABLE'
   | 'TIMEOUT';
 
@@ -40,16 +44,16 @@ export class VerifyError extends Error {
   readonly code: VerifyErrorCode;
   readonly reason?: RefusalReason;
   readonly httpStatus?: number;
-  /** The existing Proof of Changes run, on `PROOF_RUN_CONFLICT`. */
-  readonly proofRunId?: string;
+  /** The existing Proof of Changes runs for the head, on `PROOF_RUN_CONFLICT`. */
+  readonly proofRunIds?: string[];
 
-  constructor(code: VerifyErrorCode, message: string, options?: { cause?: unknown; reason?: RefusalReason; httpStatus?: number; proofRunId?: string }) {
+  constructor(code: VerifyErrorCode, message: string, options?: { cause?: unknown; reason?: RefusalReason; httpStatus?: number; proofRunIds?: string[] }) {
     super(message, options);
     this.name = 'VerifyError';
     this.code = code;
     this.reason = options?.reason;
     this.httpStatus = options?.httpStatus;
-    this.proofRunId = options?.proofRunId;
+    this.proofRunIds = options?.proofRunIds;
   }
 }
 
