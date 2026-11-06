@@ -62,7 +62,7 @@ result, err := verify.UploadBuild(ctx, verify.UploadOptions{File: "app/build/out
 | --- | --- |
 | `buildId`, `version`, `appId`, `platform`, `packageId` | The build Revyl created. |
 | `identity` | The pull request identity that was sent: `ciSystem` (`github-actions` or `external`), `repository`, `commit`, and `pr` when known. Absent when none was detected or given, in which case no review can match the build. |
-| `reviewCorrelation.status` | Always `unknown` for now: Revyl doesn't yet report whether the upload attached to a review. Check the pull request's Revyl status. |
+| `reviewCorrelation` | Whether Revyl attached the build to a pull request review. `associated` is true only for status `associated`. Other statuses are `not_owned`, `ambiguous_review`, `stale_review`, `closed_review`, and `unmatched`; `not_owned` and `unmatched` can still attach once the review picks its targets for that commit. `no_identity` means no complete pull request identity was sent, and `unknown` means Revyl didn't report a match. `matchedTargetCount` comes with Revyl's statuses. |
 | `warnings` | Revyl's artifact validation warnings. |
 
 ### Errors
@@ -70,10 +70,10 @@ result, err := verify.UploadBuild(ctx, verify.UploadOptions{File: "app/build/out
 | Code | What happened |
 | --- | --- |
 | `AUTH_MISSING` | No `REVYL_API_KEY` or Revyl CLI login. |
-| `AUTH_REJECTED` | HTTP 401: the key isn't valid for uploads (use a member's API key). HTTP 403: the key's user needs the Member role or higher. |
+| `AUTH_REJECTED` | HTTP 401: the key isn't valid for uploads. Use a member's API key, or a revyl-macos job's `ci_runner` key after the job's activation hook has run; an organization API key with no runtime authenticator is rejected as "Invalid API key". HTTP 403: the key's user needs the Member role or higher (a Viewer gets 403). |
 | `NOT_FOUND` | The app id isn't an app in the key's organization. |
 | `VERSION_EXISTS` | The app already has a build with that version. Pass a unique `--version`. |
 | `ARTIFACT_REJECTED` | Revyl couldn't validate the artifact, for example an `.app` built for a device instead of the simulator. |
 | `UPLOAD_FAILED` | Revyl's storage rejected the artifact or couldn't be reached, after retries. |
-| `TIMEOUT` | A phase ran past its bound: 30 s to open the upload, 10 min for the artifact, 90 s to register the build. |
-| `INVALID_ARGUMENT` | A bad artifact path or type, or an incomplete `--repo`/`--commit` pair. |
+| `TIMEOUT` | A phase ran past its bound (30 s to open the upload, 10 min for the artifact, 90 s per attempt to register the build), or the caller aborted. Registering the build is retried up to 3 times on 5xx, 429, and network errors. |
+| `INVALID_ARGUMENT` | A bad artifact path or type, an incomplete `--repo`/`--commit` pair, or a head commit that isn't a full SHA. |
