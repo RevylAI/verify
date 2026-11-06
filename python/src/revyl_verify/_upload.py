@@ -352,35 +352,40 @@ def _inspect_artifact(path: Path, platform: str | None) -> tuple[Path, MobilePla
 
 def _zip_app_bundle(bundle: Path, destination: Path) -> Path:
     """Zips an .app bundle like `revyl build upload`: entries under the bundle name, links kept."""
-    with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED, allowZip64=False) as archive:
-        for root, directories, files in os.walk(bundle, onerror=_raise_walk_error):
-            directories.sort()
-            for name in sorted([*directories, *files]):
-                entry = Path(root) / name
-                arcname = entry.relative_to(bundle.parent).as_posix()
-                info = entry.lstat()
-                stamp = time.localtime(max(info.st_mtime, 315532800))[:6]
-                if stat.S_ISLNK(info.st_mode):
-                    link = zipfile.ZipInfo(arcname, stamp)
-                    link.create_system = 3
-                    link.external_attr = (stat.S_IFLNK | 0o777) << 16
-                    archive.writestr(
-                        link, os.readlink(entry).replace(os.sep, "/"), zipfile.ZIP_STORED
-                    )
-                elif stat.S_ISDIR(info.st_mode):
-                    folder = zipfile.ZipInfo(f"{arcname}/", stamp)
-                    folder.create_system = 3
-                    folder.external_attr = (
-                        (stat.S_IFDIR | stat.S_IMODE(info.st_mode)) << 16
-                    ) | 0x10
-                    archive.writestr(folder, b"", zipfile.ZIP_STORED)
-                elif stat.S_ISREG(info.st_mode):
-                    archive.write(entry, arcname)
-                else:
-                    raise VerifyError(
-                        "INVALID_ARGUMENT",
-                        f"{entry} in the .app bundle is not a file, directory, or symlink.",
-                    )
+    try:
+        with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED, allowZip64=False) as archive:
+            for root, directories, files in os.walk(bundle, onerror=_raise_walk_error):
+                directories.sort()
+                for name in sorted([*directories, *files]):
+                    entry = Path(root) / name
+                    arcname = entry.relative_to(bundle.parent).as_posix()
+                    info = entry.lstat()
+                    stamp = time.localtime(max(info.st_mtime, 315532800))[:6]
+                    if stat.S_ISLNK(info.st_mode):
+                        link = zipfile.ZipInfo(arcname, stamp)
+                        link.create_system = 3
+                        link.external_attr = (stat.S_IFLNK | 0o777) << 16
+                        archive.writestr(
+                            link, os.readlink(entry).replace(os.sep, "/"), zipfile.ZIP_STORED
+                        )
+                    elif stat.S_ISDIR(info.st_mode):
+                        folder = zipfile.ZipInfo(f"{arcname}/", stamp)
+                        folder.create_system = 3
+                        folder.external_attr = (
+                            (stat.S_IFDIR | stat.S_IMODE(info.st_mode)) << 16
+                        ) | 0x10
+                        archive.writestr(folder, b"", zipfile.ZIP_STORED)
+                    elif stat.S_ISREG(info.st_mode):
+                        archive.write(entry, arcname)
+                    else:
+                        raise VerifyError(
+                            "INVALID_ARGUMENT",
+                            f"{entry} in the .app bundle is not a file, directory, or symlink.",
+                        )
+    except (OSError, zipfile.LargeZipFile) as error:
+        raise VerifyError(
+            "INVALID_ARGUMENT", f"Could not zip the .app bundle {bundle}: {error}"
+        ) from None
     return destination
 
 
