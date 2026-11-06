@@ -158,7 +158,8 @@ jobs:
           echo "::error::Replace the build step in .github/workflows/revyl-proof.yml with your ${platform} build."
           exit 1
       - name: Upload the build to Revyl
-        run: npx --yes ${PACKAGE_NAME}@${VERSION} upload "${artifact}" --app-id ${appId} --platform ${platform}
+        run: |
+          npx --yes ${PACKAGE_NAME}@${VERSION} upload "${artifact}" --app-id ${appId} --platform ${platform}
         env:
           REVYL_API_KEY: \${{ secrets.REVYL_API_KEY }}
 `;

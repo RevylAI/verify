@@ -193,7 +193,7 @@ function identityHeaders(identity: ScmIdentity | undefined): Record<string, stri
     'X-CI-PR-URL': identity.prUrl,
     'X-CI-PR-Number': identity.pr === undefined ? undefined : String(identity.pr),
   };
-  return Object.fromEntries(Object.entries(headers).filter((entry): entry is [string, string] => Boolean(entry[1])));
+  return Object.fromEntries(Object.entries(headers).filter((entry): entry is [string, string] => Boolean(entry[1]) && /^[\x20-\x7e]*$/.test(entry[1] ?? '')));
 }
 
 function identityMetadata(identity: ScmIdentity | undefined, platform: MobilePlatform): Record<string, unknown> {
@@ -296,6 +296,7 @@ async function call<T>(pending: Promise<RawResponse>, method: string, path: stri
   const response = await pending;
   if (response.status >= 200 && response.status < 300) return parseJson<T>(response, `${method} ${path}`);
   const error = apiError(method, path, response);
+  if (error.code === 'EDGE_BLOCKED') throw error;
   const detail = error.message;
   switch (response.status) {
     case 401:
