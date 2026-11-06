@@ -38,6 +38,10 @@ To open each pull request's preview deployment on web, read the URL from the env
 web: { platform: 'web', app: { appId: process.env.REVYL_APP_ID!, url: process.env.PREVIEW_URL!, branch: process.env.GITHUB_HEAD_REF } }
 ```
 
+## Proof of Changes from your own builds
+
+To have Revyl run Proof of Changes on each pull request's build from your CI, upload each build with `npx @revyl/verify upload`. See [Proof of Changes from your CI](proof-of-changes.md).
+
 ## Inside a test runner
 
 Verify has no test runner of its own. Call it from the one you already use, and close the session in `finally` or an `after` hook: test runners handle errors and shutdown themselves, so Verify's automatic cleanup steps aside for them.

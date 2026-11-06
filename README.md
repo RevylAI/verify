@@ -87,6 +87,10 @@ For a normal GitHub Actions job, install from the lockfile with `npm ci` and pas
 
 On a `revyl-macos` job, `currentComputer()` attaches to the runner's existing computer without taking ownership. The runner releases the computer; closing the Verify attachment still cleans up hosted children. See the [CI guide](packages/verify/docs/ci.md) and [computer API](packages/verify/docs/api.md#inside-a-revyl-macos-github-actions-job).
 
+### Proof of Changes from your CI
+
+If your CI already builds the app, `npx @revyl/verify upload` sends each pull request's build to Revyl with its pull request identity, so Revyl can run [Proof of Changes](https://github.com/RevylAI/revyl-cli/blob/main/docs/proof-of-changes.md) on it. `uploadBuild()` (TypeScript), `upload_build()` (Python), and `UploadBuild` (Go) do the same from code. See [Proof of Changes from your CI](packages/verify/docs/proof-of-changes.md).
+
 ## Reference authentication
 
 Use manual setup when you need to control the package manager or keep the generated files out of the project:

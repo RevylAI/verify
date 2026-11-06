@@ -57,6 +57,9 @@ try {
 | `INSTRUCTION_FAILED` | Revyl's agent could not do what the instruction asked | Make the instruction more specific, or split it into smaller steps |
 | `VALIDATION_FAILED` | The validation did not hold | The message has Revyl's reason; watch the recording at the session link |
 | `STEP_FAILED` | Revyl could not run the step to an outcome: it errored, it was cancelled on Revyl, or a validation came back without a verdict. This says nothing about your app, and `soft` does not cover it. | Watch the session at the link, then run the step again |
+| `ARTIFACT_REJECTED` | `uploadBuild()` sent an artifact Revyl couldn't validate | Upload a debug `.apk` or a simulator `.app`; see [uploads](proof-of-changes.md#errors) |
+| `VERSION_EXISTS` | `uploadBuild()` used a version the app already has | Pass a unique version |
+| `UPLOAD_FAILED` | Revyl's storage rejected the artifact upload or couldn't be reached, after retries | Run the upload again |
 | `TIMEOUT` | A step, a session start, or a request ran out of time | Inspect the session before retrying. The default 10-minute start timeout is separate from the 120-second unclaimed-start failure. See [computer availability](computers.md#availability-and-errors). |
 
 `EDGE_BLOCKED` does not require Cloudflare branding in the HTML body. A `cf-ray` header alone is not proof of a block: any syntactically valid JSON body retains its existing error mapping, even if the content type is incorrectly `text/html`. HTTP 401 is unchanged. Edge-block errors include `httpStatus` but never copy the response body or ray ID into the error.
