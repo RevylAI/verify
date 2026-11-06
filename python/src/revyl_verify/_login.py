@@ -106,13 +106,7 @@ def _approve(backend: str, viewer: str, deadline: Deadline) -> str:
         "Waiting for approval (Ctrl+C to cancel)...\n"
     )
     sys.stderr.flush()
-    try:
-        opened = webbrowser.open(url)
-    except webbrowser.Error:
-        opened = False
-    if not opened:
-        sys.stderr.write("Open the URL above in your browser to finish signing in.\n")
-        sys.stderr.flush()
+    threading.Thread(target=_open_browser, args=(url,), daemon=True).start()
     while True:
         try:
             deadline.pause(wait)
@@ -165,6 +159,16 @@ def _approve(backend: str, viewer: str, deadline: Deadline) -> str:
         return token
 
 
+def _open_browser(url: str) -> None:
+    try:
+        opened = webbrowser.open(url)
+    except webbrowser.Error:
+        opened = False
+    if not opened:
+        sys.stderr.write("Open the URL above in your browser to finish signing in.\n")
+        sys.stderr.flush()
+
+
 def _call(
     backend: str,
     path: str,
@@ -187,11 +191,26 @@ def _call(
     request = Request(
         backend + path, data=data, headers=headers, method="GET" if body is None else "POST"
     )
+    limit = deadline.cap(15.0)
+    done = threading.Event()
+    outcome: list[bytes | Exception] = []
+
+    def fetch() -> None:
+        try:
+            with build_opener(_NoRedirects()).open(request, timeout=15.0) as response:
+                outcome.append(response.read(1024 * 1024))
+        except Exception as error:
+            outcome.append(error)
+        finally:
+            done.set()
+
+    threading.Thread(target=fetch, daemon=True).start()
+    while not done.wait(min(0.25, limit.remaining())):
+        pass
     try:
-        with build_opener(_NoRedirects()).open(
-            request, timeout=min(15.0, deadline.remaining())
-        ) as response:
-            raw: bytes = response.read(1024 * 1024)
+        if isinstance(outcome[0], Exception):
+            raise outcome[0]
+        raw = outcome[0]
     except HTTPError as error:
         error.close()
         if error.code == 404 and token is None:
