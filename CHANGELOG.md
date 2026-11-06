@@ -3,7 +3,6 @@
 ## Unreleased
 
 - Add `uploadBuild()` and `npx @revyl/verify upload` to upload a CI build (`.apk`, `.app`, or `.zip`) with the pull request identity Revyl uses for Proof of Changes, detected on GitHub Actions or given with `--repo` and `--commit`. Errors are typed: `ARTIFACT_REJECTED`, `VERSION_EXISTS`, and `UPLOAD_FAILED` are new codes. `reviewCorrelation.status` is `unknown` until Revyl reports the review match.
-- Add `npx @revyl/verify init --proof` to write `.revyl/config.yaml` (CI-upload build plus Proof of Changes) and `.github/workflows/revyl-proof.yml`, resolving or creating the Revyl app and checking the Revyl GitHub App.
 
 ## 0.3.1 (2026-11-03)
 
