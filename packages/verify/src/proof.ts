@@ -141,7 +141,7 @@ function validEnvironment(environment: Record<string, ProofEnvironmentValue> | u
   if (environment === undefined) return undefined;
   if (typeof environment !== 'object' || environment === null || Array.isArray(environment)) throw new VerifyError('INVALID_ARGUMENT', 'environment must map variable names to values or { secretRef } references.');
   for (const [name, value] of Object.entries(environment)) {
-    if (!ENVIRONMENT_NAME.test(name)) throw new VerifyError('INVALID_ARGUMENT', `environment has an invalid variable name "${name}": use letters, digits, and underscores, not starting with a digit.`);
+    if (!ENVIRONMENT_NAME.test(name)) throw new VerifyError('INVALID_ARGUMENT', 'environment has an invalid variable name: use letters, digits, and underscores, not starting with a digit.');
     const isReference = typeof value === 'object' && value !== null && typeof value.secretRef === 'string' && value.secretRef.trim() !== '';
     if (typeof value !== 'string' && !isReference) throw new VerifyError('INVALID_ARGUMENT', `environment variable ${name} must be a string or { secretRef: '<launch variable name>' }.`);
   }

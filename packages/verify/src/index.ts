@@ -2,7 +2,7 @@ export { attach, currentComputer, open } from './open.js';
 export type { AttachOptions, OpenOptions } from './open.js';
 export type { OpenedSession, Session, StepOptions, StepResult, StepType, ValidationOptions, OperationOptions, ExecOptions, ExecResult, FileStat, ComputerProcess, ComputerRecording } from './session.js';
 export { uploadBuild } from './upload.js';
-export type { ReviewCorrelation, ScmIdentity, UploadBuildOptions, UploadBuildResult } from './upload.js';
+export type { ReviewCorrelation, ReviewCorrelationStatus, ScmIdentity, UploadBuildOptions, UploadBuildResult } from './upload.js';
 export { proof } from './proof.js';
 export type { ProofEnvironmentValue, ProofHarness, ProofOptions, ProofRun, PullRequestContext } from './proof.js';
 export { defineConfig } from './config.js';
