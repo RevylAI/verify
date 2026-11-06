@@ -19,6 +19,7 @@ from ._models import (
 )
 from ._session import Session
 from ._transport import Cancellation, CleanupStatus, RefusalReason, VerifyError, origin, seconds
+from ._upload import ReviewCorrelation, ScmIdentity, UploadResult, upload_build
 
 __version__ = "0.1.0"
 __all__ = [
@@ -31,10 +32,13 @@ __all__ = [
     "FileStat",
     "Platform",
     "RefusalReason",
+    "ReviewCorrelation",
+    "ScmIdentity",
     "Session",
     "SignIn",
     "StepResult",
     "Target",
+    "UploadResult",
     "VerifyError",
     "Viewport",
     "attach",
@@ -43,6 +47,7 @@ __all__ = [
     "async_open",
     "current_computer",
     "open",
+    "upload_build",
 ]
 
 

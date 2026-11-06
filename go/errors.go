@@ -60,6 +60,9 @@ const (
 	ErrCommandFailed          Code = "COMMAND_FAILED"
 	ErrNotFound               Code = "NOT_FOUND"
 	ErrAccessDenied           Code = "ACCESS_DENIED"
+	ErrArtifactRejected       Code = "ARTIFACT_REJECTED"
+	ErrVersionExists          Code = "VERSION_EXISTS"
+	ErrUploadFailed           Code = "UPLOAD_FAILED"
 	ErrTimeout                Code = "TIMEOUT"
 )
 

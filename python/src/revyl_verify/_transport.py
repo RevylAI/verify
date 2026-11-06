@@ -414,10 +414,11 @@ class Client:
         timeout: float = 30,
         retry: bool = False,
         worker: bool = False,
+        headers: dict[str, str] | None = None,
     ) -> Response:
         for attempt in range(3):
             try:
-                response = self._once(method, path, body, deadline.cap(timeout), worker)
+                response = self._once(method, path, body, deadline.cap(timeout), worker, headers)
             except VerifyError:
                 if not retry or attempt == 2:
                     raise
@@ -428,7 +429,13 @@ class Client:
         raise AssertionError("unreachable")
 
     def _once(
-        self, method: str, path: str, body: Json, deadline: Deadline, worker: bool
+        self,
+        method: str,
+        path: str,
+        body: Json,
+        deadline: Deadline,
+        worker: bool,
+        extra_headers: dict[str, str] | None = None,
     ) -> Response:
         parsed = urlsplit(self.base)
         connection_type = (
@@ -442,6 +449,7 @@ class Client:
             "Accept": "application/json",
             "User-Agent": "revyl-verify/0.1.0 python",
             "X-Revyl-Client": "verify",
+            **(extra_headers or {}),
         }
         if worker:
             headers["X-Revyl-Agent"] = "Verify"
