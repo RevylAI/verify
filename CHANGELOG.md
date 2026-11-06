@@ -2,8 +2,8 @@
 
 ## Unreleased
 
-- Add `proof()` and `npx @revyl/verify proof` to upload a pull request's CI build on GitHub Actions, start a Revyl Proof of Changes run with optional guidance, harness, and launch environment, and wait for its verdict (`ready`, `ready_with_polish`, `ready_with_issues`, `failed`, or `inconclusive`) and report URL. Interrupting the wait cancels the run. New error codes: `PR_CONTEXT_MISSING`, `GITHUB_APP_NOT_CONNECTED`, and `PROOF_RUN_ENDED`.
-- Add `uploadBuild()` and `npx @revyl/verify upload` to upload a CI build (`.apk`, `.app`, or `.zip`) with the pull request identity Revyl uses for Proof of Changes, detected on GitHub Actions or given with `--repo` and `--commit`. Errors are typed: `ARTIFACT_REJECTED`, `VERSION_EXISTS`, and `UPLOAD_FAILED` are new codes. `reviewCorrelation.status` is `unknown` until Revyl reports the review match.
+- Add `proof()` and `npx @revyl/verify proof` to upload a pull request's CI build on GitHub Actions, start a Revyl Proof of Changes run with optional guidance, harness, and launch environment (plain values or `{ secretRef }` references to organization launch variables), and wait for it to settle. The result has Revyl's raw `verdict` (`passed`, `failed`, or `inconclusive`), its display `label`, and the report and review URLs. Interrupting the wait cancels the run. New error codes: `PR_CONTEXT_MISSING`, `GITHUB_APP_NOT_CONNECTED`, `CONFIG_MANAGED_REVIEW`, `PROOF_RUN_CONFLICT` (with `proofRunId`), `PR_CLOSED`, `HEAD_NOT_CURRENT`, `PLATFORM_MISMATCH`, and `PROOF_RUN_ENDED`.
+- Add `uploadBuild()` and `npx @revyl/verify upload` to upload a CI build (`.apk`, `.app`, or `.zip`) with the pull request identity Revyl uses for Proof of Changes, detected on GitHub Actions or given with `--repo` and `--commit`. Errors are typed: `ARTIFACT_REJECTED`, `VERSION_EXISTS`, and `UPLOAD_FAILED` are new codes. `reviewCorrelation` carries Revyl's review match (`status` and `matchedTargetCount`) when Revyl reports it, and `status: 'unknown'` when it doesn't.
 
 ## 0.3.1 (2026-11-03)
 

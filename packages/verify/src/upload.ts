@@ -47,9 +47,10 @@ export interface ScmIdentity {
   actorUrl?: string;
 }
 
-/** Whether Revyl attached the build to a pull request review. Revyl does not report this yet, so it is always `unknown`. */
+/** Whether Revyl attached the build to a pull request review, as Revyl reports it; `unknown` when Revyl doesn't report it. */
 export interface ReviewCorrelation {
-  status: 'unknown';
+  status: string;
+  matchedTargetCount?: number;
 }
 
 export interface UploadBuildResult {
@@ -99,7 +100,7 @@ export async function uploadBuild(options: UploadBuildOptions): Promise<UploadBu
       'POST', `${appPath}/upload-session`, options.appId,
     );
     await putArtifact(session.upload_url, session.content_type, filePath, options.signal);
-    const build = await call<{ id: string; version?: string; package_name?: string | null; metadata?: Record<string, unknown> }>(
+    const build = await call<{ id: string; version?: string; package_name?: string | null; metadata?: Record<string, unknown>; review_correlation?: unknown }>(
       client.send('POST', appPath, {
         body: { upload_id: session.upload_id, version, metadata: { ...identityMetadata(identity, artifact.platform), source: UPLOAD_SOURCE, platform: artifact.platform } },
         headers,
@@ -116,7 +117,7 @@ export async function uploadBuild(options: UploadBuildOptions): Promise<UploadBu
       platform: artifact.platform,
       ...(build.package_name ? { packageId: build.package_name } : {}),
       ...(identity ? { identity } : {}),
-      reviewCorrelation: { status: 'unknown' },
+      reviewCorrelation: reviewCorrelation(build.review_correlation),
       warnings: validationWarnings(build.metadata),
     };
   } finally {
@@ -318,6 +319,13 @@ async function call<T>(pending: Promise<RawResponse>, method: string, path: stri
     default:
       throw error;
   }
+}
+
+function reviewCorrelation(wire: unknown): ReviewCorrelation {
+  if (typeof wire !== 'object' || wire === null) return { status: 'unknown' };
+  const { status, matched_target_count: count } = wire as { status?: unknown; matched_target_count?: unknown };
+  if (typeof status !== 'string' || status === '') return { status: 'unknown' };
+  return { status, ...(typeof count === 'number' && Number.isInteger(count) && count >= 0 ? { matchedTargetCount: count } : {}) };
 }
 
 function validationWarnings(metadata: Record<string, unknown> | undefined): string[] {
