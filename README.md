@@ -6,6 +6,22 @@ Verify runs end-to-end checks in a real browser, iOS simulator, or Android emula
 
 Every run gives you a link to watch the target. The session keeps its report and available recording, and the SDK keeps instruction and validation results in order. A failed check leaves evidence you can inspect.
 
+## Set up with an AI agent
+
+Paste this prompt into your coding agent:
+
+```text
+Set up Verify in this project.
+
+Read https://docs.revyl.com/verify.md and follow it. It's the current Revyl guide for this, so prefer it over anything you remember about Revyl.
+
+Use the SDK for this project's language: @revyl/verify on Node.js 22.18 or later for Node.js or TypeScript, revyl-verify on Python 3.10 or later for Python (install it with pip or uv), or the github.com/RevylAI/verify/go module for Go. Write the iOS Settings example in that language: open the com.apple.Preferences bundle, run one instruction, and run one validation that checks the operating system version. Ask before starting a paid cloud session, then run the example.
+
+You're done when the example has opened iOS Settings, the operating system version validation has passed, and the session has closed.
+
+Ask me before anything that needs my login or approval.
+```
+
 ## Install and run
 
 ```bash
@@ -135,7 +151,13 @@ Go calls return errors instead of throwing. The [Go reference](https://github.co
 
 ## Python
 
-The Python SDK isn't published to PyPI yet; install it from source using the instructions in the [Python SDK guide](python/README.md).
+Install the Python SDK with pip or uv:
+
+```bash
+pip install revyl-verify
+# or, in a uv project:
+uv add revyl-verify
+```
 
 ```python
 from revyl_verify import Target, open
