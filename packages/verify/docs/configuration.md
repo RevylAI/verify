@@ -81,6 +81,7 @@ Use the explicitly scoped package command below. Installing `@revyl/verify` prov
 ```text
 npx @revyl/verify init [--platform web|ios|android|mac] [--app-id <id>] [--url <https-url>] [--force] [--yes] [--no-install]
 npx @revyl/verify upload <artifact> --app-id <id> [--platform ios|android] [--version <label>] [--repo <owner/name> --commit <sha> [--pr <number>]] [--json]
+npx @revyl/verify proof <artifact> | --url <https-url> --app-id <id> | --target <app-id>=<artifact-or-https-url>... [--guidance <text>] [--env NAME[=value]]... [--env-secret NAME]... [--timeout <minutes>] [--no-wait] [--json]
 npx @revyl/verify whoami
 npx @revyl/verify --help
 npx @revyl/verify --version
@@ -90,6 +91,7 @@ npx @revyl/verify --version
 - `npx @revyl/verify init --platform mac` needs no app id and generates a command/file script. `--app-id` is rejected for Mac, `--url` applies only to web, and Linux init is intentionally unavailable. Use `open({ platform: 'linux' })` or a Linux config target instead.
 - `init` installs Verify from the project's lockfile when needed and signs in through the Revyl CLI's browser approval flow when no credentials are available. Use `--yes` or `--no-install` to control installation. Non-interactive runs do not prompt or open a browser and require `REVYL_API_KEY`.
 - `upload` sends a build with its pull request identity. See [Proof of Changes from your CI](proof-of-changes.md).
+- `proof` proves a pull request without a Revyl config and exits `0` only when the overall verdict is `passed`. See [Prove a pull request without a Revyl config](proof-of-changes.md#prove-a-pull-request-without-a-revyl-config-verify-proof).
 - `whoami` prints the Revyl account and organization your credentials belong to.
 
 Exit codes: `0` success, `1` a Revyl or file error, `2` a usage or authentication problem.

@@ -42,6 +42,8 @@ web: { platform: 'web', app: { appId: process.env.REVYL_APP_ID!, url: process.en
 
 To have Revyl run Proof of Changes on each pull request's build from your CI, upload each build with `npx @revyl/verify upload`. See [Proof of Changes from your CI](proof-of-changes.md).
 
+Without a Revyl config in the repository, run `npx @revyl/verify proof` in the pull request job instead. Revyl adds no check run for these proofs, so the job's exit code is the gate: `0` only when the overall verdict is `passed`. See [Prove a pull request without a Revyl config](proof-of-changes.md#prove-a-pull-request-without-a-revyl-config-verify-proof).
+
 ## Inside a test runner
 
 Verify has no test runner of its own. Call it from the one you already use, and close the session in `finally` or an `after` hook: test runners handle errors and shutdown themselves, so Verify's automatic cleanup steps aside for them.

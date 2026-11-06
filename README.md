@@ -91,6 +91,8 @@ On a `revyl-macos` job, `currentComputer()` attaches to the runner's existing co
 
 If your CI already builds the app, `npx @revyl/verify upload` sends each pull request's build to Revyl with its pull request identity, so Revyl can run [Proof of Changes](https://github.com/RevylAI/revyl-cli/blob/main/docs/proof-of-changes.md) on it. `uploadBuild()` (TypeScript), `upload_build()` (Python), and `UploadBuild` (Go) do the same from code. See [Proof of Changes from your CI](packages/verify/docs/proof-of-changes.md).
 
+Without a Revyl config in the repository, `npx @revyl/verify proof` uploads up to three builds or Web URLs, one per platform, runs Proof of Changes on each, and exits `0` only when the overall verdict is `passed`. Revyl adds no check run for these proofs, so that exit code is the gate. `proof()` does the same from TypeScript, Python, and Go. See [Prove a pull request without a Revyl config](packages/verify/docs/proof-of-changes.md#prove-a-pull-request-without-a-revyl-config-verify-proof).
+
 ## Reference authentication
 
 Use manual setup when you need to control the package manager or keep the generated files out of the project:
