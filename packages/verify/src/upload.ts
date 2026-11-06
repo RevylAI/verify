@@ -8,7 +8,7 @@ import { createDeflateRaw, crc32 } from 'node:zlib';
 import { apiError, parseJson, RevylClient, type RawResponse } from './api/client.js';
 import type { MobilePlatform } from './api/types.js';
 import { missingCredentialsMessage, resolveCredentials } from './auth.js';
-import { VerifyError, errorMessage } from './errors.js';
+import { VerifyError, errorMessage, isVerifyError } from './errors.js';
 
 export interface UploadBuildOptions {
   /** A debug `.apk`, a simulator `.app` bundle, or a `.zip` holding one. */
@@ -47,9 +47,16 @@ export interface ScmIdentity {
   actorUrl?: string;
 }
 
-/** Whether Revyl attached the build to a pull request review, as Revyl reports it; `unknown` when Revyl doesn't report it. */
+/**
+ * Revyl's review match for the upload: `no_identity` when no complete pull request identity was sent, `unknown` when
+ * Revyl doesn't report a match. `not_owned` and `unmatched` can still associate once the review freezes its targets.
+ */
+export type ReviewCorrelationStatus = 'associated' | 'not_owned' | 'ambiguous_review' | 'stale_review' | 'closed_review' | 'unmatched' | 'no_identity' | 'unknown' | (string & {});
+
 export interface ReviewCorrelation {
-  status: string;
+  status: ReviewCorrelationStatus;
+  /** True only for `associated`; any other or unrecognized status is not associated. */
+  associated: boolean;
   matchedTargetCount?: number;
 }
 
@@ -73,6 +80,7 @@ const SESSION_TIMEOUT_MS = 30_000;
 const PUT_TIMEOUT_MS = 10 * 60_000;
 const FINALIZE_TIMEOUT_MS = 90_000;
 const PUT_RETRY_DELAYS_MS = [1_000, 3_000];
+const FINALIZE_RETRY_DELAYS_MS = [500, 1_000, 2_000];
 const RETRYABLE_PUT_STATUSES = new Set([429, 500, 502, 503, 504]);
 const ZIP_LIMIT = 0xffff_ffff;
 
@@ -101,13 +109,7 @@ export async function uploadBuild(options: UploadBuildOptions): Promise<UploadBu
     );
     await putArtifact(session.upload_url, session.content_type, filePath, options.signal);
     const build = await call<{ id: string; version?: string; package_name?: string | null; metadata?: Record<string, unknown>; review_correlation?: unknown }>(
-      client.send('POST', appPath, {
-        body: { upload_id: session.upload_id, version, metadata: { ...identityMetadata(identity, artifact.platform), source: UPLOAD_SOURCE, platform: artifact.platform } },
-        headers,
-        timeoutMs: FINALIZE_TIMEOUT_MS,
-        retry: true,
-        signal: options.signal,
-      }),
+      createBuild(client, appPath, { upload_id: session.upload_id, version, metadata: { ...identityMetadata(identity, artifact.platform), source: UPLOAD_SOURCE, platform: artifact.platform } }, headers, options.signal),
       'POST', appPath, options.appId,
     );
     return {
@@ -117,7 +119,7 @@ export async function uploadBuild(options: UploadBuildOptions): Promise<UploadBu
       platform: artifact.platform,
       ...(build.package_name ? { packageId: build.package_name } : {}),
       ...(identity ? { identity } : {}),
-      reviewCorrelation: reviewCorrelation(build.review_correlation),
+      reviewCorrelation: reviewCorrelation('review_correlation' in build, build.review_correlation),
       warnings: validationWarnings(build.metadata),
     };
   } finally {
@@ -128,7 +130,11 @@ export async function uploadBuild(options: UploadBuildOptions): Promise<UploadBu
 /** Reads the pull request identity from explicit options, else from GitHub Actions, mirroring `revyl build upload`. */
 export function detectScmIdentity(options: Pick<UploadBuildOptions, 'repo' | 'commit' | 'pr'> = {}, env: NodeJS.ProcessEnv = process.env): ScmIdentity | undefined {
   const detected = env.GITHUB_ACTIONS === 'true' ? githubActionsIdentity(env) : undefined;
-  if (options.repo === undefined && options.commit === undefined && options.pr === undefined) return detected?.repository && detected.commit ? detected : undefined;
+  if (options.repo === undefined && options.commit === undefined && options.pr === undefined) {
+    if (!detected?.repository || !detected.commit) return undefined;
+    if (!COMMIT.test(detected.commit)) throw new VerifyError('INVALID_ARGUMENT', 'The pull request head commit detected on GitHub Actions is not a full commit SHA (40 or 64 hexadecimal characters).');
+    return detected;
+  }
   const repository = options.repo?.trim();
   const commit = options.commit?.trim().toLowerCase();
   if (!repository || !commit) throw new VerifyError('INVALID_ARGUMENT', 'An explicit pull request identity needs both repo (owner/name) and commit (the full PR head SHA).');
@@ -147,14 +153,14 @@ export function detectScmIdentity(options: Pick<UploadBuildOptions, 'repo' | 'co
 function githubActionsIdentity(env: NodeJS.ProcessEnv): ScmIdentity {
   const event = readGithubEvent(env.GITHUB_EVENT_PATH);
   const repository = env.GITHUB_REPOSITORY?.trim() ?? '';
-  const server = env.GITHUB_SERVER_URL?.trim().replace(/\/+$/, '');
+  const server = /^https?:\/\//i.test(env.GITHUB_SERVER_URL?.trim() ?? '') ? env.GITHUB_SERVER_URL?.trim().replace(/\/+$/, '') : undefined;
   const runId = env.GITHUB_RUN_ID?.trim();
   const actor = env.GITHUB_ACTOR?.trim();
   const pullRequest = event?.pull_request;
   return {
     ciSystem: 'github-actions',
     repository,
-    commit: firstNonEmpty(pullRequest?.head?.sha, env.REVYL_PR_HEAD_SHA, env.GITHUB_SHA) ?? '',
+    commit: firstNonEmpty(pullRequest?.head?.sha, env.REVYL_PR_HEAD_SHA, env.GITHUB_SHA)?.toLowerCase() ?? '',
     ...optional('branch', firstNonEmpty(env.GITHUB_HEAD_REF, env.GITHUB_REF_NAME)),
     ...(typeof pullRequest?.number === 'number' && pullRequest.number > 0 ? { pr: pullRequest.number } : {}),
     ...optional('prUrl', pullRequest?.html_url?.trim()),
@@ -303,11 +309,11 @@ async function call<T>(pending: Promise<RawResponse>, method: string, path: stri
     case 401:
       throw new VerifyError(
         'AUTH_REJECTED',
-        `${detail} Uploads need a Revyl member's API key or a CI runner key; an organization API key that isn't tied to a member can be rejected as an invalid API key.`,
+        `${detail} Uploads need a Revyl member's API key, or the job's ci_runner key once the revyl-macos job's activation hook has run; an organization API key with no runtime authenticator is rejected as "Invalid API key".`,
         { httpStatus: 401 },
       );
     case 403:
-      throw new VerifyError('AUTH_REJECTED', `${detail} Uploading a build needs the Member role or higher in the app's organization.`, { httpStatus: 403 });
+      throw new VerifyError('AUTH_REJECTED', `${detail} Uploading a build needs the Member role or higher in the app's organization; a Viewer's key gets 403.`, { httpStatus: 403 });
     case 404:
       throw new VerifyError('NOT_FOUND', `Revyl app ${appId} was not found in this organization: ${detail}`, { httpStatus: 404 });
     case 409:
@@ -321,11 +327,31 @@ async function call<T>(pending: Promise<RawResponse>, method: string, path: stri
   }
 }
 
-function reviewCorrelation(wire: unknown): ReviewCorrelation {
-  if (typeof wire !== 'object' || wire === null) return { status: 'unknown' };
+function reviewCorrelation(present: boolean, wire: unknown): ReviewCorrelation {
+  if (present && wire === null) return { status: 'no_identity', associated: false };
+  if (typeof wire !== 'object' || wire === null) return { status: 'unknown', associated: false };
   const { status, matched_target_count: count } = wire as { status?: unknown; matched_target_count?: unknown };
-  if (typeof status !== 'string' || status === '') return { status: 'unknown' };
-  return { status, ...(typeof count === 'number' && Number.isInteger(count) && count >= 0 ? { matchedTargetCount: count } : {}) };
+  if (typeof status !== 'string' || status === '') return { status: 'unknown', associated: false };
+  return { status, associated: status === 'associated', ...(typeof count === 'number' && Number.isInteger(count) && count >= 0 ? { matchedTargetCount: count } : {}) };
+}
+
+async function createBuild(client: RevylClient, path: string, body: unknown, headers: Record<string, string>, signal: AbortSignal | undefined): Promise<RawResponse> {
+  for (let attempt = 0; ; attempt += 1) {
+    let outcome: RawResponse | VerifyError;
+    try {
+      outcome = await client.send('POST', path, { body, headers, timeoutMs: FINALIZE_TIMEOUT_MS, retry: false, signal });
+    } catch (error) {
+      if (signal?.aborted || !isVerifyError(error) || (error.code !== 'API_ERROR' && error.code !== 'TIMEOUT')) throw error;
+      outcome = error;
+    }
+    const retryable = outcome instanceof VerifyError || outcome.status >= 500 || outcome.status === 429;
+    const wait = FINALIZE_RETRY_DELAYS_MS[attempt];
+    if (!retryable || wait === undefined) {
+      if (outcome instanceof VerifyError) throw outcome;
+      return outcome;
+    }
+    await delay(wait, undefined, { signal });
+  }
 }
 
 function validationWarnings(metadata: Record<string, unknown> | undefined): string[] {

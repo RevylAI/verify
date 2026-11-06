@@ -186,7 +186,8 @@ function uploadSummary(result: UploadBuildResult): string {
 function reviewLine(correlation: UploadBuildResult['reviewCorrelation']): string {
   if (correlation.status === 'unknown') return 'Revyl did not report the review match; check the pull request for its Revyl status.';
   const targets = correlation.matchedTargetCount === undefined ? '' : ` (${correlation.matchedTargetCount} matched review target${correlation.matchedTargetCount === 1 ? '' : 's'})`;
-  return `Review match: ${correlation.status}${targets}.`;
+  const later = correlation.status === 'not_owned' || correlation.status === 'unmatched' ? ' It can still attach once the review picks its targets for this commit.' : '';
+  return `Review match: ${correlation.status}${targets}.${later}`;
 }
 
 async function whoamiCommand(): Promise<number> {
