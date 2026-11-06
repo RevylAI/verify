@@ -2,11 +2,12 @@
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
 import { RevylClient } from '../api/client.js';
-import type { Platform } from '../api/types.js';
+import type { MobilePlatform, Platform } from '../api/types.js';
 import { missingCredentialsMessage, resolveCredentials } from '../auth.js';
 import { VerifyError, errorMessage, isVerifyError } from '../errors.js';
 import { PACKAGE_NAME, VERSION } from '../version.js';
 import { initProject, validateInitAnswers, type InitAnswers } from './init.js';
+import { uploadBuild, type UploadBuildResult } from '../upload.js';
 import { installVerify, packageHasVerify } from './install.js';
 import { signIn } from './login.js';
 
@@ -15,6 +16,8 @@ const HELP = `verify ${VERSION}: open Revyl cloud browsers, devices, and compute
 Usage
   npx ${PACKAGE_NAME} init [--platform web|ios|android|mac] [--app-id <id>] [--url <https-url>] [--force] [--yes] [--no-install]
       Install Verify, write verify.config.ts and an example script, then check authentication
+  npx ${PACKAGE_NAME} upload <artifact> --app-id <id> [--platform ios|android] [--version <label>] [--repo <owner/name> --commit <sha> [--pr <number>]] [--json]
+      Upload a CI build (.apk, .app, or .zip) with its pull request identity, detected on GitHub Actions
   npx ${PACKAGE_NAME} whoami
       Check which Revyl account your credentials belong to
 
@@ -41,6 +44,8 @@ export async function main(argv: string[]): Promise<number> {
       return 0;
     case 'init':
       return initCommand(rest);
+    case 'upload':
+      return uploadCommand(rest);
     case 'whoami':
       return whoamiCommand();
     default:
@@ -131,6 +136,58 @@ async function askInitQuestions(appId: string | undefined, url: string | undefin
   } finally {
     readline.close();
   }
+}
+
+async function uploadCommand(args: string[]): Promise<number> {
+  const { values, positionals } = parseArgs({
+    args,
+    allowPositionals: true,
+    options: {
+      'app-id': { type: 'string' },
+      platform: { type: 'string', short: 'p' },
+      version: { type: 'string' },
+      repo: { type: 'string' },
+      commit: { type: 'string' },
+      pr: { type: 'string' },
+      json: { type: 'boolean' },
+    },
+  });
+  const [file, ...extra] = positionals;
+  if (!file || extra.length > 0) throw new VerifyError('INVALID_ARGUMENT', 'verify upload takes exactly one artifact path.');
+  const appId = values['app-id'] ?? process.env.REVYL_APP_ID?.trim();
+  if (!appId) throw new VerifyError('INVALID_ARGUMENT', 'Pass --app-id (or set REVYL_APP_ID) with the Revyl app this build belongs to.');
+  if (values.pr !== undefined && !/^[1-9][0-9]*$/.test(values.pr)) throw new VerifyError('INVALID_ARGUMENT', '--pr must be a positive pull request number.');
+  const result = await uploadBuild({
+    file,
+    appId,
+    ...(values.platform ? { platform: values.platform as MobilePlatform } : {}),
+    ...(values.version ? { version: values.version } : {}),
+    ...(values.repo !== undefined ? { repo: values.repo } : {}),
+    ...(values.commit !== undefined ? { commit: values.commit } : {}),
+    ...(values.pr !== undefined ? { pr: Number(values.pr) } : {}),
+  });
+  process.stdout.write(values.json ? `${JSON.stringify(result, null, 2)}\n` : uploadSummary(result));
+  return 0;
+}
+
+function uploadSummary(result: UploadBuildResult): string {
+  const identity = result.identity;
+  return [
+    `Uploaded build ${result.buildId} (version ${result.version}) to Revyl app ${result.appId}.`,
+    identity
+      ? `Pull request identity: ${identity.repository}@${identity.commit}${identity.pr ? ` (PR #${identity.pr})` : ''}, from ${identity.ciSystem}.`
+      : 'No pull request identity was detected, so no review can match this build. On a runner other than GitHub Actions, pass --repo and --commit.',
+    ...(identity ? [reviewLine(result.reviewCorrelation)] : []),
+    ...result.warnings.map((warning) => `Warning: ${warning}`),
+    '',
+  ].join('\n');
+}
+
+function reviewLine(correlation: UploadBuildResult['reviewCorrelation']): string {
+  if (correlation.status === 'unknown') return 'Revyl did not report the review match; check the pull request for its Revyl status.';
+  const targets = correlation.matchedTargetCount === undefined ? '' : ` (${correlation.matchedTargetCount} matched review target${correlation.matchedTargetCount === 1 ? '' : 's'})`;
+  const later = correlation.status === 'not_owned' || correlation.status === 'unmatched' ? ' It can still attach once the review picks its targets for this commit.' : '';
+  return `Review match: ${correlation.status}${targets}.${later}`;
 }
 
 async function whoamiCommand(): Promise<number> {

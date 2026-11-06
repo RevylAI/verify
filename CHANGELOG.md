@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add `uploadBuild()` and `npx @revyl/verify upload` to upload a CI build (`.apk`, `.app`, or `.zip`) with the pull request identity Revyl uses for Proof of Changes, detected on GitHub Actions or given with `--repo` and `--commit`. Errors are typed: `ARTIFACT_REJECTED`, `VERSION_EXISTS`, and `UPLOAD_FAILED` are new codes. `reviewCorrelation` carries Revyl's review match: `status` (`associated`, `not_owned`, `ambiguous_review`, `stale_review`, `closed_review`, `unmatched`, `no_identity`, or `unknown` when Revyl doesn't report it), `associated`, and `matchedTargetCount`. Registering the build is retried on 5xx, 429, and network errors like `revyl build upload`.
+
 ## 0.3.1 (2026-11-03)
 
 - Docs: runnable `.mts` quickstart uses the built-in iOS Settings app, explains how to target an uploaded app with `appId`, clarifies that the Python SDK is not published to PyPI yet, and documents Web availability requirements.
