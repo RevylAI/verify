@@ -6,6 +6,7 @@ from collections.abc import Callable
 from ._async import AsyncSession, async_attach, async_open
 from ._cleanup import install_signal_cleanup
 from ._computer import ComputerSession
+from ._environment import AsyncEnvironment, Environment, async_environment, environment
 from ._models import (
     ComputerProcess,
     ComputerRecording,
@@ -22,11 +23,13 @@ from ._transport import Cancellation, CleanupStatus, RefusalReason, VerifyError,
 
 __version__ = "0.1.0"
 __all__ = [
+    "AsyncEnvironment",
     "AsyncSession",
     "ComputerProcess",
     "ComputerRecording",
     "ComputerSession",
     "CleanupStatus",
+    "Environment",
     "ExecResult",
     "FileStat",
     "Platform",
@@ -40,8 +43,10 @@ __all__ = [
     "attach",
     "async_attach",
     "async_current_computer",
+    "async_environment",
     "async_open",
     "current_computer",
+    "environment",
     "open",
 ]
 

@@ -5,12 +5,15 @@ import signal
 import threading
 import time
 from types import FrameType
-from typing import TYPE_CHECKING
+from typing import Protocol
 
-if TYPE_CHECKING:
-    from ._session import Session
 
-_sessions: dict[Session, tuple[threading.Event, threading.Thread]] = {}
+class Closeable(Protocol):
+    def close(self) -> None: ...
+
+
+CLOSE_ALL_TIMEOUT = 15
+_sessions: dict[Closeable, tuple[threading.Event, threading.Thread, float]] = {}
 _lock = threading.RLock()
 shutting_down = False
 
@@ -25,24 +28,24 @@ def _terminate(signum: int, frame: FrameType | None) -> None:
     raise SystemExit(128 + signum)
 
 
-def track(session: Session) -> None:
+def track(session: Closeable, close_budget: float = CLOSE_ALL_TIMEOUT) -> None:
     with _lock:
         if session in _sessions:
             return
         event = threading.Event()
         worker = threading.Thread(target=_wait_and_close, args=(session, event), daemon=True)
-        _sessions[session] = (event, worker)
+        _sessions[session] = (event, worker, close_budget)
         worker.start()
 
 
-def untrack(session: Session) -> None:
+def untrack(session: Closeable) -> None:
     with _lock:
         tracked = _sessions.pop(session, None)
     if tracked:
         tracked[0].set()
 
 
-def _wait_and_close(session: Session, event: threading.Event) -> None:
+def _wait_and_close(session: Closeable, event: threading.Event) -> None:
     event.wait()
     with _lock:
         pending = session in _sessions
@@ -50,7 +53,7 @@ def _wait_and_close(session: Session, event: threading.Event) -> None:
         _close(session)
 
 
-def _close(session: Session) -> None:
+def _close(session: Closeable) -> None:
     try:
         session.close()
     except Exception:
@@ -62,10 +65,10 @@ def cleanup() -> None:
     shutting_down = True
     with _lock:
         workers = list(_sessions.values())
-    deadline = time.monotonic() + 15
-    for event, _ in workers:
+    deadline = time.monotonic() + max([CLOSE_ALL_TIMEOUT, *(budget for _, _, budget in workers)])
+    for event, _, _ in workers:
         event.set()
-    for _, worker in workers:
+    for _, worker, _ in workers:
         if worker.ident is not None:
             worker.join(max(0, deadline - time.monotonic()))
 
