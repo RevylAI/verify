@@ -86,7 +86,7 @@ result, err := verify.UploadBuild(ctx, verify.UploadOptions{File: "app/build/out
 
 **Revyl adds no check run for these proofs, so your CI job is the gate.** `verify proof` exits `0` only when the overall verdict is `passed`, and `1` for `failed`, `inconclusive`, a run that ended without a verdict, a timeout, or a refusal. From code, fail the job yourself unless `verdict` is `passed`. To block merges on it, make the job a required status check.
 
-A repository whose own Revyl config already proves the pull request's head is refused with `CONFIG_MANAGED_REVIEW`, so a repository uses its config or `verify proof`, not both.
+The first owner of a pull request head keeps it. A head the repository's own Revyl config already proves is refused with `CONFIG_MANAGED_REVIEW`, and when `verify proof` proves a head first, the config skips that head and resumes on the next one.
 
 ### Requirements
 
@@ -193,7 +193,7 @@ A single target can also be given inline, as `proof({ build, appId })` or `proof
 
 ### The verdict
 
-Each run has its own raw `verdict` (`passed`, `failed`, or `inconclusive`) and Revyl's `label`, such as `Ready`, `Ready with issues`, or `Partial coverage`. The overall `verdict` is `failed` if any run failed, otherwise `inconclusive` if any run is inconclusive (a verdict Verify doesn't recognize counts as inconclusive), otherwise `passed`. It is set only once every run has a verdict. The overall `label` is that of the first run that decided the verdict, and `reportUrl` is the pull request comment with the report.
+Each run has its own raw `verdict` (`passed`, `failed`, or `inconclusive`) and its `label`, which is the label the pull request comment shows, such as `Ready`, `Ready with issues`, or `Partial coverage`. Revyl builds the label from the run's write-up and findings, so a passed run can read `Partial coverage`; Verify reports it as Revyl sends it, and the CLI prints it next to the verdict. The overall `verdict` is `failed` if any run failed, otherwise `inconclusive` if any run is inconclusive (a verdict Verify doesn't recognize counts as inconclusive), otherwise `passed`. It is set only once every run has a verdict. The overall `label` is that of the first run that decided the verdict, and `reportUrl` is the pull request comment with the report.
 
 | Field | Meaning |
 | --- | --- |
@@ -223,17 +223,20 @@ Verify never puts a launch value in an error, a log, or its result.
 
 ### Sign in with a deep link
 
-A mobile target can take a deep link that Revyl opens right after the app launches, the same as `session.auth_bypass.deep_link` in a Revyl config. Use it to sign the app in so the agent starts past the login screen.
+A mobile target can take a deep link that Revyl opens right after the app launches, the same as `session.auth_bypass.deep_link` in a Revyl config. Use it to sign the app in so the agent starts past the login screen. The link opens once on each device the agent starts.
 
 ```bash
 npx @revyl/verify proof app-debug.apk --app-id <app UUID> \
+  --env REVYL_AUTH_BYPASS_ENABLED=true \
   --env-secret REVYL_AUTH_BYPASS_TOKEN \
   --auth-deep-link 'myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}&role=buyer'
 ```
 
 - Each `${NAME}` placeholder resolves on Revyl's side from that target's launch environment only, so name every placeholder with `--env` or `--env-secret` (`environment` in code). Verify refuses a placeholder the environment doesn't set before it sends anything.
+- If your app only honors the link when a launch variable turns the bypass on, such as `REVYL_AUTH_BYPASS_ENABLED`, put that variable in the target's environment too. Without it the app ignores the link and the run proves a signed-out app.
+- A link with placeholders must use the app's own URL scheme, such as `myapp://`, not `http` or `https`.
 - Put the template in single quotes. In double quotes the shell replaces `${NAME}` with its value, and the token would then travel as part of the link.
-- Use a secret reference for a token. Revyl opens the link the way a configured repository's sessions do, and the secret's value never reaches the agent, the report, or the logs.
+- Use a secret reference for a token. Revyl fills placeholders in as it opens the link, so the secret's value never reaches the agent, the report, or the pull request comment.
 - Web targets take no deep link.
 
 ### Web URLs
@@ -260,7 +263,7 @@ Keep the URL up from the call until its run settles, which can take minutes; wit
 | `PROOF_RUN_LIMIT` | Too many Proof API runs are queued or running for the organization. Verify doesn't retry it; try again once some settle. |
 | `PROVIDER_UNAVAILABLE` | Revyl couldn't reach GitHub, after Verify retried. |
 | `NOT_FOUND` | The pull request, app, build, or run doesn't exist for the key's organization. |
-| `INVALID_ARGUMENT` | Checked before any request: no targets or more than three, two targets for one app or platform, both or neither of a build and a URL, a URL that isn't plain HTTPS, environment on a Web target, an invalid variable name, a secret reference that doesn't name its own variable, a deep link on a Web target, or a deep-link placeholder the target's environment doesn't set. Revyl also refuses an unknown secret launch variable, an alias, or a secret's value sent as a plain value. |
+| `INVALID_ARGUMENT` | Checked before any request: no targets or more than three, two targets for one app or platform, both or neither of a build and a URL, a URL that isn't plain HTTPS, environment on a Web target, an invalid variable name, a secret reference that doesn't name its own variable, a deep link on a Web target, a deep-link placeholder the target's environment doesn't set, or an `http` or `https` deep link with placeholders. Revyl also refuses an unknown secret launch variable, an alias, a secret's value sent as a plain value, a deep link on a Web target, or a placeholder the environment doesn't name. |
 | `PROOF_RUN_ENDED` | A run was cancelled or superseded before it had a verdict. |
 | `TIMEOUT` | The wait ran past `--timeout`; the runs keep going on Revyl. |
 
