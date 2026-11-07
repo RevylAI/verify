@@ -109,13 +109,14 @@ A repository whose own Revyl config already proves the pull request's head is re
 ```text
 npx @revyl/verify proof <artifact> | --url <https-url> --app-id <id> [options]
 npx @revyl/verify proof --target <app-id>=<artifact-or-https-url>... [options]
-options: [--guidance <text>] [--env NAME[=value]]... [--env-secret NAME]... [--timeout <minutes>] [--no-wait] [--json]
+options: [--guidance <text>] [--env NAME[=value]]... [--env-secret NAME]... [--auth-deep-link <template>]... [--timeout <minutes>] [--no-wait] [--json]
 ```
 
 - Prove up to three targets, one per platform: an iOS build, an Android build, and a Web URL. Give one with `<artifact>` or `--url` and `--app-id`, or several with repeated `--target`; a value starting with `https://` is a Web URL. Builds are the artifacts `verify upload` takes.
 - `--app-id` falls back to `REVYL_APP_ID`.
 - `--guidance` tells the agent what to focus on.
 - `--env` and `--env-secret` set launch variables on every mobile target (see [Launch environment](#launch-environment)). `--env NAME` without a value reads `NAME` from the job's environment.
+- `--auth-deep-link` signs the app in after launch (see [Sign in with a deep link](#sign-in-with-a-deep-link)). With one target it takes the template; with `--target` it takes `<app-id>=<template>`, once per mobile target.
 - `--timeout` bounds the wait, 30 minutes by default. The runs keep going on Revyl after it.
 - `--no-wait` returns once the runs start and exits `0`, so it doesn't gate anything.
 - `--json` prints the result object below.
@@ -135,7 +136,12 @@ import { proof } from '@revyl/verify';
 
 const run = await proof({
   targets: [
-    { build: 'app/build/outputs/apk/debug/app-debug.apk', appId: androidAppId, environment: { API_URL: 'https://staging.example.com', CHECKOUT_TOKEN: { secretRef: 'CHECKOUT_TOKEN' } } },
+    {
+      build: 'app/build/outputs/apk/debug/app-debug.apk',
+      appId: androidAppId,
+      environment: { API_URL: 'https://staging.example.com', REVYL_AUTH_BYPASS_TOKEN: { secretRef: 'REVYL_AUTH_BYPASS_TOKEN' } },
+      authBypass: { deepLink: 'myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}' },
+    },
     { url: previewUrl, appId: webAppId },
   ],
   guidance: 'Focus on the new checkout screen',
@@ -148,8 +154,12 @@ from revyl_verify import ProofTarget, proof
 
 run = proof(
     targets=[
-        ProofTarget(app_id=android_app_id, build="app/build/outputs/apk/debug/app-debug.apk",
-                    environment={"API_URL": "https://staging.example.com", "CHECKOUT_TOKEN": {"secret_ref": "CHECKOUT_TOKEN"}}),
+        ProofTarget(
+            app_id=android_app_id,
+            build="app/build/outputs/apk/debug/app-debug.apk",
+            environment={"API_URL": "https://staging.example.com", "REVYL_AUTH_BYPASS_TOKEN": {"secret_ref": "REVYL_AUTH_BYPASS_TOKEN"}},
+            auth_bypass={"deep_link": "myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}"},
+        ),
         ProofTarget(app_id=web_app_id, url=preview_url),
     ],
     guidance="Focus on the new checkout screen",
@@ -161,10 +171,15 @@ if run.verdict != "passed":
 ```go
 run, err := verify.Proof(ctx, verify.ProofOptions{
 	Targets: []verify.ProofTarget{
-		{AppID: androidAppID, Build: "app/build/outputs/apk/debug/app-debug.apk", Environment: map[string]verify.EnvValue{
-			"API_URL":        verify.EnvPlain("https://staging.example.com"),
-			"CHECKOUT_TOKEN": verify.EnvSecretRef("CHECKOUT_TOKEN"),
-		}},
+		{
+			AppID: androidAppID,
+			Build: "app/build/outputs/apk/debug/app-debug.apk",
+			Environment: map[string]verify.EnvValue{
+				"API_URL":                 verify.EnvPlain("https://staging.example.com"),
+				"REVYL_AUTH_BYPASS_TOKEN": verify.EnvSecretRef("REVYL_AUTH_BYPASS_TOKEN"),
+			},
+			AuthBypass: &verify.AuthBypass{DeepLink: "myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}"},
+		},
 		{AppID: webAppID, URL: previewURL},
 	},
 	Guidance: "Focus on the new checkout screen",
@@ -194,7 +209,7 @@ Each pull request head has one proof per app:
 
 - Starting the same builds with the same settings at the same head returns the existing runs in whatever state they are in, cancelled included. A Web URL that Revyl registers as the same build therefore gets its earlier run back.
 - A new build for a target starts a new run for it and supersedes its earlier run for that head. Every `verify proof` uploads its mobile builds afresh, so rerunning the job proves them again.
-- Different apps, `--guidance`, or launch environment for a head that already has proofs are refused with `PROOF_RUN_CONFLICT`, which lists the existing runs. Push a new commit to prove with other settings.
+- Different apps, `--guidance`, launch environment, or deep link for a head that already has proofs are refused with `PROOF_RUN_CONFLICT`, which lists the existing runs. Push a new commit to prove with other settings.
 - A new commit supersedes the runs of the previous head.
 
 ### Launch environment
@@ -205,6 +220,21 @@ Launch variables apply to iOS and Android targets only; a Web target takes none.
 - A secret reference (`--env-secret NAME`, `{ secretRef: 'NAME' }` in TypeScript, `{"secret_ref": "NAME"}` in Python, `verify.EnvSecretRef("NAME")` in Go) uses the organization launch variable `NAME`. The reference must equal the variable's own name. Its value stays in Revyl and only the name reaches the agent. Only a member's API key can reference one; a CI runner job key is refused with `SECRET_REF_NOT_ALLOWED`.
 
 Verify never puts a launch value in an error, a log, or its result.
+
+### Sign in with a deep link
+
+A mobile target can take a deep link that Revyl opens right after the app launches, the same as `session.auth_bypass.deep_link` in a Revyl config. Use it to sign the app in so the agent starts past the login screen.
+
+```bash
+npx @revyl/verify proof app-debug.apk --app-id <app UUID> \
+  --env-secret REVYL_AUTH_BYPASS_TOKEN \
+  --auth-deep-link 'myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}&role=buyer'
+```
+
+- Each `${NAME}` placeholder resolves on Revyl's side from that target's launch environment only, so name every placeholder with `--env` or `--env-secret` (`environment` in code). Verify refuses a placeholder the environment doesn't set before it sends anything.
+- Put the template in single quotes. In double quotes the shell replaces `${NAME}` with its value, and the token would then travel as part of the link.
+- Use a secret reference for a token. Revyl opens the link the way a configured repository's sessions do, and the secret's value never reaches the agent, the report, or the logs.
+- Web targets take no deep link.
 
 ### Web URLs
 
@@ -230,7 +260,7 @@ Keep the URL up from the call until its run settles, which can take minutes; wit
 | `PROOF_RUN_LIMIT` | Too many Proof API runs are queued or running for the organization. Verify doesn't retry it; try again once some settle. |
 | `PROVIDER_UNAVAILABLE` | Revyl couldn't reach GitHub, after Verify retried. |
 | `NOT_FOUND` | The pull request, app, build, or run doesn't exist for the key's organization. |
-| `INVALID_ARGUMENT` | Checked before any request: no targets or more than three, two targets for one app or platform, both or neither of a build and a URL, a URL that isn't plain HTTPS, environment on a Web target, an invalid variable name, or a secret reference that doesn't name its own variable. Revyl also refuses an unknown secret launch variable, an alias, or a secret's value sent as a plain value. |
+| `INVALID_ARGUMENT` | Checked before any request: no targets or more than three, two targets for one app or platform, both or neither of a build and a URL, a URL that isn't plain HTTPS, environment on a Web target, an invalid variable name, a secret reference that doesn't name its own variable, a deep link on a Web target, or a deep-link placeholder the target's environment doesn't set. Revyl also refuses an unknown secret launch variable, an alias, or a secret's value sent as a plain value. |
 | `PROOF_RUN_ENDED` | A run was cancelled or superseded before it had a verdict. |
 | `TIMEOUT` | The wait ran past `--timeout`; the runs keep going on Revyl. |
 

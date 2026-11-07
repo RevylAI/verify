@@ -81,7 +81,7 @@ Use the explicitly scoped package command below. Installing `@revyl/verify` prov
 ```text
 npx @revyl/verify init [--platform web|ios|android|mac] [--app-id <id>] [--url <https-url>] [--force] [--yes] [--no-install]
 npx @revyl/verify upload <artifact> --app-id <id> [--platform ios|android] [--version <label>] [--repo <owner/name> --commit <sha> [--pr <number>]] [--json]
-npx @revyl/verify proof <artifact> | --url <https-url> --app-id <id> | --target <app-id>=<artifact-or-https-url>... [--guidance <text>] [--env NAME[=value]]... [--env-secret NAME]... [--timeout <minutes>] [--no-wait] [--json]
+npx @revyl/verify proof <artifact> | --url <https-url> --app-id <id> | --target <app-id>=<artifact-or-https-url>... [--guidance <text>] [--env NAME[=value]]... [--env-secret NAME]... [--auth-deep-link <template>]... [--timeout <minutes>] [--no-wait] [--json]
 npx @revyl/verify whoami
 npx @revyl/verify --help
 npx @revyl/verify --version
