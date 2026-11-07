@@ -60,6 +60,7 @@ try {
 | `ARTIFACT_REJECTED` | `uploadBuild()` sent an artifact Revyl couldn't validate | Upload a debug `.apk` or a simulator `.app`; see [uploads](proof-of-changes.md#errors) |
 | `VERSION_EXISTS` | `uploadBuild()` used a version the app already has | Pass a unique version |
 | `UPLOAD_FAILED` | Revyl's storage rejected the artifact upload or couldn't be reached, after retries | Run the upload again |
+| `PR_CONTEXT_MISSING`, `GITHUB_APP_NOT_CONNECTED`, `CONFIG_MANAGED_REVIEW`, `PROOF_RUN_CONFLICT`, `PR_CLOSED`, `HEAD_NOT_CURRENT`, `UNTRUSTED_PR_HEAD`, `BUILD_REJECTED`, `PREVIEW_UNREACHABLE`, `SECRET_REF_NOT_ALLOWED`, `PROOF_RUN_LIMIT`, `PROVIDER_UNAVAILABLE`, `PROOF_RUN_ENDED` | `proof()` couldn't start or finish a Proof of Changes run | See [proof errors](proof-of-changes.md#proof-errors) |
 | `TIMEOUT` | A step, a session start, or a request ran out of time | Inspect the session before retrying. The default 10-minute start timeout is separate from the 120-second unclaimed-start failure. See [computer availability](computers.md#availability-and-errors). |
 
 `EDGE_BLOCKED` does not require Cloudflare branding in the HTML body. A `cf-ray` header alone is not proof of a block: any syntactically valid JSON body retains its existing error mapping, even if the content type is incorrectly `text/html`. HTTP 401 is unchanged. Edge-block errors include `httpStatus` but never copy the response body or ray ID into the error.
