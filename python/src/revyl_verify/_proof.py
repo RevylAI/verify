@@ -34,6 +34,7 @@ from ._upload import (
 
 _ENVIRONMENT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _DEEP_LINK_PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+_WEB_SCHEME = re.compile(r"\s*https?:", re.IGNORECASE)
 _MAX_TARGETS = 3
 _DEFAULT_TIMEOUT = 30 * 60.0
 _POLL_INTERVALS = (5.0, 10.0, 15.0)
@@ -53,7 +54,10 @@ class ProofTarget:
     ``session.auth_bypass.deep_link`` in a Revyl config, for example
     ``{"deep_link": "myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}"}``. Each ``${NAME}``
     placeholder resolves from this target's ``environment`` only, on Revyl's side, so a secret's
-    value never reaches the agent, the report, or the logs.
+    value never reaches the agent, the report, or the logs. A link with placeholders must use the
+    app's own URL scheme, not ``http`` or ``https``. It opens once on each device the agent starts.
+    If the app also gates sign-in on a launch variable such as ``REVYL_AUTH_BYPASS_ENABLED``, set
+    it in ``environment`` too.
     ``version`` is a label unique within the app; it defaults to the short head commit plus a UTC
     timestamp.
 
@@ -84,7 +88,9 @@ class ProofTargetRun:
     verdict: str | None
     """``passed``, ``failed``, or ``inconclusive`` once the run settles with a verdict."""
     label: str | None
-    """Revyl's display label, such as ``Ready``, ``Ready with issues``, or ``Partial coverage``."""
+    """Revyl's ``display_status_label`` as reported: the label the pull request comment shows, built
+    from the run's write-up and findings, such as ``Ready``, ``Ready with issues``, or ``Partial
+    coverage``. It can differ from what ``verdict`` suggests."""
     report_url: str | None
     """The pull request comment with the report."""
     review_url: str | None
@@ -103,7 +109,7 @@ class ProofRun:
     any run is inconclusive (a verdict Verify doesn't recognize counts as inconclusive), otherwise
     ``passed``."""
     label: str | None
-    """The label of the first run whose verdict decided ``verdict``."""
+    """The ``label`` of the first run whose verdict decided ``verdict``, as Revyl reported it."""
     report_url: str | None
     """The pull request comment with the report, from the first run that has one."""
     pull_request: PullRequestContext
@@ -450,16 +456,19 @@ def _valid_auth_bypass(
             "INVALID_ARGUMENT",
             'auth_bypass must be {"deep_link": str} with a non-empty deep link.',
         )
-    missing = [
-        name
-        for name in dict.fromkeys(_DEEP_LINK_PLACEHOLDER.findall(deep_link))
-        if name not in (environment or {})
-    ]
-    if missing:
-        placeholders = ", ".join("${" + name + "}" for name in missing)
+    placeholders = _DEEP_LINK_PLACEHOLDER.findall(deep_link)
+    if placeholders and _WEB_SCHEME.match(deep_link):
         raise VerifyError(
             "INVALID_ARGUMENT",
-            f"auth_bypass.deep_link uses {placeholders}, which the target's environment doesn't "
+            "auth_bypass.deep_link has placeholders, so it must use the app's own URL scheme, not "
+            "http or https.",
+        )
+    missing = [name for name in dict.fromkeys(placeholders) if name not in (environment or {})]
+    if missing:
+        names = ", ".join("${" + name + "}" for name in missing)
+        raise VerifyError(
+            "INVALID_ARGUMENT",
+            f"auth_bypass.deep_link uses {names}, which the target's environment doesn't "
             "set. Placeholders resolve only from the target's environment.",
         )
     return ProofAuthBypass(deep_link=deep_link)

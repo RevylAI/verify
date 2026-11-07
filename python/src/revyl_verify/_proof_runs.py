@@ -134,6 +134,15 @@ _REFUSALS: dict[str, tuple[str, str | None]] = {
         "INVALID_ARGUMENT",
         "Reference the secret launch variable by name instead of sending its value.",
     ),
+    "auth_bypass_not_supported_on_web": (
+        "INVALID_ARGUMENT",
+        "Web targets take no auth bypass deep link.",
+    ),
+    "auth_bypass_placeholder_not_found": (
+        "INVALID_ARGUMENT",
+        "Each ${NAME} placeholder in the deep link must name an entry of the same target's "
+        "environment.",
+    ),
     "harness_not_supported": ("INVALID_ARGUMENT", None),
     "invalid_request": ("INVALID_ARGUMENT", None),
     "proof_run_limit_reached": (

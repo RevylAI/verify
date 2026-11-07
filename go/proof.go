@@ -42,8 +42,10 @@ func (v EnvValue) GoString() string { return v.String() }
 
 // AuthBypass is a deep link Revyl opens after the app launches, like session.auth_bypass.deep_link in a Revyl config,
 // for example "myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}". Each ${NAME} placeholder resolves from the
-// target's Environment only, on Revyl's side, so a secret's value never reaches the agent, the report, or the logs.
-// Formatting it never prints the link.
+// target's Environment only, on Revyl's side, so a secret's value never reaches the agent, the report, or the logs. A
+// link with placeholders must use the app's own URL scheme, not http or https. It opens once on each device the agent
+// starts. If the app also gates sign-in on a launch variable such as REVYL_AUTH_BYPASS_ENABLED, set it in Environment
+// too. Formatting it never prints the link.
 type AuthBypass struct {
 	DeepLink string
 }
@@ -67,7 +69,7 @@ type ProofTarget struct {
 	// EnvSecretRef uses the organization launch variable of the same name and needs a member API key.
 	Environment map[string]EnvValue
 	// AuthBypass is a deep link for a Build target that Revyl opens after the app launches; its ${NAME} placeholders
-	// resolve from Environment only.
+	// resolve from Environment only, and a link with placeholders must use the app's own URL scheme, not http or https.
 	AuthBypass *AuthBypass
 	// Version is a Build target's label, unique within the app; empty uses the short head commit plus a UTC timestamp.
 	Version string
@@ -119,7 +121,9 @@ type ProofTargetRun struct {
 	Status string `json:"status"`
 	// Verdict is passed, failed, or inconclusive once the run settles with a verdict.
 	Verdict string `json:"verdict,omitempty"`
-	// Label is Revyl's display label, such as "Ready", "Ready with issues", or "Partial coverage".
+	// Label is Revyl's display_status_label as reported: the label the pull request comment shows, built from the run's
+	// write-up and findings, such as "Ready", "Ready with issues", or "Partial coverage". It can differ from what Verdict
+	// suggests.
 	Label string `json:"label,omitempty"`
 	// ReportURL is the pull request comment with the report.
 	ReportURL string `json:"reportUrl,omitempty"`
@@ -139,7 +143,7 @@ type ProofRun struct {
 	// Verdict is set once every run has a verdict: failed if any run failed, otherwise inconclusive if any run is
 	// inconclusive (a verdict Verify doesn't recognize counts as inconclusive), otherwise passed.
 	Verdict string `json:"verdict,omitempty"`
-	// Label is the label of the first run whose verdict decided Verdict.
+	// Label is the Label of the first run whose verdict decided Verdict, as Revyl reported it.
 	Label string `json:"label,omitempty"`
 	// ReportURL is the pull request comment with the report, from the first run that has one.
 	ReportURL   string             `json:"reportUrl,omitempty"`
@@ -149,6 +153,7 @@ type ProofRun struct {
 var (
 	environmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 	deepLinkPlaceholder    = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
+	webScheme              = regexp.MustCompile(`(?i)^\s*https?:`)
 )
 
 const (
@@ -313,9 +318,13 @@ func validAuthBypass(authBypass *AuthBypass, environment map[string]EnvValue) er
 	if strings.TrimSpace(authBypass.DeepLink) == "" {
 		return failure(ErrInvalidArgument, "AuthBypass needs a non-empty DeepLink.")
 	}
+	placeholders := deepLinkPlaceholder.FindAllStringSubmatch(authBypass.DeepLink, -1)
+	if len(placeholders) > 0 && webScheme.MatchString(authBypass.DeepLink) {
+		return failure(ErrInvalidArgument, "AuthBypass.DeepLink has placeholders, so it must use the app's own URL scheme, not http or https.")
+	}
 	var missing []string
 	seen := map[string]bool{}
-	for _, match := range deepLinkPlaceholder.FindAllStringSubmatch(authBypass.DeepLink, -1) {
+	for _, match := range placeholders {
 		if _, ok := environment[match[1]]; !ok && !seen[match[1]] {
 			seen[match[1]] = true
 			missing = append(missing, "${"+match[1]+"}")

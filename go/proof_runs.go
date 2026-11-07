@@ -52,6 +52,8 @@ var proofRunRefusals = map[string]proofRefusal{
 	"environment_secret_ref_not_found":         {ErrInvalidArgument, "Create the organization launch variable first."},
 	"environment_secret_ref_alias_unsupported": {ErrInvalidArgument, ""},
 	"environment_secret_value_refused":         {ErrInvalidArgument, "Reference the secret launch variable by name instead of sending its value."},
+	"auth_bypass_not_supported_on_web":         {ErrInvalidArgument, "Web targets take no auth bypass deep link."},
+	"auth_bypass_placeholder_not_found":        {ErrInvalidArgument, "Each ${NAME} placeholder in the deep link must name an entry of the same target's environment."},
 	"harness_not_supported":                    {ErrInvalidArgument, ""},
 	"invalid_request":                          {ErrInvalidArgument, ""},
 	"proof_run_limit_reached":                  {ErrProofRunLimit, "Too many Proof API runs are queued or running for the organization; try again once some settle."},
