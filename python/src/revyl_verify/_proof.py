@@ -10,6 +10,7 @@ from typing import Literal
 
 from ._models import UUID_PATTERN
 from ._proof_runs import (
+    ProofAuthBypass,
     ProofEnvironmentValue,
     ProofHarness,
     ProofRunState,
@@ -32,6 +33,7 @@ from ._upload import (
 )
 
 _ENVIRONMENT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_DEEP_LINK_PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _MAX_TARGETS = 3
 _DEFAULT_TIMEOUT = 30 * 60.0
 _POLL_INTERVALS = (5.0, 10.0, 15.0)
@@ -47,6 +49,11 @@ class ProofTarget:
     secret. ``{"secret_ref": "NAME"}``, under the key ``NAME``, uses the organization launch
     variable of the same name, which holds a secret: its value stays in Revyl, and only a member
     API key can reference it.
+    ``auth_bypass`` is a deep link Revyl opens after the app launches, like
+    ``session.auth_bypass.deep_link`` in a Revyl config, for example
+    ``{"deep_link": "myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}"}``. Each ``${NAME}``
+    placeholder resolves from this target's ``environment`` only, on Revyl's side, so a secret's
+    value never reaches the agent, the report, or the logs.
     ``version`` is a label unique within the app; it defaults to the short head commit plus a UTC
     timestamp.
 
@@ -54,7 +61,8 @@ class ProofTarget:
     must be public HTTPS on port 443, and any HTTP status of 400 or above fails the page. URL builds
     take no headers or basic auth, so the page must load signed in or without sign-in. It must stay
     up from the call until the run settles, which can take minutes; with ``wait=False``, keeping it
-    up is the caller's job. ``environment`` and ``version`` apply only to ``build``.
+    up is the caller's job. ``environment``, ``auth_bypass``, and ``version`` apply only to
+    ``build``.
     """
 
     app_id: str
@@ -62,6 +70,7 @@ class ProofTarget:
     url: str | None = None
     environment: Mapping[str, ProofEnvironmentValue] | None = field(default=None, repr=False)
     version: str | None = None
+    auth_bypass: ProofAuthBypass | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -106,6 +115,7 @@ def proof(
     *,
     url: str | None = None,
     environment: Mapping[str, ProofEnvironmentValue] | None = None,
+    auth_bypass: ProofAuthBypass | None = None,
     version: str | None = None,
     targets: Sequence[ProofTarget] | None = None,
     guidance: str | None = None,
@@ -119,11 +129,11 @@ def proof(
     Revyl Proof of Changes run per target on the pull request.
 
     Pass up to three ``targets``, one per platform, or a single target inline as ``build`` or
-    ``url`` with ``app_id`` (and, for ``build``, ``environment`` and ``version``); see
-    ``ProofTarget``. Starting the same targets (the same builds and settings) again at the same
-    head returns the earlier runs in whatever state they are in; to prove again, upload a new
-    build or push a new commit. ``harness`` is the agent that runs the proof; ``revyl`` is the
-    only one.
+    ``url`` with ``app_id`` (and, for ``build``, ``environment``, ``auth_bypass``, and
+    ``version``); see ``ProofTarget``. Starting the same targets (the same builds and settings)
+    again at the same head returns the earlier runs in whatever state they are in; to prove
+    again, upload a new build or push a new commit. ``harness`` is the agent that runs the proof;
+    ``revyl`` is the only one.
 
     With ``wait`` (the default) it polls until every run settles, for at most ``timeout`` seconds;
     the runs keep going on Revyl after a timeout. Interrupting the wait cancels the runs that
@@ -132,7 +142,7 @@ def proof(
     Revyl reports on the pull request in a comment but adds no check run, so the result is the CI
     gate: fail the job unless ``verdict`` is ``passed``.
     """
-    chosen = _proof_targets(build, app_id, url, environment, version, targets)
+    chosen = _proof_targets(build, app_id, url, environment, auth_bypass, version, targets)
     if harness != "revyl":
         raise VerifyError("INVALID_ARGUMENT", "harness must be 'revyl'.")
     if not isinstance(wait, bool):
@@ -173,7 +183,7 @@ def proof(
     started = create_proof_runs(
         client,
         targets=[
-            ProofRunTarget(target.app_id, built.build_id, target.environment)
+            ProofRunTarget(target.app_id, built.build_id, target.environment, target.auth_bypass)
             for target, built in zip(chosen, builds)
         ],
         pull_request=pull_request,
@@ -216,17 +226,20 @@ def _proof_targets(
     app_id: str | None,
     url: str | None,
     environment: Mapping[str, ProofEnvironmentValue] | None,
+    auth_bypass: ProofAuthBypass | None,
     version: str | None,
     targets: Sequence[ProofTarget] | None,
 ) -> list[ProofTarget]:
-    inline = any(value is not None for value in (build, app_id, url, environment, version))
+    inline = any(
+        value is not None for value in (build, app_id, url, environment, auth_bypass, version)
+    )
     if targets is not None and inline:
         raise VerifyError(
             "INVALID_ARGUMENT", "Pass targets, or a single build or url with app_id, not both."
         )
     if targets is None:
         chosen = (
-            [ProofTarget(app_id or "", build, url, environment, version)]
+            [ProofTarget(app_id or "", build, url, environment, version, auth_bypass)]
             if build is not None or url is not None
             else []
         )
@@ -256,11 +269,23 @@ def _proof_targets(
             )
         if target.url is not None and target.version is not None:
             raise VerifyError("INVALID_ARGUMENT", "version applies only to mobile builds.")
+        if target.url is not None and target.auth_bypass is not None:
+            raise VerifyError(
+                "INVALID_ARGUMENT",
+                "auth_bypass applies only to mobile builds; a URL target takes no deep link.",
+            )
         if not isinstance(target.app_id, str) or not UUID_PATTERN.fullmatch(target.app_id):
             raise VerifyError("INVALID_ARGUMENT", "app_id must be a Revyl app id (a UUID).")
         if target.url is not None:
             validate_web_url(target.url)
-        valid.append(replace(target, environment=_valid_environment(target.environment)))
+        environment = _valid_environment(target.environment)
+        valid.append(
+            replace(
+                target,
+                environment=environment,
+                auth_bypass=_valid_auth_bypass(target.auth_bypass, environment),
+            )
+        )
     if len({target.app_id for target in valid}) != len(valid):
         raise VerifyError("INVALID_ARGUMENT", "Each target needs its own app_id, one per platform.")
     if sum(target.url is not None for target in valid) > 1:
@@ -412,6 +437,32 @@ def _valid_environment(
             )
         valid[name] = SecretRef(secret_ref=reference)
     return valid or None
+
+
+def _valid_auth_bypass(
+    auth_bypass: ProofAuthBypass | None, environment: Mapping[str, ProofEnvironmentValue] | None
+) -> ProofAuthBypass | None:
+    if auth_bypass is None:
+        return None
+    deep_link = auth_bypass.get("deep_link") if isinstance(auth_bypass, Mapping) else None
+    if not isinstance(deep_link, str) or not deep_link.strip():
+        raise VerifyError(
+            "INVALID_ARGUMENT",
+            'auth_bypass must be {"deep_link": str} with a non-empty deep link.',
+        )
+    missing = [
+        name
+        for name in dict.fromkeys(_DEEP_LINK_PLACEHOLDER.findall(deep_link))
+        if name not in (environment or {})
+    ]
+    if missing:
+        placeholders = ", ".join("${" + name + "}" for name in missing)
+        raise VerifyError(
+            "INVALID_ARGUMENT",
+            f"auth_bypass.deep_link uses {placeholders}, which the target's environment doesn't "
+            "set. Placeholders resolve only from the target's environment.",
+        )
+    return ProofAuthBypass(deep_link=deep_link)
 
 
 __all__ = ["ProofRun", "ProofTarget", "ProofTargetRun", "proof"]

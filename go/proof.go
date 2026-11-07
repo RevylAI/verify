@@ -40,6 +40,18 @@ func (v EnvValue) String() string {
 
 func (v EnvValue) GoString() string { return v.String() }
 
+// AuthBypass is a deep link Revyl opens after the app launches, like session.auth_bypass.deep_link in a Revyl config,
+// for example "myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}". Each ${NAME} placeholder resolves from the
+// target's Environment only, on Revyl's side, so a secret's value never reaches the agent, the report, or the logs.
+// Formatting it never prints the link.
+type AuthBypass struct {
+	DeepLink string
+}
+
+func (AuthBypass) String() string { return "AuthBypass(<redacted>)" }
+
+func (a AuthBypass) GoString() string { return a.String() }
+
 // ProofTarget is one target of a Proof of Changes run. Set exactly one of Build and URL.
 type ProofTarget struct {
 	// AppID is the Revyl app (UUID): a mobile app for Build, a Web app for URL.
@@ -54,6 +66,9 @@ type ProofTarget struct {
 	// Environment holds launch variables for a Build target's run, by name. An EnvPlain value may appear in reports; an
 	// EnvSecretRef uses the organization launch variable of the same name and needs a member API key.
 	Environment map[string]EnvValue
+	// AuthBypass is a deep link for a Build target that Revyl opens after the app launches; its ${NAME} placeholders
+	// resolve from Environment only.
+	AuthBypass *AuthBypass
 	// Version is a Build target's label, unique within the app; empty uses the short head commit plus a UTC timestamp.
 	Version string
 }
@@ -64,11 +79,12 @@ type ProofTarget struct {
 // commit.
 type ProofOptions struct {
 	Targets []ProofTarget
-	// Build, URL, AppID, Environment, and Version give a single target inline, as in ProofTarget.
+	// Build, URL, AppID, Environment, AuthBypass, and Version give a single target inline, as in ProofTarget.
 	Build       string
 	URL         string
 	AppID       string
 	Environment map[string]EnvValue
+	AuthBypass  *AuthBypass
 	Version     string
 	// Guidance is what the agent should focus on.
 	Guidance string
@@ -130,7 +146,10 @@ type ProofRun struct {
 	PullRequest PullRequestContext `json:"pullRequest"`
 }
 
-var environmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+var (
+	environmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	deepLinkPlaceholder    = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
+)
 
 const (
 	maxProofTargets     = 3
@@ -192,7 +211,7 @@ func Proof(ctx context.Context, options ProofOptions) (*ProofRun, error) {
 		}
 		seen = append(seen, platform)
 		platforms[platform] = true
-		request.targets = append(request.targets, proofRunTarget{appID: target.AppID, buildID: buildID, environment: target.Environment})
+		request.targets = append(request.targets, proofRunTarget{appID: target.AppID, buildID: buildID, environment: target.Environment, authBypass: target.AuthBypass})
 	}
 	if len(platforms) != len(seen) {
 		return nil, failure(ErrInvalidArgument, "Targets must be one per platform; got "+strings.Join(seen, ", ")+".")
@@ -232,13 +251,13 @@ func Proof(ctx context.Context, options ProofOptions) (*ProofRun, error) {
 }
 
 func proofTargets(options ProofOptions) ([]ProofTarget, error) {
-	inline := options.Build != "" || options.URL != "" || options.AppID != "" || options.Environment != nil || options.Version != ""
+	inline := options.Build != "" || options.URL != "" || options.AppID != "" || options.Environment != nil || options.AuthBypass != nil || options.Version != ""
 	if options.Targets != nil && inline {
 		return nil, failure(ErrInvalidArgument, "Set Targets, or a single Build or URL with AppID, not both.")
 	}
 	targets := options.Targets
 	if options.Targets == nil && (options.Build != "" || options.URL != "") {
-		targets = []ProofTarget{{AppID: options.AppID, Build: options.Build, URL: options.URL, Environment: options.Environment, Version: options.Version}}
+		targets = []ProofTarget{{AppID: options.AppID, Build: options.Build, URL: options.URL, Environment: options.Environment, AuthBypass: options.AuthBypass, Version: options.Version}}
 	}
 	if len(targets) == 0 || len(targets) > maxProofTargets {
 		return nil, failure(ErrInvalidArgument, "Proof needs 1 to 3 targets, one per platform.")
@@ -254,6 +273,8 @@ func proofTargets(options ProofOptions) ([]ProofTarget, error) {
 			return nil, failure(ErrInvalidArgument, "Environment applies only to mobile builds; a URL target takes no launch variables.")
 		case web && target.Version != "":
 			return nil, failure(ErrInvalidArgument, "Version applies only to mobile builds.")
+		case web && target.AuthBypass != nil:
+			return nil, failure(ErrInvalidArgument, "AuthBypass applies only to mobile builds; a URL target takes no deep link.")
 		case !uuidPattern.MatchString(target.AppID):
 			return nil, failure(ErrInvalidArgument, "AppID must be a Revyl app id (a UUID).")
 		}
@@ -271,6 +292,9 @@ func proofTargets(options ProofOptions) ([]ProofTarget, error) {
 				return nil, failure(ErrInvalidArgument, "environment variable "+name+" must reference the launch variable of the same name: EnvSecretRef(\""+name+"\").")
 			}
 		}
+		if err := validAuthBypass(target.AuthBypass, target.Environment); err != nil {
+			return nil, err
+		}
 		appIDs[target.AppID] = true
 	}
 	if len(appIDs) != len(targets) {
@@ -280,6 +304,27 @@ func proofTargets(options ProofOptions) ([]ProofTarget, error) {
 		return nil, failure(ErrInvalidArgument, "Targets take at most one URL: one target per platform.")
 	}
 	return targets, nil
+}
+
+func validAuthBypass(authBypass *AuthBypass, environment map[string]EnvValue) error {
+	if authBypass == nil {
+		return nil
+	}
+	if strings.TrimSpace(authBypass.DeepLink) == "" {
+		return failure(ErrInvalidArgument, "AuthBypass needs a non-empty DeepLink.")
+	}
+	var missing []string
+	seen := map[string]bool{}
+	for _, match := range deepLinkPlaceholder.FindAllStringSubmatch(authBypass.DeepLink, -1) {
+		if _, ok := environment[match[1]]; !ok && !seen[match[1]] {
+			seen[match[1]] = true
+			missing = append(missing, "${"+match[1]+"}")
+		}
+	}
+	if len(missing) > 0 {
+		return failure(ErrInvalidArgument, "AuthBypass.DeepLink uses "+strings.Join(missing, ", ")+", which the target's Environment doesn't set. Placeholders resolve only from the target's Environment.")
+	}
+	return nil
 }
 
 func overallVerdict(runs []ProofTargetRun) (string, string) {

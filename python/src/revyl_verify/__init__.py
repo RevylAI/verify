@@ -18,7 +18,13 @@ from ._models import (
     Viewport,
 )
 from ._proof import ProofRun, ProofTarget, ProofTargetRun, proof
-from ._proof_runs import ProofEnvironmentValue, ProofHarness, PullRequestContext, SecretRef
+from ._proof_runs import (
+    ProofAuthBypass,
+    ProofEnvironmentValue,
+    ProofHarness,
+    PullRequestContext,
+    SecretRef,
+)
 from ._session import Session
 from ._transport import Cancellation, CleanupStatus, RefusalReason, VerifyError, origin, seconds
 from ._upload import ReviewCorrelation, ScmIdentity, UploadResult, UrlBuildResult, upload_build
@@ -33,6 +39,7 @@ __all__ = [
     "ExecResult",
     "FileStat",
     "Platform",
+    "ProofAuthBypass",
     "ProofEnvironmentValue",
     "ProofHarness",
     "ProofRun",

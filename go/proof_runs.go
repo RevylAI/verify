@@ -41,7 +41,7 @@ var proofRunRefusals = map[string]proofRefusal{
 	"head_sha_mismatch":                        {ErrHeadNotCurrent, "The pull request moved on; prove its current head."},
 	"base_sha_mismatch":                        {ErrHeadNotCurrent, "The pull request's base moved on; prove it again from a fresh run of the job."},
 	"config_managed_review":                    {ErrConfigManagedReview, "The repository's own Revyl config already proves this head."},
-	"proof_settings_conflict":                  {ErrProofRunConflict, "Proofs with other apps, settings, or environment already cover this head; upload a new build or push a new commit to prove again."},
+	"proof_settings_conflict":                  {ErrProofRunConflict, "Proofs with other apps, settings, environment, or auth bypass already cover this head; upload a new build or push a new commit to prove again."},
 	"untrusted_pull_request_head":              {ErrUntrustedPRHead, "Pull requests from forks are not proved."},
 	"build_not_supported":                      {ErrBuildRejected, ""},
 	"build_scm_mismatch":                       {ErrBuildRejected, "The build was uploaded for another repository, pull request, or commit."},
@@ -66,6 +66,7 @@ type proofRunState struct {
 type proofRunTarget struct {
 	appID, buildID string
 	environment    map[string]EnvValue
+	authBypass     *AuthBypass
 }
 
 type createProofRunsRequest struct {
@@ -91,6 +92,9 @@ func createProofRuns(ctx context.Context, c *client, request createProofRunsRequ
 				}
 			}
 			wire["environment"] = environment
+		}
+		if target.authBypass != nil {
+			wire["auth_bypass"] = map[string]string{"deep_link": target.authBypass.DeepLink}
 		}
 		targets = append(targets, wire)
 	}

@@ -23,6 +23,12 @@ class SecretRef(TypedDict):
 ProofEnvironmentValue: TypeAlias = "str | SecretRef"
 
 
+class ProofAuthBypass(TypedDict):
+    """A deep link Revyl opens after the app launches; see ``ProofTarget.auth_bypass``."""
+
+    deep_link: str
+
+
 @dataclass(frozen=True)
 class PullRequestContext:
     provider: Literal["github"]
@@ -37,6 +43,7 @@ class ProofRunTarget:
     app_id: str
     build_id: str
     environment: Mapping[str, ProofEnvironmentValue] | None = field(default=None, repr=False)
+    auth_bypass: ProofAuthBypass | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)
@@ -99,8 +106,8 @@ _REFUSALS: dict[str, tuple[str, str | None]] = {
     ),
     "proof_settings_conflict": (
         "PROOF_RUN_CONFLICT",
-        "Proofs with other apps, settings, or environment already cover this head; upload a new "
-        "build or push a new commit to prove again.",
+        "Proofs with other apps, settings, environment, or auth bypass already cover this head; "
+        "upload a new build or push a new commit to prove again.",
     ),
     "untrusted_pull_request_head": (
         "UNTRUSTED_PR_HEAD",
@@ -158,6 +165,8 @@ def create_proof_runs(
                 else {"secret_ref": value["secret_ref"]}
                 for name, value in target.environment.items()
             }
+        if target.auth_bypass is not None:
+            wire["auth_bypass"] = {"deep_link": target.auth_bypass["deep_link"]}
         wire_targets.append(wire)
     scm: dict[str, Json] = {
         "provider": pull_request.provider,
