@@ -36,9 +36,16 @@ type response struct {
 }
 
 func newClient(options OpenOptions) (*client, string, error) {
-	token, err := credentials()
-	if err != nil {
-		return nil, "", err
+	return newTokenClient(options, "")
+}
+
+// newTokenClient uses token, or the configured credentials when token is empty.
+func newTokenClient(options OpenOptions, token string) (*client, string, error) {
+	var err error
+	if token == "" {
+		if token, err = credentials(); err != nil {
+			return nil, "", err
+		}
 	}
 	base := options.BackendURL
 	if base == "" {

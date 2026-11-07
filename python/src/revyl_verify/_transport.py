@@ -61,12 +61,14 @@ class VerifyError(Exception):
         result: object | None = None,
         reason: RefusalReason | None = None,
         http_status: int | None = None,
+        proof_run_ids: list[str] | None = None,
     ) -> None:
         self.code = code
         self.message = message
         self.result = result
         self.reason: RefusalReason | None = reason
         self.http_status: int | None = http_status
+        self.proof_run_ids: list[str] | None = proof_run_ids
         self.platform: Platform | None = None
         self.session_id: str | None = None
         self.workflow_run_id: str | None = None
@@ -400,8 +402,12 @@ def http_error(response: Response, *, hosted: bool = False) -> VerifyError:
 
 
 class Client:
-    def __init__(self, backend_url: str | None = None) -> None:
-        self._token = credentials()
+    def __init__(self, backend_url: str | None = None, token: str | None = None) -> None:
+        if token is not None and (
+            not isinstance(token, str) or not token or any(not 32 <= ord(c) <= 126 for c in token)
+        ):
+            raise VerifyError("AUTH_MISSING", "token must be a non-empty Revyl API key.")
+        self._token = credentials() if token is None else token
         self.base = origin(backend_url or "https://backend.revyl.ai")
 
     def request(
