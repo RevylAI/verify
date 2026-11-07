@@ -1,12 +1,12 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { RevylClient } from './api/client.js';
-import { cancelProofRun, createProofRuns, getProofRun, isSettled, type ProofEnvironmentValue, type ProofHarness, type ProofRunState, type PullRequestContext } from './api/proof-runs.js';
+import { cancelProofRun, createProofRuns, getProofRun, isSettled, type ProofAuthBypass, type ProofEnvironmentValue, type ProofHarness, type ProofRunState, type PullRequestContext } from './api/proof-runs.js';
 import { missingCredentialsMessage, resolveCredentials } from './auth.js';
 import { trackSession, untrackSession } from './cleanup.js';
 import { VerifyError, errorMessage } from './errors.js';
 import { detectScmIdentity, registerUrlBuild, uploadBuild, validateWebUrl, type UploadBuildResult, type UrlBuildResult } from './upload.js';
 
-export type { ProofEnvironmentValue, ProofHarness, PullRequestContext };
+export type { ProofAuthBypass, ProofEnvironmentValue, ProofHarness, PullRequestContext };
 
 /** A mobile CI build to prove. */
 export interface ProofBuildTarget {
@@ -20,6 +20,12 @@ export interface ProofBuildTarget {
    * name, which holds a secret: its value stays in Revyl, and only a member API key can reference it.
    */
   environment?: Record<string, ProofEnvironmentValue>;
+  /**
+   * A deep link Revyl opens after the app launches, like `session.auth_bypass.deep_link` in a Revyl config, for example
+   * `myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}`. Each `${NAME}` placeholder resolves from this target's
+   * `environment` only, on Revyl's side, so a secret's value never reaches the agent, the report, or the logs.
+   */
+  authBypass?: ProofAuthBypass;
   /** A version label unique within the app. Defaults to the short head commit plus a UTC timestamp. */
   version?: string;
   url?: never;
@@ -36,6 +42,7 @@ export interface ProofUrlTarget {
   appId: string;
   build?: never;
   environment?: never;
+  authBypass?: never;
   version?: never;
 }
 
@@ -62,7 +69,7 @@ export interface ProofSettings {
  * settings) again at the same head returns the earlier runs in whatever state they are in; to prove again, upload a new
  * build or push a new commit.
  */
-export type ProofOptions = ProofSettings & ({ targets: ProofTarget[]; build?: never; url?: never; appId?: never; environment?: never; version?: never } | (ProofTarget & { targets?: never }));
+export type ProofOptions = ProofSettings & ({ targets: ProofTarget[]; build?: never; url?: never; appId?: never; environment?: never; authBypass?: never; version?: never } | (ProofTarget & { targets?: never }));
 
 export interface ProofTargetRun {
   id: string;
@@ -99,6 +106,7 @@ export interface ProofRun {
 }
 
 const ENVIRONMENT_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const DEEP_LINK_PLACEHOLDER = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 const MAX_TARGETS = 3;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DEFAULT_TIMEOUT_MS = 30 * 60_000;
@@ -142,7 +150,7 @@ export async function proof(options: ProofOptions): Promise<ProofRun> {
       pullRequest,
       harness,
       ...(guidance ? { guidance } : {}),
-      targets: targets.map((target, index) => ({ appId: target.appId, buildId: builds[index]!.buildId, ...(target.environment ? { environment: target.environment } : {}) })),
+      targets: targets.map((target, index) => ({ appId: target.appId, buildId: builds[index]!.buildId, ...(target.environment ? { environment: target.environment } : {}), ...(target.authBypass ? { authBypass: { deepLink: target.authBypass.deepLink } } : {}) })),
     },
     options.signal,
   );
@@ -165,7 +173,9 @@ function proofTargets(options: ProofOptions): ProofTarget[] {
     if (target.url !== undefined) validateWebUrl(target.url);
     if (target.url !== undefined && target.environment !== undefined) throw new VerifyError('INVALID_ARGUMENT', 'environment applies only to mobile builds; a URL target takes no launch variables.');
     if (target.url !== undefined && target.version !== undefined) throw new VerifyError('INVALID_ARGUMENT', 'version applies only to mobile builds.');
+    if (target.url !== undefined && target.authBypass !== undefined) throw new VerifyError('INVALID_ARGUMENT', 'authBypass applies only to mobile builds; a URL target takes no deep link.');
     validEnvironment(target.environment);
+    validAuthBypass(target.authBypass, target.environment);
   }
   if (new Set(targets.map((target) => target.appId)).size !== targets.length) throw new VerifyError('INVALID_ARGUMENT', 'Each target needs its own appId, one per platform.');
   if (targets.filter((target) => target.url !== undefined).length > 1) throw new VerifyError('INVALID_ARGUMENT', 'targets take at most one url: one target per platform.');
@@ -243,5 +253,16 @@ function validEnvironment(environment: Record<string, ProofEnvironmentValue> | u
     if (typeof value === 'string') continue;
     if (typeof value !== 'object' || value === null || typeof value.secretRef !== 'string') throw new VerifyError('INVALID_ARGUMENT', `environment variable ${name} must be a string or { secretRef: '${name}' }.`);
     if (value.secretRef !== name) throw new VerifyError('INVALID_ARGUMENT', `environment variable ${name} must reference the launch variable of the same name: { secretRef: '${name}' }.`);
+  }
+}
+
+function validAuthBypass(authBypass: ProofAuthBypass | undefined, environment: Record<string, ProofEnvironmentValue> | undefined): void {
+  if (authBypass === undefined) return;
+  if (typeof authBypass !== 'object' || authBypass === null || typeof authBypass.deepLink !== 'string' || authBypass.deepLink.trim() === '') {
+    throw new VerifyError('INVALID_ARGUMENT', 'authBypass must be { deepLink: string } with a non-empty deep link.');
+  }
+  const missing = [...authBypass.deepLink.matchAll(DEEP_LINK_PLACEHOLDER)].map((match) => match[1]!).filter((name) => environment?.[name] === undefined);
+  if (missing.length > 0) {
+    throw new VerifyError('INVALID_ARGUMENT', `authBypass.deepLink uses ${[...new Set(missing)].map((name) => '${' + name + '}').join(', ')}, which the target's environment doesn't set. Placeholders resolve only from the target's environment.`);
   }
 }

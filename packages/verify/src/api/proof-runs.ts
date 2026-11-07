@@ -19,10 +19,15 @@ export interface PullRequestContext {
 
 export type ProofEnvironmentValue = string | { secretRef: string };
 
+export interface ProofAuthBypass {
+  deepLink: string;
+}
+
 export interface ProofRunTarget {
   appId: string;
   buildId: string;
   environment?: Record<string, ProofEnvironmentValue>;
+  authBypass?: ProofAuthBypass;
 }
 
 export interface CreateProofRunsRequest {
@@ -67,7 +72,7 @@ const REFUSALS: Record<string, { code: VerifyErrorCode; hint?: string }> = {
   head_sha_mismatch: { code: 'HEAD_NOT_CURRENT', hint: 'The pull request moved on; prove its current head.' },
   base_sha_mismatch: { code: 'HEAD_NOT_CURRENT', hint: "The pull request's base moved on; prove it again from a fresh run of the job." },
   config_managed_review: { code: 'CONFIG_MANAGED_REVIEW', hint: "The repository's own Revyl config already proves this head." },
-  proof_settings_conflict: { code: 'PROOF_RUN_CONFLICT', hint: 'Proofs with other apps, settings, or environment already cover this head; upload a new build or push a new commit to prove again.' },
+  proof_settings_conflict: { code: 'PROOF_RUN_CONFLICT', hint: 'Proofs with other apps, settings, environment, or auth bypass already cover this head; upload a new build or push a new commit to prove again.' },
   untrusted_pull_request_head: { code: 'UNTRUSTED_PR_HEAD', hint: 'Pull requests from forks are not proved.' },
   build_not_supported: { code: 'BUILD_REJECTED' },
   build_scm_mismatch: { code: 'BUILD_REJECTED', hint: 'The build was uploaded for another repository, pull request, or commit.' },
@@ -95,6 +100,7 @@ export async function createProofRuns(client: RevylClient, request: CreateProofR
       app_id: target.appId,
       build_id: target.buildId,
       ...(target.environment !== undefined ? { environment: wireEnvironment(target.environment) } : {}),
+      ...(target.authBypass !== undefined ? { auth_bypass: { deep_link: target.authBypass.deepLink } } : {}),
     })),
     scm: {
       provider: pullRequest.provider,
