@@ -83,6 +83,8 @@ const REFUSALS: Record<string, { code: VerifyErrorCode; hint?: string }> = {
   environment_secret_ref_not_found: { code: 'INVALID_ARGUMENT', hint: 'Create the organization launch variable first.' },
   environment_secret_ref_alias_unsupported: { code: 'INVALID_ARGUMENT' },
   environment_secret_value_refused: { code: 'INVALID_ARGUMENT', hint: 'Reference the secret launch variable by name instead of sending its value.' },
+  auth_bypass_not_supported_on_web: { code: 'INVALID_ARGUMENT', hint: 'Web targets take no auth bypass deep link.' },
+  auth_bypass_placeholder_not_found: { code: 'INVALID_ARGUMENT', hint: "Each ${NAME} placeholder in the deep link must name an entry of the same target's environment." },
   harness_not_supported: { code: 'INVALID_ARGUMENT' },
   invalid_request: { code: 'INVALID_ARGUMENT' },
   proof_run_limit_reached: { code: 'PROOF_RUN_LIMIT', hint: 'Too many Proof API runs are queued or running for the organization; try again once some settle.' },

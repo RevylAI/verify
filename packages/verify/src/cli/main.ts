@@ -283,9 +283,9 @@ async function proofCommand(args: string[]): Promise<number> {
 
 function proofSummary(run: ProofRun): string {
   const pullRequest = `${run.pullRequest.repository}#${run.pullRequest.number}`;
-  const lines = run.runs.map((entry) => `  ${entry.platform ?? entry.build.platform} run ${entry.id} (build ${entry.build.buildId}): ${entry.verdict ? (entry.label ?? entry.verdict) : entry.status}`);
+  const lines = run.runs.map((entry) => `  ${entry.platform ?? entry.build.platform} run ${entry.id} (build ${entry.build.buildId}): ${entry.verdict ?? entry.status}${entry.label ? ` (${entry.label})` : ''}`);
   const warnings = run.runs.flatMap((entry) => ('warnings' in entry.build ? entry.build.warnings : [])).map((warning) => `Warning: ${warning}`);
-  const outcome = run.verdict ? `Proof of Changes for ${pullRequest}: ${run.label ?? run.verdict}.` : `Started Proof of Changes for ${pullRequest}.`;
+  const outcome = run.verdict ? `Proof of Changes for ${pullRequest}: ${run.verdict}${run.label ? ` (${run.label})` : ''}.` : `Started Proof of Changes for ${pullRequest}.`;
   return [outcome, ...lines, ...(run.reportUrl ? [`Report: ${run.reportUrl}`] : []), ...warnings, ''].join('\n');
 }
 

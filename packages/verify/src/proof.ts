@@ -23,7 +23,9 @@ export interface ProofBuildTarget {
   /**
    * A deep link Revyl opens after the app launches, like `session.auth_bypass.deep_link` in a Revyl config, for example
    * `myapp://revyl-auth?token=${REVYL_AUTH_BYPASS_TOKEN}`. Each `${NAME}` placeholder resolves from this target's
-   * `environment` only, on Revyl's side, so a secret's value never reaches the agent, the report, or the logs.
+   * `environment` only, on Revyl's side, so a secret's value never reaches the agent, the report, or the logs. A link with
+   * placeholders must use the app's own URL scheme, not `http` or `https`. It opens once on each device the agent starts.
+   * If the app also gates sign-in on a launch variable such as `REVYL_AUTH_BYPASS_ENABLED`, set it in `environment` too.
    */
   authBypass?: ProofAuthBypass;
   /** A version label unique within the app. Defaults to the short head commit plus a UTC timestamp. */
@@ -80,7 +82,10 @@ export interface ProofTargetRun {
   status: string;
   /** `passed`, `failed`, or `inconclusive` once the run settles with a verdict. */
   verdict?: string;
-  /** Revyl's display label, such as `Ready`, `Ready with polish`, `Ready with issues`, `Failed`, or `Partial coverage`. */
+  /**
+   * Revyl's `display_status_label` as reported: the label the pull request comment shows, built from the run's write-up
+   * and findings, such as `Ready`, `Ready with issues`, or `Partial coverage`. It can differ from what `verdict` suggests.
+   */
   label?: string;
   /** The pull request comment with the report. */
   reportUrl?: string;
@@ -98,7 +103,7 @@ export interface ProofRun {
    * (a verdict Verify doesn't recognize counts as inconclusive), otherwise `passed`.
    */
   verdict?: 'passed' | 'failed' | 'inconclusive';
-  /** The label of the first run whose verdict decided `verdict`. */
+  /** The `label` of the first run whose verdict decided `verdict`, as Revyl reported it. */
   label?: string;
   /** The pull request comment with the report, from the first run that has one. */
   reportUrl?: string;
@@ -261,7 +266,11 @@ function validAuthBypass(authBypass: ProofAuthBypass | undefined, environment: R
   if (typeof authBypass !== 'object' || authBypass === null || typeof authBypass.deepLink !== 'string' || authBypass.deepLink.trim() === '') {
     throw new VerifyError('INVALID_ARGUMENT', 'authBypass must be { deepLink: string } with a non-empty deep link.');
   }
-  const missing = [...authBypass.deepLink.matchAll(DEEP_LINK_PLACEHOLDER)].map((match) => match[1]!).filter((name) => environment?.[name] === undefined);
+  const placeholders = [...authBypass.deepLink.matchAll(DEEP_LINK_PLACEHOLDER)].map((match) => match[1]!);
+  if (placeholders.length > 0 && /^\s*https?:/i.test(authBypass.deepLink)) {
+    throw new VerifyError('INVALID_ARGUMENT', "authBypass.deepLink has placeholders, so it must use the app's own URL scheme, not http or https.");
+  }
+  const missing = placeholders.filter((name) => environment?.[name] === undefined);
   if (missing.length > 0) {
     throw new VerifyError('INVALID_ARGUMENT', `authBypass.deepLink uses ${[...new Set(missing)].map((name) => '${' + name + '}').join(', ')}, which the target's environment doesn't set. Placeholders resolve only from the target's environment.`);
   }
