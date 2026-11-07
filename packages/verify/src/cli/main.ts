@@ -8,6 +8,7 @@ import { VerifyError, errorMessage, isVerifyError } from '../errors.js';
 import { PACKAGE_NAME, VERSION } from '../version.js';
 import { initProject, validateInitAnswers, type InitAnswers } from './init.js';
 import { uploadBuild, type UploadBuildResult } from '../upload.js';
+import { proof, type ProofEnvironmentValue, type ProofRun, type ProofTarget } from '../proof.js';
 import { installVerify, packageHasVerify } from './install.js';
 import { signIn } from './login.js';
 
@@ -18,6 +19,15 @@ Usage
       Install Verify, write verify.config.ts and an example script, then check authentication
   npx ${PACKAGE_NAME} upload <artifact> --app-id <id> [--platform ios|android] [--version <label>] [--repo <owner/name> --commit <sha> [--pr <number>]] [--json]
       Upload a CI build (.apk, .app, or .zip) with its pull request identity, detected on GitHub Actions
+  npx ${PACKAGE_NAME} proof <artifact> | --url <https-url> --app-id <id> [--guidance <text>] [--env NAME[=value]]... [--env-secret NAME]... [--auth-deep-link <template>] [--timeout <minutes>] [--no-wait] [--json]
+  npx ${PACKAGE_NAME} proof --target <app-id>=<artifact-or-https-url>... [same options]
+      Upload each pull request build or register its Web URL, and run Revyl Proof of Changes on it, on GitHub Actions.
+      Up to 3 targets, one per platform; --env and --env-secret apply to every mobile target. --env-secret NAME uses the
+      organization launch variable NAME and needs a member API key. --auth-deep-link opens a deep link after launch, like
+      session.auth_bypass.deep_link; its \${NAME} placeholders resolve only from --env and --env-secret, so single-quote it.
+      With --target, pass --auth-deep-link <app-id>=<template> per mobile target. A URL must stay up until its run settles.
+      Revyl adds no check run, so this is the CI gate: it exits 0 only when the overall verdict is passed (failed if any
+      run failed, else inconclusive if any is, else passed), and 1 otherwise. With --no-wait it exits 0 once the runs start
   npx ${PACKAGE_NAME} whoami
       Check which Revyl account your credentials belong to
 
@@ -27,7 +37,7 @@ Authentication
 Docs: https://github.com/RevylAI/verify/tree/v${VERSION}/packages/verify/docs
 `;
 
-const USAGE_CODES = new Set(['INVALID_ARGUMENT', 'AUTH_MISSING', 'AUTH_REJECTED']);
+const USAGE_CODES = new Set(['INVALID_ARGUMENT', 'AUTH_MISSING', 'AUTH_REJECTED', 'PR_CONTEXT_MISSING']);
 
 export async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
@@ -46,6 +56,8 @@ export async function main(argv: string[]): Promise<number> {
       return initCommand(rest);
     case 'upload':
       return uploadCommand(rest);
+    case 'proof':
+      return proofCommand(rest);
     case 'whoami':
       return whoamiCommand();
     default:
@@ -188,6 +200,93 @@ function reviewLine(correlation: UploadBuildResult['reviewCorrelation']): string
   const targets = correlation.matchedTargetCount === undefined ? '' : ` (${correlation.matchedTargetCount} matched review target${correlation.matchedTargetCount === 1 ? '' : 's'})`;
   const later = correlation.status === 'not_owned' || correlation.status === 'unmatched' ? ' It can still attach once the review picks its targets for this commit.' : '';
   return `Review match: ${correlation.status}${targets}.${later}`;
+}
+
+async function proofCommand(args: string[]): Promise<number> {
+  const { values, positionals } = parseArgs({
+    args,
+    allowPositionals: true,
+    options: {
+      'app-id': { type: 'string' },
+      url: { type: 'string' },
+      target: { type: 'string', multiple: true },
+      guidance: { type: 'string' },
+      env: { type: 'string', multiple: true },
+      'env-secret': { type: 'string', multiple: true },
+      'auth-deep-link': { type: 'string', multiple: true },
+      timeout: { type: 'string' },
+      'no-wait': { type: 'boolean' },
+      json: { type: 'boolean' },
+    },
+  });
+  const [build, ...extra] = positionals;
+  const single = build !== undefined || values.url !== undefined || values['app-id'] !== undefined;
+  if (extra.length > 0 || (values.target !== undefined && single) || (build !== undefined && values.url !== undefined)) {
+    throw new VerifyError('INVALID_ARGUMENT', 'verify proof takes one artifact path or --url with --app-id, or repeated --target <app-id>=<artifact-or-https-url>.');
+  }
+  if (values.timeout !== undefined && !/^[1-9][0-9]*$/.test(values.timeout)) throw new VerifyError('INVALID_ARGUMENT', '--timeout must be a positive number of minutes.');
+  const environment: Record<string, ProofEnvironmentValue> = {};
+  for (const entry of values.env ?? []) {
+    const separator = entry.indexOf('=');
+    const name = separator === -1 ? entry : entry.slice(0, separator);
+    const value = separator === -1 ? process.env[name] : entry.slice(separator + 1);
+    if (value === undefined) throw new VerifyError('INVALID_ARGUMENT', `--env ${name} has no value: pass NAME=value or set ${name} in the environment.`);
+    environment[name] = value;
+  }
+  for (const name of values['env-secret'] ?? []) {
+    if (name.includes('=')) throw new VerifyError('INVALID_ARGUMENT', '--env-secret takes NAME, the organization launch variable that holds the secret, with no value.');
+    environment[name] = { secretRef: name };
+  }
+  const hasEnvironment = Object.keys(environment).length > 0;
+  const deepLinks = values['auth-deep-link'] ?? [];
+  const target = (appId: string, artifactOrUrl: string, deepLink: string | undefined): ProofTarget => {
+    if (!artifactOrUrl.startsWith('https://') && !artifactOrUrl.startsWith('http://')) {
+      return { appId, build: artifactOrUrl, ...(hasEnvironment ? { environment } : {}), ...(deepLink !== undefined ? { authBypass: { deepLink } } : {}) };
+    }
+    if (deepLink !== undefined) throw new VerifyError('INVALID_ARGUMENT', '--auth-deep-link applies only to mobile builds; a URL target takes no deep link.');
+    return { appId, url: artifactOrUrl };
+  };
+  let targets: ProofTarget[];
+  if (values.target !== undefined) {
+    const linksByApp = new Map<string, string>();
+    for (const entry of deepLinks) {
+      const separator = entry.indexOf('=');
+      if (separator <= 0 || separator === entry.length - 1) throw new VerifyError('INVALID_ARGUMENT', 'With --target, --auth-deep-link takes <app-id>=<template>.');
+      const appId = entry.slice(0, separator);
+      if (linksByApp.has(appId)) throw new VerifyError('INVALID_ARGUMENT', '--auth-deep-link takes one deep link per app.');
+      linksByApp.set(appId, entry.slice(separator + 1));
+    }
+    targets = values.target.map((entry) => {
+      const separator = entry.indexOf('=');
+      if (separator <= 0 || separator === entry.length - 1) throw new VerifyError('INVALID_ARGUMENT', '--target takes <app-id>=<artifact-or-https-url>.');
+      return target(entry.slice(0, separator), entry.slice(separator + 1), linksByApp.get(entry.slice(0, separator)));
+    });
+    if ([...linksByApp.keys()].some((appId) => !targets.some((entry) => entry.appId === appId))) throw new VerifyError('INVALID_ARGUMENT', '--auth-deep-link names an app id that no --target has.');
+  } else {
+    const appId = values['app-id'] ?? process.env.REVYL_APP_ID?.trim();
+    if (!appId) throw new VerifyError('INVALID_ARGUMENT', 'Pass --app-id (or set REVYL_APP_ID) with the Revyl app this build belongs to.');
+    if (build === undefined && values.url === undefined) throw new VerifyError('INVALID_ARGUMENT', 'verify proof takes one artifact path or --url with --app-id, or repeated --target <app-id>=<artifact-or-https-url>.');
+    if (deepLinks.length > 1) throw new VerifyError('INVALID_ARGUMENT', '--auth-deep-link takes one deep link for a single target.');
+    if (values.url !== undefined && deepLinks.length > 0) throw new VerifyError('INVALID_ARGUMENT', '--auth-deep-link applies only to mobile builds; a URL target takes no deep link.');
+    targets = [values.url !== undefined ? { appId, url: values.url } : target(appId, build!, deepLinks[0])];
+  }
+  if (hasEnvironment && targets.every((entry) => entry.url !== undefined)) throw new VerifyError('INVALID_ARGUMENT', '--env and --env-secret apply only to mobile builds; a URL target takes no launch variables.');
+  const run = await proof({
+    targets,
+    ...(values.guidance !== undefined ? { guidance: values.guidance } : {}),
+    ...(values.timeout !== undefined ? { timeoutMs: Number(values.timeout) * 60_000 } : {}),
+    wait: !values['no-wait'],
+  });
+  process.stdout.write(values.json ? `${JSON.stringify(run, null, 2)}\n` : proofSummary(run));
+  return values['no-wait'] || run.verdict === 'passed' ? 0 : 1;
+}
+
+function proofSummary(run: ProofRun): string {
+  const pullRequest = `${run.pullRequest.repository}#${run.pullRequest.number}`;
+  const lines = run.runs.map((entry) => `  ${entry.platform ?? entry.build.platform} run ${entry.id} (build ${entry.build.buildId}): ${entry.verdict ?? entry.status}${entry.label ? ` (${entry.label})` : ''}`);
+  const warnings = run.runs.flatMap((entry) => ('warnings' in entry.build ? entry.build.warnings : [])).map((warning) => `Warning: ${warning}`);
+  const outcome = run.verdict ? `Proof of Changes for ${pullRequest}: ${run.verdict}${run.label ? ` (${run.label})` : ''}.` : `Started Proof of Changes for ${pullRequest}.`;
+  return [outcome, ...lines, ...(run.reportUrl ? [`Report: ${run.reportUrl}`] : []), ...warnings, ''].join('\n');
 }
 
 async function whoamiCommand(): Promise<number> {

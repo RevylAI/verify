@@ -127,6 +127,71 @@ export async function uploadBuild(options: UploadBuildOptions): Promise<UploadBu
   }
 }
 
+/** A deployment URL registered as a Web app build. */
+export interface UrlBuildResult {
+  buildId: string;
+  appId: string;
+  platform: 'web';
+  url: string;
+  version?: string;
+  /** True when Revyl returned the build it already had for this app, URL, and commit. */
+  reused: boolean;
+  identity?: ScmIdentity;
+}
+
+const WEB_URL = /^https:\/\/[^/?#@\s\\]+(\/[^?#\s\\]*)?$/;
+const WEB_URL_MAX_LENGTH = 2048;
+
+/** Rejects what Revyl's URL-build route rejects: anything but HTTPS, credentials, a query, a fragment, or over 2048 characters. */
+export function validateWebUrl(url: unknown): string {
+  if (typeof url !== 'string' || url.length > WEB_URL_MAX_LENGTH || !WEB_URL.test(url) || /[\x00-\x1f\x7f]/.test(url)) {
+    throw new VerifyError('INVALID_ARGUMENT', 'url must be an HTTPS URL of at most 2048 characters, without credentials, a query string, a fragment, backslashes, or whitespace.');
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new VerifyError('INVALID_ARGUMENT', 'url must be a valid HTTPS URL.');
+  }
+  if (parsed.hostname === '') throw new VerifyError('INVALID_ARGUMENT', 'url must name a host.');
+  return url;
+}
+
+/** Registers a deployment URL as a build of a Web app, like `revyl build upload --platform web --url`. */
+export async function registerUrlBuild(options: { url: string; appId: string; token: string; backendUrl?: string; signal?: AbortSignal }): Promise<UrlBuildResult> {
+  if (typeof options.appId !== 'string' || !UUID.test(options.appId)) throw new VerifyError('INVALID_ARGUMENT', 'appId must be a Revyl app id (a UUID).');
+  const url = validateWebUrl(options.url);
+  const identity = detectScmIdentity();
+  const client = new RevylClient({ token: options.token, backendUrl: options.backendUrl });
+  const path = `/api/v1/apps/${encodeURIComponent(options.appId)}/builds/external`;
+  const response = await client.send('POST', path, {
+    body: { url, ...(identity ? { commit_sha: identity.commit } : {}), metadata: identityMetadata(identity, 'web') },
+    headers: identityHeaders(identity),
+    retry: false,
+    signal: options.signal,
+  });
+  if (response.status < 200 || response.status >= 300) {
+    const error = apiError('POST', path, response);
+    if (response.status === 403 && error.code === 'AUTH_REJECTED') {
+      throw new VerifyError('AUTH_REJECTED', `${error.message} Registering a URL build needs a Revyl member's own API key with the Member role or higher.`, { httpStatus: 403 });
+    }
+    if (response.status === 404) throw new VerifyError('NOT_FOUND', `Revyl app ${options.appId} was not found in this organization: ${error.message}`, { httpStatus: 404 });
+    if (response.status === 422) throw new VerifyError('INVALID_ARGUMENT', error.message, { httpStatus: 422 });
+    throw error;
+  }
+  const build = parseJson<{ id?: unknown; version?: unknown; was_reused?: unknown }>(response, `POST ${path}`);
+  if (typeof build.id !== 'string' || build.id === '') throw new VerifyError('API_ERROR', 'Revyl registered the URL build without returning its id.');
+  return {
+    buildId: build.id,
+    appId: options.appId,
+    platform: 'web',
+    url,
+    ...(typeof build.version === 'string' && build.version ? { version: build.version } : {}),
+    reused: build.was_reused === true,
+    ...(identity ? { identity } : {}),
+  };
+}
+
 /** Reads the pull request identity from explicit options, else from GitHub Actions, mirroring `revyl build upload`. */
 export function detectScmIdentity(options: Pick<UploadBuildOptions, 'repo' | 'commit' | 'pr'> = {}, env: NodeJS.ProcessEnv = process.env): ScmIdentity | undefined {
   const detected = env.GITHUB_ACTIONS === 'true' ? githubActionsIdentity(env) : undefined;
@@ -203,7 +268,7 @@ function identityHeaders(identity: ScmIdentity | undefined): Record<string, stri
   return Object.fromEntries(Object.entries(headers).filter((entry): entry is [string, string] => Boolean(entry[1]) && /^[\x20-\x7e]*$/.test(entry[1] ?? '')));
 }
 
-function identityMetadata(identity: ScmIdentity | undefined, platform: MobilePlatform): Record<string, unknown> {
+function identityMetadata(identity: ScmIdentity | undefined, platform: MobilePlatform | 'web'): Record<string, unknown> {
   if (!identity) return {};
   const [namespace, project] = splitRepository(identity.repository);
   const metadata: Record<string, unknown> = {
