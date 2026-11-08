@@ -38,6 +38,10 @@ To open each pull request's preview deployment on web, read the URL from the env
 web: { platform: 'web', app: { appId: process.env.REVYL_APP_ID!, url: process.env.PREVIEW_URL!, branch: process.env.GITHUB_HEAD_REF } }
 ```
 
+## On a revyl-macos runner
+
+On a `revyl-macos` job, `currentComputer()` attaches to the runner's existing computer without taking ownership. The runner releases the computer; closing the Verify attachment still cleans up hosted children. See [the computer API](api.md#inside-a-revyl-macos-github-actions-job) for the workflow step.
+
 ## Inside a test runner
 
 Verify has no test runner of its own. Call it from the one you already use, and close the session in `finally` or an `after` hook: test runners handle errors and shutdown themselves, so Verify's automatic cleanup steps aside for them.
