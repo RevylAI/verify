@@ -24,13 +24,29 @@ try {
 
 Use `appId` when you want to target your own uploaded app.
 
-Run it with `node verify/check.mts`. Web targets need Web enabled for your organization; new self-serve organizations don't have it yet. `revyl app create --platform web` reports `Web is not enabled for this organization`; contact Revyl to enable it.
+Run it with `node verify/check.mts`. Web is available to every organization. If `revyl app create --platform web` reports `Web is not enabled for this organization`, Revyl has turned Web off for your organization; email support@revyl.ai. For a Web target, use `open({ platform: 'web', app: { appId, url } })`; for a computer, use `open({ platform: 'mac' })`.
 
-On the first interactive run, Verify opens the Revyl browser approval flow once and saves the shared CLI login. It prints a live session link, then ordered step results. In CI, it never prompts or opens a browser; set `REVYL_API_KEY` as a secret. Python and Go use an existing CLI login or API key; their SDKs do not open the browser themselves.
+On the first interactive run, Verify opens the Revyl browser approval flow once and saves the login in `~/.revyl/credentials.json` for the CLI and SDK to share. It prints a live session link, then ordered step results:
+
+```text
+[verify] ios: starting ios session https://app.revyl.ai/sessions/…
+[verify] ios: ready
+[verify] ios: ✓ instruction "Open General, then About" (12.0s)
+[verify] ios: ✓ validation "The screen shows the operating system version" (9.8s)
+[verify] ios: closed
+```
+
+![Recording of the quickstart run at 4× speed: the terminal prints each step while the simulator opens General, then About](https://raw.githubusercontent.com/RevylAI/verify/9fd547fcef928cca990c1009f9e4284d6675437b/docs/images/verify-run.gif)
+
+The URL is live during the run and keeps the report and available recording after it closes. A failed instruction or validation throws a typed error and includes the same URL.
+
+![The Revyl session report for the run, showing the device recording, the Launch, Instruction, and Validation steps, and the validation's reasoning](https://raw.githubusercontent.com/RevylAI/verify/9fd547fcef928cca990c1009f9e4284d6675437b/docs/images/verify-session-report.webp)
+
+In CI, Verify never prompts or opens a browser; set `REVYL_API_KEY` as a secret. Python and Go use an existing CLI login or API key; their SDKs do not open the browser themselves.
 
 ## Scaffold a config (optional)
 
-Use `init` when you want named targets in `verify.config.ts` and a generated example script. It adds Verify with the package manager selected by its lockfile, asks what you want to open, and adds `.verify/` to `.gitignore`:
+Use `init` when you want named targets in `verify.config.ts` and a generated example script. It is optional; installing the package is enough to use inline targets. It detects your package manager from the lockfile, asks before adding `@revyl/verify` as a dev dependency, asks what you want to open, adds `.verify/` to `.gitignore`, and prints the command that runs the example:
 
 - `verify.config.ts`: the targets `open()` can start, by name
 - `verify/example.ts`: a script that opens the target, runs steps and takes a screenshot (web/mobile) or checks commands and files (Mac), and closes
@@ -43,11 +59,11 @@ npx @revyl/verify init --platform ios --app-id <revyl-app-id>
 npx @revyl/verify init --platform mac
 ```
 
-Use `--yes` to accept installation without a prompt, or `--no-install` when Verify is already installed.
+Use `--yes` to accept installation without a prompt, or `--no-install` when Verify is already installed. Web and mobile targets need a Revyl app id; a Mac target does not. The generated config is ordinary TypeScript, so edit it when the example needs a pinned build, a public Web URL, or a different target.
 
 ## Manual setup
 
-Verify uses the same credential precedence as the Revyl CLI:
+Use manual setup when you need to control the package manager or keep the generated files out of the project. Verify uses the same credential precedence as the Revyl CLI:
 
 1. A usable login in `~/.revyl/credentials.json` marked `local_auth_override` takes precedence, even when `REVYL_API_KEY` is set.
 2. Otherwise, `REVYL_API_KEY`, an API key you create in Revyl's settings.
@@ -57,6 +73,8 @@ Verify uses the same credential precedence as the Revyl CLI:
 export REVYL_API_KEY=...        # or: revyl auth login
 npx @revyl/verify whoami         # checks the credentials without starting a session
 ```
+
+In CI, keep the key in a secret manager rather than in source, command arguments, or logs.
 
 ## Point the config at your app
 

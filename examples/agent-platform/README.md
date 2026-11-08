@@ -37,7 +37,7 @@ node quick-check.ts                  # one separate iOS session, the minimal SDK
 
 The default plan adds a task to Playwright's public TodoMVC app on web and checks the operating-system version in mobile Settings. Neither fixture requires credentials. These are **different smoke checks**, not the same flow across three apps. Edit `plans()` and the inline targets in `demo.ts` to use your own apps. An optional positional string changes the task's display label, not its plan; this example is an orchestrator, not a task-planning LLM.
 
-Web targets need Web enabled for your organization; new self-serve organizations don't have it yet. `revyl app create --platform web` reports `Web is not enabled for this organization`; contact Revyl to enable it.
+Web is available to every organization. If `revyl app create --platform web` reports `Web is not enabled for this organization`, Revyl has turned Web off for your organization; email support@revyl.ai.
 
 ## What to inspect
 
