@@ -106,7 +106,7 @@ npx @revyl/verify env [--start <command>] --expose NAME=port... [--ready NAME=/p
                       [--ready-timeout <seconds>] [--show-urls] -- <command> [args...]
 ```
 
-The command after `--` runs with the URLs in its environment, and its exit code becomes `verify env`'s. Its output is relayed line by line with tunnel URLs hidden; with `--show-urls` it writes straight to the terminal instead. The first Ctrl+C or SIGTERM goes to the command, then the environment is torn down. A second one exits right away and can leave processes behind. A failed teardown exits 1 even when the command succeeded.
+The command after `--` runs with the URLs in its environment, and its exit code becomes `verify env`'s. When its output goes to a log (CI, or any non-terminal), Verify relays it line by line with tunnel URLs hidden. On an interactive terminal, or with `--show-urls`, the command writes to the terminal directly. The first Ctrl+C or SIGTERM goes to the command, then the environment is torn down. A second one exits right away and can leave processes behind. A failed teardown exits 1 even when the command succeeded.
 
 ## Where it runs
 
