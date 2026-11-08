@@ -33,7 +33,7 @@ npx @revyl/verify env --start "docker compose up -d" --stop "docker compose down
 - **Public.** Each URL is a [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/) on `*.trycloudflare.com`. Anyone who has the URL can reach the port behind it. The hostname is random and unguessable, but nothing checks who is calling.
 - **Only for the run.** A tunnel lives as long as the `cloudflared` process Verify started. It's gone after `close()`, the end of the `await using` block, or the end of `verify env`.
 - **Best effort.** Quick tunnels need no Cloudflare account and come with no uptime guarantee. Cloudflare rate-limits how many one network address can create; Verify retries a refusal twice and then fails with `TUNNEL_FAILED`.
-- **Hidden in logs.** Verify never prints a URL unless you pass `showUrls: true` or `--show-urls`. It replaces any quick-tunnel URL in the commands' output with `<tunnel url>`, and on GitHub Actions it also masks each URL. Treat a URL like a password while it's up, and don't put one in a pull request comment.
+- **Hidden in logs.** Verify never prints a URL unless you pass `showUrls: true` or `--show-urls`. It replaces any quick-tunnel URL in the output of `start`, `stop`, `seed` and the command `verify env` wraps with `<tunnel url>`, and on GitHub Actions it also masks each URL. Treat a URL like a password while it's up, and don't put one in a pull request comment.
 - **Command output is printed.** Output from `start`, `stop` and `seed` goes to the log with only tunnel URLs hidden. Send anything that prints a secret, such as a sign-in link, to a file instead.
 - **Your secrets stay yours.** The stack runs on your runner with the job's own environment and secrets. Verify sends nothing to Revyl; `proof()` receives only what you pass in `environment`. Plain values there are stored with the run and can appear in reports, so pass secrets as `{ secretRef }`.
 
@@ -45,7 +45,7 @@ If anyone reaching the stack would be a problem (for example a dashboard served 
 2. **Start.** `start` runs through `sh -c` in its own process group, from `cwd`, with `env` added. Its output streams to stderr with a `start:` prefix. It may keep running (`npm run dev`) or exit 0 once it has started things in the background (`docker compose up -d`). Any other exit fails with `ENVIRONMENT_START_FAILED`, the exit code and the last lines of output.
 3. **Ready.** Each name with a `ready` path must answer 2xx or 3xx on `localhost`, and then through its public URL. A name without one waits for its port to accept connections and for its URL to reach it. Polls run every second, with a 5-second limit per request, until `readyTimeoutMs` (5 minutes by default). A new quick tunnel usually takes 10 to 30 seconds to route, and that overlaps with the stack starting.
 4. **Seed.** `seed` runs once, with the URLs in its environment, within `seedTimeoutMs` (5 minutes).
-5. **Teardown.** On `close()`, an error during setup, Ctrl+C or SIGTERM, or a script that ends without closing, Verify removes the tunnels, runs `stop` within `stopTimeoutMs` (2 minutes), and stops the start command's process group: SIGTERM, then SIGKILL after 10 seconds. It tries every step. If any step fails, `close()` throws `CLEANUP_FAILED` naming each one, so a leftover process fails the job instead of hiding.
+5. **Teardown.** On `close()`, an error during setup, Ctrl+C or SIGTERM, or a script that ends without closing, Verify removes the tunnels, runs `stop` with the same URL variables as `start`, within `stopTimeoutMs` (2 minutes), and stops the start command's process group: SIGTERM, then SIGKILL after 10 seconds. It tries every step. If any step fails, `close()` throws `CLEANUP_FAILED` naming each one, so a leftover process fails the job instead of hiding.
 
 If the process running Verify is killed outright (SIGKILL), it can't clean up. GitHub Actions ends leftover processes when the job finishes, and a `revyl-macos` job's computer is released with it.
 
@@ -85,7 +85,7 @@ Give the page Proof loads a `ready` path: Proof fails a page that answers 400 or
 | `expose` | required | `{ NAME: port }`. Each name becomes a variable holding that port's public URL. |
 | `start` | none | Shell command that starts the stack. Leave it out to expose something already running. |
 | `ready` | none | `{ NAME: '/path' }`, checked on localhost and through the URL. |
-| `stop` | none | Shell command run during teardown. |
+| `stop` | none | Shell command run during teardown, with the URLs in its environment. |
 | `seed` | none | Shell command run once everything is ready. |
 | `cwd` | current folder | Where `start`, `stop` and `seed` run. |
 | `env` | none | Variables added to `start`, `stop` and `seed`. `undefined` removes an inherited one. |
@@ -106,7 +106,7 @@ npx @revyl/verify env [--start <command>] --expose NAME=port... [--ready NAME=/p
                       [--ready-timeout <seconds>] [--show-urls] -- <command> [args...]
 ```
 
-The command after `--` runs with the URLs in its environment, and its exit code becomes `verify env`'s. The first Ctrl+C or SIGTERM goes to the command, then the environment is torn down. A second one exits right away and can leave processes behind. A failed teardown exits 1 even when the command succeeded.
+The command after `--` runs with the URLs in its environment, and its exit code becomes `verify env`'s. Its output is relayed line by line with tunnel URLs hidden; with `--show-urls` it writes straight to the terminal instead. The first Ctrl+C or SIGTERM goes to the command, then the environment is torn down. A second one exits right away and can leave processes behind. A failed teardown exits 1 even when the command succeeded.
 
 ## Where it runs
 
