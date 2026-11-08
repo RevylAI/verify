@@ -21,6 +21,22 @@ You maintain sentences instead of selectors and coordinates that break when a sc
 
 ## Quick start
 
+Paste this prompt into your coding agent, and it sets up Verify in the project's language:
+
+```text
+Set up Verify in this project.
+
+Read https://docs.revyl.com/verify.md and follow it. It's the current Revyl guide for this, so prefer it over anything you remember about Revyl.
+
+Use the SDK for this project's language: @revyl/verify on Node.js 22.18 or later for Node.js or TypeScript, revyl-verify on Python 3.10 or later for Python (install it with pip or uv), or the github.com/RevylAI/verify/go module for Go. Write the iOS Settings example in that language: open the com.apple.Preferences bundle, run one instruction, and run one validation that checks the operating system version. Ask before starting a paid cloud session, then run the example.
+
+You're done when the example has opened iOS Settings, the operating system version validation has passed, and the session has closed.
+
+Ask me before anything that needs my login or approval.
+```
+
+Or set it up yourself:
+
 ```bash
 npx @revyl/verify init
 ```
@@ -36,7 +52,7 @@ For finished projects, see [`examples/`](examples/): a [web store](examples/web-
 | [`@revyl/verify`](https://www.npmjs.com/package/@revyl/verify) | `npm install @revyl/verify` | TypeScript SDK and the `verify` CLI (`init`, `whoami`). Published on npm, Node.js 22.18 or later. |
 | [`revyl-verify`](https://www.npmjs.com/package/revyl-verify) (npm) | `npm install revyl-verify` | Alias of `@revyl/verify` at the same version. |
 | [Go module](https://github.com/RevylAI/verify/tree/go/v0.2.0/go) | `go get github.com/RevylAI/verify/go@v0.2.0` | Published as the `go/v0.2.0` tag, Go 1.26.9 or later. Calls return errors instead of throwing. |
-| [Python SDK](python/README.md) | Install from source; see the [Python guide](python/README.md) | Not published to PyPI yet. Python 3.10 or later, sync and asyncio APIs, no CLI. |
+| [`revyl-verify`](https://pypi.org/project/revyl-verify/) (PyPI) | `pip install revyl-verify` or `uv add revyl-verify` | Python SDK, published on PyPI. Python 3.10 or later, sync and asyncio APIs, no CLI; see the [Python guide](python/README.md). |
 
 ## Platforms
 
