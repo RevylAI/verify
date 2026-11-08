@@ -62,3 +62,10 @@ try {
 `EDGE_BLOCKED` does not require Cloudflare branding in the HTML body. A `cf-ray` header alone is not proof of a block: any syntactically valid JSON body retains its existing error mapping, even if the content type is incorrectly `text/html`. HTTP 401 is unchanged. Edge-block errors include `httpStatus` but never copy the response body or ray ID into the error.
 
 Computer operations use `TIMEOUT` for bounded runtime with confirmed termination, and `ACTION_UNCERTAIN` when termination, execution, or cleanup is unconfirmed. An observed successful operation can return its result while logging pending/failed evidence. Timeout never proves rollback, and failed evidence does not prove the command never ran. Never automatically retry a mutation with a fresh request id; inspect the computer first. See [computers.md](computers.md).
+
+## Troubleshooting
+
+- **`NOT_AVAILABLE_ON_PLATFORM`:** the requested method is not available for that target. Computer targets do not run instruction or validation steps; Web and mobile targets do not expose computer commands or files.
+- **`COMPUTER_LIMIT`:** computer admission was refused because of queued work or a concurrency limit. Verify does not retry creation or stop a definitely refused start.
+- **Blank first screen:** mobile startup uses a bounded, best-effort blank-frame observation, not a rendered-readiness guarantee. Begin with an instruction that reaches the screen your workflow needs. See [mobile.md](mobile.md#steps).
+- **A validation report looks successful but the assertion failed:** inspect each step's `effective_status` and `validation_result`, and compare `validations_passed` with `total_validations` rather than transport counters. See [reading the verdict](end-to-end.md#reading-the-verdict).
