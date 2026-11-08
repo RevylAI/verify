@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Early access: run `instruction()` and `validation()` on your own model with `localAgent()`, through `open(target, { agent })` or a step's `{ agent }` option. Ships `anthropic()` and `openaiCompatible()` adapters (OpenAI, Ollama, vLLM, OpenRouter, Cerebras) and a one-method `ModelAdapter` contract. `grounding: 'revyl'` lets the model name elements for Revyl to locate. Model keys stay on your machine; provider failures throw `MODEL_ERROR`. Revyl's agent remains the default.
+- Early access: exact device actions on Web, iOS and Android: `tap`, `type`, `swipe`, `pressKey`, `back`, `openUrl`, `launchApp`, `locate` and `screenSize`, by device coordinates or a described target.
+- Map Web runtime target errors on HTTP 409 (`target_not_found`, `stale_target` and similar) to `ACTION_FAILED` instead of `SESSION_BUSY`.
+
 ## 0.3.1 (2026-11-03)
 
 - Docs: runnable `.mts` quickstart uses the built-in iOS Settings app, explains how to target an uploaded app with `appId`, clarifies that the Python SDK is not published to PyPI yet, and documents Web availability requirements.

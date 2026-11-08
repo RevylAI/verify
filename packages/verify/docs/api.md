@@ -1,7 +1,7 @@
 # API
 
 ```ts
-import { attach, open, defineConfig, VerifyError, isVerifyError } from '@revyl/verify';
+import { attach, open, defineConfig, localAgent, anthropic, openaiCompatible, VerifyError, isVerifyError } from '@revyl/verify';
 ```
 
 ## open(target, options?)
@@ -22,6 +22,7 @@ const linux = await open({ platform: 'linux' });                    // same comp
 - `target`: a target name from `verify.config.ts`, or a target object with the same shape as a config entry (see [configuration.md](configuration.md)). Verify reads the nearest `verify.config.ts` at or above the current folder.
 - `options.config`: the path of a config file to read instead.
 - `options.log`: where progress lines go. By default Verify writes the session link and each step's outcome to stderr, prefixed with `[verify]`. Pass a function to receive the lines yourself, or `false` to turn them off.
+- `options.agent`: runs every instruction and validation on your own model; see [localAgent](#your-own-model-localagentoptions). Browsers and devices only; computers throw `NOT_AVAILABLE_ON_PLATFORM`.
 
 `open` needs credentials: `REVYL_API_KEY` or a Revyl CLI login. It throws `AUTH_MISSING` without them, `CONFIG_NOT_FOUND` or `CONFIG_INVALID` for config problems, and `SESSION_START_FAILED` or `TIMEOUT` when the browser or device does not start.
 
@@ -83,6 +84,26 @@ This requires an already-running service on the computer. The initial Web build 
 
 Web only, hosted or normal. Sends one deterministic `open_url` action and checks the returned navigation outcome. Accepts an HTTP(S) URL without credentials, whitespace, control characters or backslashes. Loopback addresses are accepted on every Web session: a hosted browser can reach its parent computer's loopback address; a normal cloud browser's localhost is its own runtime, not your machine. A cold development server may need a warm-up request before navigation succeeds; after an uncertain timeout, re-navigating is the caller's choice because the original request may still commit. The runtime is responsible for enforcing its navigation network policy. Navigation is not replayed by Verify and does not run an agent step. It resolves with no value, or throws a typed error. Computer and native sessions reject it locally.
 
+## Exact actions
+
+**Early access.** Web, iOS and Android sessions take device actions that need no agent. Computers reject them with `NOT_AVAILABLE_ON_PLATFORM`.
+
+A location is `{ x, y }` in device units (iOS points, Android and Web pixels, from the top-left corner; `screenSize()` gives the bounds) or `{ target: 'Login button' }`, which Revyl's grounding model finds on the current screen.
+
+| Call | What it does |
+| --- | --- |
+| `tap(at)` | Taps and resolves with the point tapped |
+| `type(at, text, { clear })` | Taps a text field and types into it, clearing it first unless `clear` is `false` |
+| `swipe(direction, { from })` | Swipes from a location or the screen's center; `'up'` moves the finger up, which scrolls content down |
+| `pressKey('enter' \| 'backspace')` | Presses a key on the focused field |
+| `back()` | Browser history on Web, the back button on Android; iOS throws `NOT_AVAILABLE_ON_PLATFORM` |
+| `openUrl(url)` | Opens a URL or deep link on a device, or loads a URL in a browser |
+| `launchApp(bundleId)` | Launches an installed app on a device |
+| `locate(target)` | Resolves with where Revyl finds an element, without acting |
+| `screenSize()` | Resolves with `{ width, height }` in device units |
+
+A failed action throws `ACTION_FAILED`, including when Revyl cannot find a target or nothing at a point can take the action. Actions are never repeated.
+
 ## session.report()
 
 Returns authenticated JSON metadata: `/execution/device-sessions/{id}` for normal and hosted app sessions, or the computer report for computers. It works after close, but fails locally with `NOT_FOUND` when no session ID is known. It does not download recordings or turn a device stop acknowledgment into proof of physical release. Treat returned metadata as private.
@@ -116,14 +137,34 @@ interface StepResult {
   type: 'instruction' | 'validation';
   text: string;          // the step as sent, trimmed
   passed: boolean;
-  reason?: string;       // Revyl's explanation, when it gave one
+  reason?: string;       // Revyl's explanation, or your model's on a local agent
   durationMs: number;
+  agent?: AgentRun;      // set when the step ran on localAgent()
 }
 ```
 
 `session.steps` lists every step run on the session, in order.
 
 When inspecting `revyl device report --session-id <id>`, read validation verdicts from the step's `effective_status` and `validation_result`, with `validations_passed` / `total_validations` for the validation summary. `passed_steps` / `failed_steps` and transport `status` are not enough: a successfully executed validation can have a false verdict. The SDK's `StepResult.passed` reflects that verdict, not just transport success.
+
+## Your own model: localAgent(options)
+
+**Early access.** Runs instructions and validations on a model you choose, in your process, instead of Revyl's agent. Revyl still provides the browser or device.
+
+```ts
+const agent = localAgent({
+  model: anthropic({ model: 'claude-sonnet-4-5' }),          // or openaiCompatible({ baseURL, model, apiKey })
+  grounding: 'model',                                       // or 'revyl'
+});
+const session = await open('ios', { agent });               // every step on your model
+await session.instruction('Open General, then About', { agent }); // or one step
+```
+
+- `model`: a `ModelAdapter`. `anthropic({ model, apiKey, baseURL })` uses `ANTHROPIC_API_KEY` by default. `openaiCompatible({ model, baseURL, apiKey, provider })` covers OpenAI, Ollama (`http://localhost:11434/v1`), vLLM, OpenRouter, Cerebras and other servers with tool calls and image input; it uses `OPENAI_API_KEY` only when `baseURL` is left at OpenAI's. To use another provider or runtime, implement `{ name, complete(turn, signal) }`.
+- `grounding`: `'model'` (default) has the model give screenshot coordinates, and Revyl receives only device actions. `'revyl'` has the model name elements and Revyl's grounding model find them, which suits models that are weak at coordinates; Revyl then also receives those element descriptions. In both, the step text, prompts and model output stay on your machine.
+- `maxTurns` (default 20), `modelTimeout` per model call (default 60000), `maxImageSide` for screenshots sent to the model (default 1280). The step's `timeout` still bounds the whole step.
+- Model keys go only to the adapter's `baseURL`. Verify never logs them or sends them to Revyl. Provider failures throw `MODEL_ERROR`; model calls are retried up to twice on rate limits and server errors.
+- `StepResult.agent` reports the model, each turn's action, model and action time, and input and output tokens.
 
 ## session.screenshot(options?)
 
@@ -159,9 +200,9 @@ Computers only. First reads the report and requires terminal state plus confirme
 ## Rules worth knowing
 
 - **One step at a time.** Await each step before starting the next on the same session; a second concurrent step throws `INVALID_ARGUMENT`. Separate sessions can run in parallel.
-- **No hidden retries.** Verify never repeats a step or a device action. A step whose outcome is unknown because the connection failed mid-request throws `ACTION_UNCERTAIN`.
+- **No hidden retries.** Verify never repeats a step or a device action. A local agent retries only its own model calls. A step whose outcome is unknown because the connection failed mid-request throws `ACTION_UNCERTAIN`.
 - **No memory between steps.** Each step is independent: Revyl does not carry values from one step to the next. Put everything a step needs into its text.
-- **No replay or cache.** Every step runs Revyl's agent again, every time.
+- **No replay or cache.** Every step runs its agent again, every time.
 
 ## Cleanup
 
