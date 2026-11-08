@@ -76,7 +76,7 @@ async function startQuickTunnel(port: number, signal: AbortSignal, log: (line: s
     cloudflaredPath = undefined;
     throw error;
   });
-  const binary = await cloudflaredPath;
+  const binary = await Promise.race([cloudflaredPath, abortion(signal)]);
   const deadline = Date.now() + TUNNEL_START_TIMEOUT_MS;
   for (let attempt = 1; ; attempt += 1) {
     if (signal.aborted) throw signal.reason;
@@ -133,7 +133,7 @@ async function spawnQuickTunnel(binary: string, port: number): Promise<ExposedPo
     probe: (path) => probeQuickTunnel(url ?? '', path),
     diagnostics,
     rateLimited: () => tail.some((line) => /\b429\b/.test(line)),
-    close: () => stopProcessGroup(child, exited, TUNNEL_STOP_GRACE_MS, 'cloudflared'),
+    close: () => stopProcessGroup(child, TUNNEL_STOP_GRACE_MS, 'cloudflared'),
     async started(deadline, signal) {
       while (!(url && registered)) {
         if (signal.aborted) throw signal.reason;
@@ -148,6 +148,13 @@ async function spawnQuickTunnel(binary: string, port: number): Promise<ExposedPo
       }
     },
   };
+}
+
+function abortion(signal: AbortSignal): Promise<never> {
+  return new Promise((_, reject) => {
+    if (signal.aborted) reject(signal.reason);
+    signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+  });
 }
 
 let edgeAddress: Promise<string | undefined> | undefined;
@@ -179,7 +186,7 @@ async function probeQuickTunnel(url: string, path: string): Promise<number | str
 }
 
 /** Signals a detached child's process group, then waits for every process in it to exit. Returns once the group is gone. */
-export async function stopProcessGroup(child: ChildProcess, exited: Promise<void>, graceMs: number, label: string): Promise<void> {
+export async function stopProcessGroup(child: ChildProcess, graceMs: number, label: string): Promise<void> {
   const pgid = child.pid;
   if (pgid === undefined) return;
   for (const [signal, waitMs] of [['SIGTERM', graceMs], ['SIGKILL', 2_000]] as const) {
@@ -191,7 +198,7 @@ export async function stopProcessGroup(child: ChildProcess, exited: Promise<void
       throw error;
     }
     const until = Date.now() + waitMs;
-    while (Date.now() < until && processGroupAlive(pgid)) await Promise.race([exited, delay(100)]);
+    while (Date.now() < until && processGroupAlive(pgid)) await delay(100);
   }
   if (processGroupAlive(pgid)) throw new Error(`${label} (process group ${pgid}) was still running after SIGKILL`);
 }

@@ -11,7 +11,7 @@ export type { ExposeProviderName } from './tunnel.js';
 export interface EnvironmentOptions {
   /** Shell command that starts the stack, run in its own process group. It may keep running or exit 0 once it has started things in the background. It gets the exposed URLs as environment variables. */
   start?: string;
-  /** Shell command run on close, after the tunnels are gone and before the start command's process group is stopped. */
+  /** Shell command run on close, after the tunnels are gone and before the start command's process group is stopped. It gets the same URL variables as start. */
   stop?: string;
   /** Shell command run once every exposed name is ready, with the URLs in its environment. */
   seed?: string;
@@ -157,6 +157,7 @@ class RunningEnvironment implements Environment {
   readonly closeBudgetMs: number;
   readonly urls: Record<string, string> = {};
   private readonly tunnels = new Map<string, ExposedPort>();
+  private exposing: Array<Promise<unknown>> = [];
   private started?: StartedCommand;
   private readonly setup = new AbortController();
   private closePromise?: Promise<void>;
@@ -195,7 +196,8 @@ class RunningEnvironment implements Environment {
   private async runSetup(signal: AbortSignal): Promise<void> {
     const { settings } = this;
     const provider = exposeProvider(settings.provider, (line) => this.log(line));
-    const exposed = await Promise.allSettled(settings.expose.map(async ({ name, port }) => this.tunnels.set(name, await provider.expose(port, signal))));
+    this.exposing = settings.expose.map(async ({ name, port }) => this.tunnels.set(name, await provider.expose(port, signal)));
+    const exposed = await Promise.allSettled(this.exposing);
     const failed = exposed.find((result): result is PromiseRejectedResult => result.status === 'rejected');
     if (failed) throw failed.reason;
     for (const { name, port } of settings.expose) {
@@ -275,7 +277,7 @@ class RunningEnvironment implements Environment {
     const aborted = signal ? new Promise<'aborted'>((resolve) => signal.addEventListener('abort', () => resolve('aborted'), { once: true })) : undefined;
     const outcome = await Promise.race([command.exited.then(() => 'exited' as const), timedOut, ...(aborted ? [aborted] : [])]);
     if (outcome !== 'exited') {
-      await stopProcessGroup(command.child, command.exited, COMMAND_GRACE_MS, 'command');
+      await stopProcessGroup(command.child, COMMAND_GRACE_MS, 'command');
       if (outcome === 'aborted') throw signal!.reason;
       return 'timeout';
     }
@@ -294,6 +296,7 @@ class RunningEnvironment implements Environment {
   private async tearDown(): Promise<void> {
     if (!this.setup.signal.aborted) this.abortSetup(new VerifyError('ENVIRONMENT_START_FAILED', 'The environment was closed during setup.'));
     const failures: string[] = [];
+    await Promise.allSettled(this.exposing);
     const tunnels = [...this.tunnels.entries()];
     const stopped = await Promise.allSettled(tunnels.map(([, tunnel]) => tunnel.close()));
     stopped.forEach((result, index) => {
@@ -301,14 +304,14 @@ class RunningEnvironment implements Environment {
     });
     if (this.settings.stop && (this.started || !this.settings.start)) {
       try {
-        const outcome = await this.finish(this.runCommand('stop', this.settings.stop, this.settings.env, false), this.settings.stopTimeoutMs);
+        const outcome = await this.finish(this.runCommand('stop', this.settings.stop, { ...this.settings.env, ...this.urls }, false), this.settings.stopTimeoutMs);
         if (outcome !== 0) failures.push(`the stop command ${describeOutcome(outcome, this.settings.stopTimeoutMs)}`);
       } catch (error) {
         failures.push(`the stop command: ${errorMessage(error)}`);
       }
     }
     if (this.started) {
-      await stopProcessGroup(this.started.child, this.started.exited, START_GROUP_GRACE_MS, 'the start command').catch((error: unknown) => failures.push(errorMessage(error)));
+      await stopProcessGroup(this.started.child, START_GROUP_GRACE_MS, 'the start command').catch((error: unknown) => failures.push(errorMessage(error)));
     }
     untrackSession(this);
     if (failures.length > 0) throw new VerifyError('CLEANUP_FAILED', `Environment cleanup failed: ${failures.join('; ')}. Check the runner for leftover processes before reusing it.`);

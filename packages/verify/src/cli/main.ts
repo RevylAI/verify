@@ -5,7 +5,10 @@ import { parseArgs } from 'node:util';
 import { RevylClient } from '../api/client.js';
 import type { Platform } from '../api/types.js';
 import { missingCredentialsMessage, resolveCredentials } from '../auth.js';
+import { createInterface as createLineReader } from 'node:readline';
+import { setTimeout as delay } from 'node:timers/promises';
 import { environment, type Environment } from '../environment.js';
+import { QUICK_TUNNEL_URL } from '../tunnel.js';
 import { VerifyError, errorMessage, isVerifyError } from '../errors.js';
 import { PACKAGE_NAME, VERSION } from '../version.js';
 import { initProject, validateInitAnswers, type InitAnswers } from './init.js';
@@ -29,6 +32,7 @@ Authentication
 Docs: https://github.com/RevylAI/verify/tree/v${VERSION}/packages/verify/docs
 `;
 
+const RELAY_FLUSH_MS = 2_000;
 const USAGE_CODES = new Set(['INVALID_ARGUMENT', 'AUTH_MISSING', 'AUTH_REJECTED']);
 
 export async function main(argv: string[]): Promise<number> {
@@ -201,8 +205,10 @@ async function envCommand(args: string[]): Promise<number> {
     let code: number;
     try {
       const [file, ...fileArgs] = command as [string, ...string[]];
-      const running = spawn(file, fileArgs, { stdio: 'inherit', detached: true, env: { ...process.env, ...env.variables } });
+      const showUrls = values['show-urls'] ?? false;
+      const running = spawn(file, fileArgs, { stdio: showUrls ? 'inherit' : ['inherit', 'pipe', 'pipe'], detached: true, env: { ...process.env, ...env.variables } });
       child = running;
+      const relayed = showUrls ? [] : [relayRedacted(running.stdout!, process.stdout), relayRedacted(running.stderr!, process.stderr)];
       code = await new Promise<number>((resolve) => {
         running.once('error', (error) => {
           process.stderr.write(`verify env: could not run ${file}: ${errorMessage(error)}\n`);
@@ -210,6 +216,7 @@ async function envCommand(args: string[]): Promise<number> {
         });
         running.once('exit', (exitCode, signal) => resolve(exitCode ?? 128 + (signal === 'SIGINT' ? 2 : signal === 'SIGKILL' ? 9 : 15)));
       });
+      await Promise.race([Promise.all(relayed), delay(RELAY_FLUSH_MS)]);
     } catch (error) {
       await env.close().catch((cleanupError: unknown) => process.stderr.write(`${errorMessage(cleanupError)}\n`));
       throw error;
@@ -225,6 +232,13 @@ async function envCommand(args: string[]): Promise<number> {
     process.off('SIGINT', onSignal);
     process.off('SIGTERM', onSignal);
   }
+}
+
+/** Copies a stream line by line with every quick-tunnel URL replaced, so the wrapped command can't print one into the log. */
+function relayRedacted(from: NodeJS.ReadableStream, to: NodeJS.WritableStream): Promise<void> {
+  const lines = createLineReader({ input: from, crlfDelay: Infinity });
+  lines.on('line', (line) => to.write(`${line.replace(QUICK_TUNNEL_URL, '<tunnel url>')}\n`));
+  return new Promise((resolve) => lines.once('close', resolve));
 }
 
 function splitPair(entry: string, flag: string, shape: string): [string, string] {
