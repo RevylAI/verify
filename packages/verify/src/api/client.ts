@@ -137,7 +137,7 @@ export class RevylClient {
   worker(
     workflowRunId: string,
     action: string,
-    options: { method: 'GET' | 'POST'; body?: unknown; timeoutMs?: number; signal?: AbortSignal; retry?: boolean },
+    options: { method: 'GET' | 'POST'; body?: unknown; timeoutMs?: number; signal?: AbortSignal; retry?: boolean; headers?: Record<string, string> },
   ): Promise<RawResponse> {
     const path = `/api/v1/execution/device-proxy/${encodeURIComponent(workflowRunId)}/${action}`;
     return this.send(options.method, path, {
@@ -145,7 +145,7 @@ export class RevylClient {
       timeoutMs: options.timeoutMs,
       signal: options.signal,
       retry: options.retry ?? false,
-      headers: { 'X-Revyl-Agent': 'Verify' },
+      headers: { 'X-Revyl-Agent': 'Verify', ...options.headers },
     });
   }
 

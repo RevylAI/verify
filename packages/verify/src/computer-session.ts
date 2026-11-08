@@ -117,6 +117,42 @@ export class ComputerSession implements Session {
     return this.unavailable('navigate');
   }
 
+  tap(): Promise<never> {
+    return this.unavailable('tap');
+  }
+
+  type(): Promise<never> {
+    return this.unavailable('type');
+  }
+
+  swipe(): Promise<never> {
+    return this.unavailable('swipe');
+  }
+
+  pressKey(): Promise<never> {
+    return this.unavailable('pressKey');
+  }
+
+  back(): Promise<never> {
+    return this.unavailable('back');
+  }
+
+  openUrl(): Promise<never> {
+    return this.unavailable('openUrl');
+  }
+
+  launchApp(): Promise<never> {
+    return this.unavailable('launchApp');
+  }
+
+  locate(): Promise<never> {
+    return this.unavailable('locate');
+  }
+
+  screenSize(): Promise<never> {
+    return this.unavailable('screenSize');
+  }
+
   get expiresAt(): Date | undefined {
     return this.expiresAtMs === undefined ? undefined : new Date(this.expiresAtMs);
   }

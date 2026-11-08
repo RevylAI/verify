@@ -6,3 +6,7 @@ export type { HostedTargetConfig, MobileAppConfig, MobileTargetConfig, ComputerT
 export type { Platform, ComputerPlatform, MobilePlatform } from './api/types.js';
 export { VerifyError, isVerifyError } from './errors.js';
 export type { RefusalReason, VerifyErrorCode } from './errors.js';
+export { localAgent } from './agent/loop.js';
+export type { AgentRun, AgentTurn, Grounding, LocalAgent, LocalAgentOptions, Location, Point, SwipeDirection, Target } from './agent/loop.js';
+export { anthropic, openaiCompatible } from './agent/model.js';
+export type { AnthropicOptions, JsonSchema, ModelAdapter, ModelReply, ModelTool, ModelToolCall, ModelTurn, ModelUsage, OpenAICompatibleOptions } from './agent/model.js';
