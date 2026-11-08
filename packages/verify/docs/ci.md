@@ -38,6 +38,10 @@ To open each pull request's preview deployment on web, read the URL from the env
 web: { platform: 'web', app: { appId: process.env.REVYL_APP_ID!, url: process.env.PREVIEW_URL!, branch: process.env.GITHUB_HEAD_REF } }
 ```
 
+## On a revyl-macos runner
+
+On a `revyl-macos` job, `currentComputer()` attaches to the runner's existing computer without taking ownership. The runner releases the computer; closing the Verify attachment still cleans up hosted children. See [the computer API](api.md#inside-a-revyl-macos-github-actions-job) for the workflow step.
+
 ## Proof of Changes from your own builds
 
 To have Revyl run Proof of Changes on each pull request's build from your CI, upload each build with `npx @revyl/verify upload`. See [Proof of Changes from your CI](proof-of-changes.md).

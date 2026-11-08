@@ -2,17 +2,7 @@
 
 ![Terminal output from one Verify script beside a Mac computer's Terminal window showing the macOS version, and the screens the script reached in a cloud browser, an Android emulator, and an iOS simulator](docs/images/verify-hero.webp)
 
-Verify runs end-to-end checks in a real browser, iOS simulator, or Android emulator on Revyl. You describe what the agent should do and what must be true afterward, instead of maintaining selectors and coordinates that break when a screen changes. Use it from a script, a coding agent, or the test runner you already have. Mac and Linux computers are also available for commands, files, and screenshots, not natural-language steps.
-
-Every run gives you a link to watch the target. The session keeps its report and available recording, and the SDK keeps instruction and validation results in order. A failed check leaves evidence you can inspect.
-
-## Install and run
-
-```bash
-npm install @revyl/verify
-```
-
-Save this as `verify/check.mts`:
+Verify runs end-to-end checks in a cloud browser, iOS simulator, or Android emulator on Revyl. You write what the agent should do and what must be true afterward, in plain sentences, and call it from a script, a coding agent, CI, or the test runner you already use. Verify also opens Mac and Linux computers for commands, files, and screenshots.
 
 ```ts
 import { open } from '@revyl/verify';
@@ -27,129 +17,26 @@ try {
 }
 ```
 
-Use `appId` when you want to target your own uploaded app.
+You maintain sentences instead of selectors and coordinates that break when a screen changes, and every run prints a session link that keeps the report and available recording after the session closes.
 
-Run the script:
-
-```bash
-node verify/check.mts
-```
-
-On the first interactive run, Verify opens the Revyl browser approval flow once and saves the login in `~/.revyl/credentials.json` for the CLI and SDK to share.
-
-Verify prints a live session URL and progress like this:
-
-```text
-[verify] ios: starting ios session https://app.revyl.ai/sessions/…
-[verify] ios: ready
-[verify] ios: ✓ instruction "Open General, then About" (12.0s)
-[verify] ios: ✓ validation "The screen shows the operating system version" (9.8s)
-[verify] ios: closed
-```
-
-![Recording of the quickstart run at 4× speed: the terminal prints each step while the simulator opens General, then About](docs/images/verify-run.gif)
-
-The URL is live during the run and keeps the report and available recording after it closes. A failed instruction or validation throws a typed error and includes the same URL. In CI, Verify never opens a browser: provide `REVYL_API_KEY` as a secret.
-
-![The Revyl session report for the run, showing the device recording, the Launch, Instruction, and Validation steps, and the validation's reasoning](docs/images/verify-session-report.webp)
-
-For Web, use `open({ platform: 'web', app: { appId, url } })`; for a computer, use `open({ platform: 'mac' })`. Web targets need Web enabled for your organization; new self-serve organizations don't have it yet. `revyl app create --platform web` reports `Web is not enabled for this organization`; contact Revyl to enable it.
-
-## Scaffold a config (optional)
-
-Use `init` when you want named targets in `verify.config.ts` and a generated `verify/example.ts` script:
+## Quick start
 
 ```bash
 npx @revyl/verify init
 ```
 
-`init` detects your package manager, asks before adding `@revyl/verify` as a dev dependency, creates `verify.config.ts` and `verify/example.ts`, and prints the command that runs the example. Use `--yes` to accept installation without a prompt, or `--no-install` when Verify is already installed. It is optional; installing the package is enough to use inline targets.
+`init` adds Verify to your project, asks what to open, writes `verify.config.ts` and an example script, signs you in through the browser on the first interactive run, and prints the command that runs the example. To skip the config, run `npm install @revyl/verify` and save the example above as `verify/check.mts`, then run `node verify/check.mts`. [Getting started](packages/verify/docs/getting-started.md) covers sign-in, your own app, and [CI](packages/verify/docs/ci.md).
 
-The generated project starts with a named target. Use `--platform web`, `--platform ios`, `--platform android`, or `--platform mac` when you want to skip the platform question. Web and mobile targets need a Revyl app id; a Mac target does not. The generated config is ordinary TypeScript, so edit it when the example needs a pinned build, a public Web URL, or a different target.
+For finished projects, see [`examples/`](examples/): a [web store](examples/web-store/), [mobile Settings](examples/mobile-settings/), a [Mac workspace](examples/mac-workspace/), and a small [agent platform](examples/agent-platform/) that runs web and iOS side by side.
 
-See the [TypeScript getting-started guide](packages/verify/docs/getting-started.md), the [Python SDK guide](python/README.md), and the [Go SDK guide](https://github.com/RevylAI/verify/tree/go/v0.2.0/go).
+## Packages
 
-## CI
-
-For a normal GitHub Actions job, install from the lockfile with `npm ci` and pass `REVYL_API_KEY` from repository secrets to the script that runs Verify:
-
-```yaml
-- uses: actions/checkout@v5
-- uses: actions/setup-node@v5
-  with:
-    node-version: 24
-    cache: npm
-- run: npm ci
-- run: node verify/example.ts
-  env:
-    REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
-```
-
-On a `revyl-macos` job, `currentComputer()` attaches to the runner's existing computer without taking ownership. The runner releases the computer; closing the Verify attachment still cleans up hosted children. See the [CI guide](packages/verify/docs/ci.md) and [computer API](packages/verify/docs/api.md#inside-a-revyl-macos-github-actions-job).
-
-### Proof of Changes from your CI
-
-If your CI already builds the app, `npx @revyl/verify upload` sends each pull request's build to Revyl with its pull request identity, so Revyl can run [Proof of Changes](https://github.com/RevylAI/revyl-cli/blob/main/docs/proof-of-changes.md) on it. `uploadBuild()` (TypeScript), `upload_build()` (Python), and `UploadBuild` (Go) do the same from code. See [Proof of Changes from your CI](packages/verify/docs/proof-of-changes.md).
-
-## Reference authentication
-
-Use manual setup when you need to control the package manager or keep the generated files out of the project:
-
-```bash
-revyl auth login
-npx @revyl/verify whoami
-```
-
-The SDK resolves credentials in this order: a usable stored CLI login marked `local_auth_override`, `REVYL_API_KEY`, then another usable stored CLI login. In CI, use a secret manager rather than putting a key in source, command arguments, or logs. `whoami` checks the credentials without starting a session.
-
-## TypeScript
-
-```ts
-import { open } from '@revyl/verify';
-
-const session = await open('ios');
-try {
-  await session.instruction('Open General, then About');
-  await session.validation('The screen shows the operating system version');
-} finally {
-  await session.close();
-}
-```
-
-For Web, use a public HTTPS URL in the target config. For iOS and Android, point the target at an app or build in Revyl. The [API guide](packages/verify/docs/api.md) covers target options, step results, screenshots, reports, and cleanup.
-
-## Go
-
-Inside a function returning `error`, with a bounded `ctx`:
-
-```go
-session, err := verify.Open(ctx, verify.Target{Platform: verify.IOS, BundleID: "com.apple.Preferences"})
-if err != nil {
-    return err
-}
-defer func() { _ = session.Close(ctx) }()
-if _, err := session.Instruction(ctx, "Open General, then About"); err != nil {
-    return err
-}
-_, err = session.Validation(ctx, "The screen shows the operating system version")
-return err
-```
-
-Go calls return errors instead of throwing. The [Go reference](https://github.com/RevylAI/verify/tree/go/v0.2.0/go) covers context deadlines, screenshots, computer operations, and hosted sessions.
-
-## Python
-
-The Python SDK isn't published to PyPI yet; install it from source using the instructions in the [Python SDK guide](python/README.md).
-
-```python
-from revyl_verify import Target, open
-
-with open(Target(platform="ios", bundle_id="com.apple.Preferences")) as session:
-    session.instruction("Open General, then About")
-    session.validation("The screen shows the operating system version")
-```
-
-Python supports synchronous and asyncio APIs, but it has no bundled CLI. The [Python reference](python/README.md) covers both APIs and computer operations.
+| Package | Install | Status |
+| --- | --- | --- |
+| [`@revyl/verify`](https://www.npmjs.com/package/@revyl/verify) | `npm install @revyl/verify` | TypeScript SDK and the `verify` CLI (`init`, `whoami`). Published on npm, Node.js 22.18 or later. |
+| [`revyl-verify`](https://www.npmjs.com/package/revyl-verify) (npm) | `npm install revyl-verify` | Alias of `@revyl/verify` at the same version. |
+| [Go module](https://github.com/RevylAI/verify/tree/go/v0.2.0/go) | `go get github.com/RevylAI/verify/go@v0.2.0` | Published as the `go/v0.2.0` tag, Go 1.26.9 or later. Calls return errors instead of throwing. |
+| [Python SDK](python/README.md) | Install from source; see the [Python guide](python/README.md) | Not published to PyPI yet. Python 3.10 or later, sync and asyncio APIs, no CLI. |
 
 ## Platforms
 
@@ -161,21 +48,23 @@ Python supports synchronous and asyncio APIs, but it has no bundled CLI. The [Py
 | Mac computer | — | Yes | Yes |
 | Linux computer | — | Yes | Yes |
 
-Computer targets are early access and use commands, files, processes, and screenshots rather than natural-language agent steps. They have a server-bounded lifetime. See [computer setup](packages/verify/docs/computers.md).
+Web is available to every organization. Mac and Linux computers are early access and have a server-bounded lifetime; see [computers](packages/verify/docs/computers.md).
 
 ## Documentation
 
-- [Documentation index](packages/verify/docs/) · [API](packages/verify/docs/api.md) · [CI](packages/verify/docs/ci.md) · [Coding agents](packages/verify/docs/agents.md)
-- [End-to-end results and limitations](packages/verify/docs/end-to-end.md)
-- [Examples](examples/): [Web store](examples/web-store/) · [Mobile Settings](examples/mobile-settings/) · [Mac workspace](examples/mac-workspace/)
-- [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Releasing](RELEASING.md)
+The [documentation](packages/verify/docs/) covers the [API](packages/verify/docs/api.md), [configuration](packages/verify/docs/configuration.md), [web](packages/verify/docs/web.md), [mobile](packages/verify/docs/mobile.md), [computers](packages/verify/docs/computers.md), [CI](packages/verify/docs/ci.md), [Proof of Changes from your CI](packages/verify/docs/proof-of-changes.md), [errors and troubleshooting](packages/verify/docs/errors.md), [coding agents](packages/verify/docs/agents.md), and [live end-to-end results](packages/verify/docs/end-to-end.md). The npm package ships these pages in `node_modules/@revyl/verify/docs/`, with an [llms.txt](packages/verify/docs/llms.txt) index, so a coding agent can read the docs for the version you installed. The Revyl docs site has an overview at [docs.revyl.com/verify](https://docs.revyl.com/verify).
 
-## Troubleshooting
+## Security
 
-- **`NOT_AVAILABLE_ON_PLATFORM`:** the requested method is not available for that target. Computer targets do not run instruction or validation steps; Web and mobile targets do not expose computer commands or files.
-- **`COMPUTER_LIMIT`:** computer admission was refused because of queued work or a concurrency limit. Verify does not retry creation or stop a definitely refused start.
-- **Blank first screen:** mobile startup uses a bounded, best-effort blank-frame observation, not a rendered-readiness guarantee. Begin with an instruction that reaches the screen your workflow needs.
-- **A validation report looks successful but the assertion failed:** inspect each step's `effective_status` and `validation_result`, and compare `validations_passed` with `total_validations` rather than transport counters.
+Don't open a public issue for a vulnerability. Follow [SECURITY.md](SECURITY.md) and email support@revyl.ai. Each session is a paid remote session that acts on your app, and step text is sent to Revyl and printed to stderr, so use test accounts and keep credentials and customer data out of steps.
+
+## Telemetry
+
+Verify sends no usage telemetry of its own. Its requests to the Revyl API carry a `User-Agent` with the Verify and runtime versions and an `X-Revyl-Client: verify` header.
+
+## Status
+
+Verify is at 0.x, so APIs can still change between minor releases; the [changelog](CHANGELOG.md) records each release. Mac and Linux computers are early access. See [Contributing](CONTRIBUTING.md) and [Releasing](RELEASING.md) to work on Verify.
 
 ## License
 
