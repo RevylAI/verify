@@ -5,6 +5,8 @@ import { DEFAULT_STEP_TIMEOUT_MS, loadConfig, validateTarget, type ResolvedTarge
 import { VerifyError } from './errors.js';
 import { DeviceSession, type OpenedSession } from './session.js';
 import { ComputerSession } from './computer-session.js';
+import type { LocalAgent } from './agent/loop.js';
+import { chooseAgent, type ModelOption } from './agent/providers.js';
 
 export interface OpenOptions {
   /** The config file to read target names from. Defaults to the nearest verify.config.ts at or above the current folder. */
@@ -13,6 +15,10 @@ export interface OpenOptions {
   log?: false | ((line: string) => void);
   backendUrl?: string;
   appUrl?: string;
+  /** Runs every instruction and validation on your model, such as 'anthropic/claude-sonnet-5-5', instead of Revyl's agent. Browsers and devices only. */
+  model?: ModelOption;
+  /** Runs every instruction and validation on a custom agent from localAgent(). Pass model or agent, not both. */
+  agent?: LocalAgent;
 }
 
 export interface AttachOptions extends Pick<OpenOptions, 'log' | 'backendUrl' | 'appUrl'> {
@@ -68,9 +74,13 @@ export async function open(target: string | TargetConfig, options: OpenOptions =
   } else {
     resolved = validateTarget(target);
   }
+  const agent = chooseAgent(options, 'open()');
+  if (agent && (resolved.platform === 'mac' || resolved.platform === 'linux')) {
+    throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'Your own model runs steps on browsers and devices, not on computers.');
+  }
   const credentials = await credentialsForUse(options);
   const log = options.log === false ? undefined : (options.log ?? ((line: string) => void process.stderr.write(`[verify] ${line}\n`)));
   const client = new RevylClient({ token: credentials.token, backendUrl: options.backendUrl });
   if (resolved.platform === 'mac' || resolved.platform === 'linux') return ComputerSession.start(client, resolved, { stepTimeout, log, appUrl: options.appUrl });
-  return DeviceSession.start(client, resolved, { stepTimeout, log, appUrl: options.appUrl });
+  return DeviceSession.start(client, resolved, { stepTimeout, log, appUrl: options.appUrl, ...(agent ? { agent } : {}) });
 }

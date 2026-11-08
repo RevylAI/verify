@@ -1,0 +1,17 @@
+{
+  "name": "verify-example-byo-model",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Verify example: run instructions and validations on your own model",
+  "type": "module",
+  "scripts": {
+    "ios": "node verify/settings.ts",
+    "custom": "node verify/custom-agent.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@revyl/verify": "0.3.2",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.9.0"
+  }
+}
