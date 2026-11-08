@@ -16,3 +16,5 @@ ollama pull qwen3-vl:8b && node verify/custom-agent.ts
 ```
 
 By default your model names the elements it wants ("General row") and Revyl's grounding model finds them on screen. `verify/custom-agent.ts` shows the advanced form, where `localAgent()` sets the adapter, the turn cap and `grounding: 'model'`, so the model gives screen coordinates and Revyl receives only taps, typing and swipes.
+
+[Use your own model](../../packages/verify/docs/own-model.md) covers every provider, which ones are verified live, the limits and troubleshooting.

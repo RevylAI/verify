@@ -47,3 +47,49 @@ After connection and any explicit bundle launch, `open()` makes a best-effort fi
 The generated mobile example starts with an instruction to wait for the first screen before validating it. For your own scripts, make the first instruction describe the screen or action you actually need; a screenshot with content can still show a loading screen or another app.
 
 For Android Settings, instruct the agent to scroll or navigate until the OS version is visible before validating it. Opening About alone can leave the version offscreen.
+
+## Exact actions
+
+**Since 0.4.0. Early access.** In the TypeScript SDK (`@revyl/verify`) since 0.4.0; not yet in Python or Go. When you know exactly what to press, skip the agent. Exact actions run on the device as given, with no model, and mix freely with `instruction()` and `validation()` in one script:
+
+```ts
+import { open } from '@revyl/verify';
+
+const session = await open({ platform: 'ios', app: { bundleId: 'com.apple.Preferences' } });
+try {
+  await session.tap({ target: 'General row' });                  // Revyl finds the element you describe
+  await session.tap({ target: 'About row' });
+  await session.validation('The screen shows the operating system version');
+  await session.tap({ target: 'Back button' });                  // iOS has no back(), so tap the button
+  await session.tap({ target: 'Back button' });
+
+  await session.swipe('down');                                   // the finger moves down, so the list scrolls to the top
+  const search = await session.locate('Search field');           // where Revyl finds it, in iOS points
+  await session.tap(search);                                     // a tap by coordinates
+  await session.type(search, 'Wallpaper');
+  await session.pressKey('enter');
+  await session.instruction('Open the Wallpaper result');        // hand the fuzzy part to the agent
+  await session.validation('The Wallpaper settings are shown');
+} finally {
+  await session.close();
+}
+```
+
+A location is `{ target: 'a description' }`, which Revyl's grounding model finds on the current screen, or `{ x, y }` from the top-left corner in iOS points or Android pixels; `screenSize()` gives the bounds. `type()` taps the field and clears it first unless you pass `{ clear: false }`. `pressKey()` takes `'enter'` or `'backspace'`.
+
+On Android, `back()` presses the system back button. On both platforms, `launchApp(bundleId)` brings an installed app to the front and `openUrl('myapp://orders/42')` opens a deep link. A failed action throws `ACTION_FAILED`. One whose outcome Revyl can't confirm throws `ACTION_UNCERTAIN` or `TIMEOUT`, so check the session before acting again. Actions are never repeated. [api.md](api.md#exact-actions) lists every call.
+
+| Call | Web | iOS | Android | Mac computer |
+| --- | --- | --- | --- | --- |
+| `tap`, `type`, `swipe`, `pressKey`, `locate`, `screenSize` | Yes | Yes | Yes | No, use `exec()` and files |
+| `back()` | Yes, browser history | No, tap the on-screen back control | Yes, the system back button | No |
+| `openUrl(url)` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No |
+| `launchApp(bundleId)` | No, use `openUrl` or `navigate` | Yes | Yes | No |
+| `navigate(url)` | Yes | No, use `openUrl` | No, use `openUrl` | No |
+| `instruction`, `validation`, your own model | Yes | Yes | Yes | No, use `exec()` |
+| `screenshot()` | Yes | Yes | Yes | Yes |
+| `exec`, files, processes | No, open a Mac computer | No, open a Mac computer | No, open a Mac computer | Yes |
+
+Coordinates are in iOS points, Android pixels and Web CSS pixels, from the top-left corner. A call a platform doesn't support throws `NOT_AVAILABLE_ON_PLATFORM`, and its message names the alternative.
+
+When you pass a [`model`](own-model.md), your model uses `tap`, `type`, `swipe`, `pressKey`, `openUrl` and, where the platform has it, `back` inside `instruction()`.
