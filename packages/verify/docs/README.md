@@ -12,7 +12,7 @@ These files ship inside the npm package at `node_modules/@revyl/verify/docs/`, s
 | [mobile.md](mobile.md) | Open an iOS or Android app on a Revyl cloud device |
 | [computers.md](computers.md) | Open a Mac or Linux computer for commands, files, processes, screenshots, and optional recording metadata |
 | [ci.md](ci.md) | Call Verify from CI or from a test runner you already use |
-| [errors.md](errors.md) | Understand an error code and fix it |
+| [errors.md](errors.md) | Understand an error code and fix it, or troubleshoot a common problem |
 | [agents.md](agents.md) | Use Verify as a coding agent |
 
 [llms.txt](llms.txt) lists the same files in the llms.txt format.
