@@ -76,11 +76,17 @@ var pinnedCloudflared = map[string]pinnedAsset{
 	},
 }
 
+type cloudflaredLookup struct {
+	done chan struct{}
+	path string
+	err  error
+}
+
 var (
-	cloudflaredMu   sync.Mutex
-	cloudflaredPath string
-	edgeOnce        sync.Once
-	edgeAddress     string
+	cloudflaredMu sync.Mutex
+	cloudflared   *cloudflaredLookup
+	edgeOnce      sync.Once
+	edgeAddress   string
 )
 
 // quickTunnel is a Cloudflare quick tunnel for one local port, served by cloudflared in its own process group.
@@ -341,20 +347,35 @@ func networkError(err error) string {
 	return quickTunnelHost.ReplaceAllString(err.Error(), "<tunnel host>")
 }
 
+// resolveCloudflared finds or downloads cloudflared once per process. Waiting for it ends when ctx does; the
+// lookup itself keeps running for later callers, bounded by its own timeouts.
 func resolveCloudflared(ctx context.Context, log func(string)) (string, error) {
 	cloudflaredMu.Lock()
-	defer cloudflaredMu.Unlock()
-	if cloudflaredPath == "" {
-		path, err := findCloudflared(ctx, log)
-		if err != nil {
-			return "", err
-		}
-		cloudflaredPath = path
+	lookup := cloudflared
+	if lookup == nil {
+		lookup = &cloudflaredLookup{done: make(chan struct{})}
+		cloudflared = lookup
+		go func() {
+			lookup.path, lookup.err = findCloudflared(log)
+			if lookup.err != nil {
+				cloudflaredMu.Lock()
+				cloudflared = nil
+				cloudflaredMu.Unlock()
+			}
+			close(lookup.done)
+		}()
 	}
-	return cloudflaredPath, nil
+	cloudflaredMu.Unlock()
+	select {
+	case <-lookup.done:
+		return lookup.path, lookup.err
+	case <-ctx.Done():
+		return "", context.Cause(ctx)
+	}
 }
 
-func findCloudflared(ctx context.Context, log func(string)) (string, error) {
+func findCloudflared(log func(string)) (string, error) {
+	ctx := context.Background()
 	installed := cloudflaredVersion(ctx, "cloudflared")
 	if installed != "" && compareVersions(installed, minCloudflaredVersion) >= 0 {
 		return "cloudflared", nil
@@ -391,9 +412,6 @@ func findCloudflared(ctx context.Context, log func(string)) (string, error) {
 		}
 		if err == nil {
 			return binary, nil
-		}
-		if ctx.Err() != nil {
-			return "", context.Cause(ctx)
 		}
 		errs = append(errs, directory+": "+err.Error())
 	}

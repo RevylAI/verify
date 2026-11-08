@@ -347,9 +347,8 @@ class Environment:
             self._abort.abort(
                 VerifyError("ENVIRONMENT_START_FAILED", "The environment was closed during setup.")
             )
-        until = time.monotonic() + 10
         for worker in self._workers:
-            worker.join(max(0, until - time.monotonic()))
+            worker.join()
         with self._lock:
             tunnels = list(self._tunnels.items())
         failures: list[str] = []
@@ -373,7 +372,7 @@ class Environment:
                 failures.append(f"the quick tunnel for {name}: {_message(tunnel_errors[name])}")
         if settings.stop and (self._started or not settings.start):
             try:
-                stop = _Command("stop", settings.stop, settings.env, self)
+                stop = _Command("stop", settings.stop, {**settings.env, **self._urls}, self)
                 outcome = stop.finish(settings.stop_timeout)
                 if outcome != 0:
                     failures.append(
@@ -465,12 +464,12 @@ def environment(
                          expose={"API_URL": 8080}, ready={"API_URL": "/health"}) as env:
             ...  # pass env.variables to the run
 
-    Each exposed port gets a Cloudflare quick tunnel before ``start`` runs, so ``start``, ``seed``
-    and the run see the URLs as environment variables named by the ``expose`` keys. ``start``
-    runs through ``sh -c`` in its own process group and may keep running or exit 0 once it has
-    started things in the background. Each name waits for its ``ready`` path to answer 2xx or 3xx
-    on localhost and through its public URL; a name without a path waits for its port to accept
-    connections and for its URL to reach it. ``seed`` runs once everything is ready.
+    Each exposed port gets a Cloudflare quick tunnel before ``start`` runs, so ``start``, ``seed``,
+    ``stop`` and the run see the URLs as environment variables named by the ``expose`` keys.
+    ``start`` runs through ``sh -c`` in its own process group and may keep running or exit 0 once
+    it has started things in the background. Each name waits for its ``ready`` path to answer 2xx
+    or 3xx on localhost and through its public URL; a name without a path waits for its port to
+    accept connections and for its URL to reach it. ``seed`` runs once everything is ready.
 
     ``env`` adds variables to start, stop and seed; a ``None`` value removes an inherited one.
     Timeouts are seconds. URLs are hidden in logs (and masked on GitHub Actions) unless

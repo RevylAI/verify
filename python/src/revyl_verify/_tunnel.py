@@ -21,6 +21,8 @@ import urllib.error
 import urllib.request
 from collections import deque
 from collections.abc import Callable
+from concurrent.futures import Future
+from concurrent.futures import wait as wait_for
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -70,7 +72,7 @@ LOG_TAIL_LINES = 20
 RATE_LIMIT_BACKOFF = (5, 15)
 
 _cloudflared_lock = threading.Lock()
-_cloudflared: str | None = None
+_cloudflared: Future[str] | None = None
 _edge_lock = threading.Lock()
 _edge_resolved = False
 _edge_address: str | None = None
@@ -204,7 +206,7 @@ def start_quick_tunnel(
 
     `register` receives each spawned tunnel before it is up, so teardown can stop it.
     """
-    binary = resolve_cloudflared(log)
+    binary = resolve_cloudflared(log, abort)
     deadline = time.monotonic() + TUNNEL_START_TIMEOUT
     for attempt in range(len(RATE_LIMIT_BACKOFF) + 1):
         abort.check()
@@ -332,12 +334,29 @@ def _group_alive(process: subprocess.Popen[bytes]) -> bool:
     return True
 
 
-def resolve_cloudflared(log: Callable[[str], None]) -> str:
+def resolve_cloudflared(log: Callable[[str], None], abort: Abort) -> str:
+    """Finds or downloads cloudflared once per process; waiting for it stops when setup aborts."""
     global _cloudflared
     with _cloudflared_lock:
         if _cloudflared is None:
-            _cloudflared = _find_cloudflared(log)
-        return _cloudflared
+            _cloudflared = Future()
+            threading.Thread(
+                target=_resolve_into, args=(_cloudflared, log), daemon=True
+            ).start()
+        future = _cloudflared
+    while not wait_for([future], timeout=0.25).done:
+        abort.check()
+    return future.result()
+
+
+def _resolve_into(future: Future[str], log: Callable[[str], None]) -> None:
+    global _cloudflared
+    try:
+        future.set_result(_find_cloudflared(log))
+    except BaseException as error:
+        with _cloudflared_lock:
+            _cloudflared = None
+        future.set_exception(error)
 
 
 def _find_cloudflared(log: Callable[[str], None]) -> str:

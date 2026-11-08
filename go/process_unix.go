@@ -34,7 +34,7 @@ func stopProcessGroup(pgid int, grace time.Duration, label string) error {
 		}
 		until := time.Now().Add(step.wait)
 		for time.Now().Before(until) && processGroupAlive(pgid) {
-			time.Sleep(50 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 	if processGroupAlive(pgid) {

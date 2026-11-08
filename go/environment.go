@@ -23,7 +23,7 @@ type EnvironmentOptions struct {
 	// variables.
 	Start string
 	// Stop is a shell command run on Close, after the tunnels are gone and before the start command's process
-	// group is stopped.
+	// group is stopped. It gets the same URL variables as Start.
 	Stop string
 	// Seed is a shell command run once every exposed name is ready, with the URLs in its environment.
 	Seed string
@@ -272,7 +272,7 @@ func (e *Env) setUp(ctx context.Context) error {
 		}
 	}
 	if s.start != "" {
-		started, err := e.run("start", s.start, true)
+		started, err := e.run("start", s.start)
 		if err != nil {
 			return err
 		}
@@ -289,7 +289,7 @@ func (e *Env) setUp(ctx context.Context) error {
 	if s.seed == "" {
 		return nil
 	}
-	seed, err := e.run("seed", s.seed, true)
+	seed, err := e.run("seed", s.seed)
 	if err != nil {
 		return err
 	}
@@ -413,18 +413,17 @@ func (e *Env) checkStart(name string) error {
 	return failure(ErrEnvironmentStartFailed, fmt.Sprintf("The start command %s before %s was ready. Its last output:\n%s", how, name, e.started.output()))
 }
 
-// run starts a shell command in its own process group, streaming its output to the log with a label prefix.
-func (e *Env) run(label, script string, withURLs bool) (*envCommand, error) {
+// run starts a shell command in its own process group with the URL variables, streaming its output to the log
+// with a label prefix.
+func (e *Env) run(label, script string) (*envCommand, error) {
 	cmd := exec.Command("sh", "-c", script)
 	cmd.Dir = e.settings.dir
 	cmd.Env = []string{}
 	for key, value := range e.settings.env {
 		cmd.Env = append(cmd.Env, key+"="+value)
 	}
-	if withURLs {
-		for key, value := range e.urls {
-			cmd.Env = append(cmd.Env, key+"="+value)
-		}
+	for key, value := range e.urls {
+		cmd.Env = append(cmd.Env, key+"="+value)
 	}
 	setProcessGroup(cmd)
 	reader, writer, err := os.Pipe()
@@ -545,7 +544,7 @@ func (e *Env) tearDown(ctx context.Context) error {
 		}
 	}
 	if s.stop != "" && (e.started != nil || s.start == "") {
-		stop, err := e.run("stop", s.stop, false)
+		stop, err := e.run("stop", s.stop)
 		if err == nil {
 			var code int
 			code, err = stop.finish(ctx, s.stopTimeout)
