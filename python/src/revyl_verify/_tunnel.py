@@ -340,9 +340,7 @@ def resolve_cloudflared(log: Callable[[str], None], abort: Abort) -> str:
     with _cloudflared_lock:
         if _cloudflared is None:
             _cloudflared = Future()
-            threading.Thread(
-                target=_resolve_into, args=(_cloudflared, log), daemon=True
-            ).start()
+            threading.Thread(target=_resolve_into, args=(_cloudflared, log), daemon=True).start()
         future = _cloudflared
     while not wait_for([future], timeout=0.25).done:
         abort.check()
