@@ -24,7 +24,7 @@ try {
 
 Use `appId` when you want to target your own uploaded app.
 
-Run it with `node verify/check.mts`. Web targets need Web enabled for your organization; new self-serve organizations don't have it yet. `revyl app create --platform web` reports `Web is not enabled for this organization`; contact Revyl to enable it. For a Web target, use `open({ platform: 'web', app: { appId, url } })`; for a computer, use `open({ platform: 'mac' })`.
+Run it with `node verify/check.mts`. Web is available to every organization. If `revyl app create --platform web` reports `Web is not enabled for this organization`, Revyl has turned Web off for your organization; email support@revyl.ai. For a Web target, use `open({ platform: 'web', app: { appId, url } })`; for a computer, use `open({ platform: 'mac' })`.
 
 On the first interactive run, Verify opens the Revyl browser approval flow once and saves the login in `~/.revyl/credentials.json` for the CLI and SDK to share. It prints a live session link, then ordered step results:
 

@@ -48,7 +48,7 @@ For finished projects, see [`examples/`](examples/): a [web store](examples/web-
 | Mac computer | — | Yes | Yes |
 | Linux computer | — | Yes | Yes |
 
-Web needs Web enabled for your organization; new self-serve organizations don't have it yet, so contact Revyl to enable it. Mac and Linux computers are early access and have a server-bounded lifetime; see [computers](packages/verify/docs/computers.md).
+Web is available to every organization. Mac and Linux computers are early access and have a server-bounded lifetime; see [computers](packages/verify/docs/computers.md).
 
 ## Documentation
 
