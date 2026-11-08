@@ -104,20 +104,23 @@ class _Command:
         return "\n".join(self.tail)
 
     def finish(self, timeout: float, abort: Abort | None = None) -> int | Literal["timeout"]:
-        """Waits for the command, stopping its process group when it overruns or setup aborts."""
+        """Waits for the command, stopping its process group when it overruns or is interrupted."""
         end = time.monotonic() + timeout
-        while True:
-            code = self.process.poll()
-            if code is not None:
-                self._reader.join(1)
-                return code if code >= 0 else 128 - code
-            if abort is not None and abort.event.is_set():
-                stop_process_group(self.process, COMMAND_GRACE, "command")
-                raise abort.reason
-            if time.monotonic() >= end:
-                stop_process_group(self.process, COMMAND_GRACE, "command")
-                return "timeout"
-            time.sleep(0.1)
+        try:
+            while True:
+                code = self.process.poll()
+                if code is not None:
+                    self._reader.join(1)
+                    return code if code >= 0 else 128 - code
+                if abort is not None and abort.event.is_set():
+                    raise abort.reason
+                if time.monotonic() >= end:
+                    stop_process_group(self.process, COMMAND_GRACE, "command")
+                    return "timeout"
+                time.sleep(0.1)
+        except BaseException:
+            stop_process_group(self.process, COMMAND_GRACE, "command")
+            raise
 
 
 class Environment:

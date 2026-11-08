@@ -417,6 +417,7 @@ func (e *Env) checkStart(name string) error {
 func (e *Env) run(label, script string, withURLs bool) (*envCommand, error) {
 	cmd := exec.Command("sh", "-c", script)
 	cmd.Dir = e.settings.dir
+	cmd.Env = []string{}
 	for key, value := range e.settings.env {
 		cmd.Env = append(cmd.Env, key+"="+value)
 	}
