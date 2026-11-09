@@ -178,8 +178,15 @@ async function envCommand(args: string[]): Promise<number> {
     if (interrupted) process.exit(signal === 'SIGINT' ? 130 : 143);
     interrupted = signal;
     process.stderr.write(`\n[verify] ${signal}: stopping, then tearing the environment down. Send it again to exit now and leave processes behind.\n`);
-    if (child?.pid) process.kill(-child.pid, signal);
-    else setup.abort(new VerifyError('ENVIRONMENT_START_FAILED', `Interrupted by ${signal} during setup.`));
+    if (!child) {
+      setup.abort(new VerifyError('ENVIRONMENT_START_FAILED', `Interrupted by ${signal} during setup.`));
+      return;
+    }
+    try {
+      if (child.pid !== undefined && child.exitCode === null && child.signalCode === null) process.kill(-child.pid, signal);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+    }
   };
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
