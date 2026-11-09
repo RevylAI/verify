@@ -18,8 +18,10 @@ from ._agent import (
     local_agent,
 )
 from ._async import AsyncSession, async_attach, async_open
+from ._change import change_from_git
 from ._cleanup import install_signal_cleanup
 from ._computer import ComputerSession
+from ._environment import AsyncEnvironment, Environment, async_environment, environment
 from ._model import (
     ModelAdapter,
     ModelImage,
@@ -46,17 +48,29 @@ from ._models import (
     Target,
     Viewport,
 )
+from ._proof import ProofRun, ProofTarget, ProofTargetRun, proof
+from ._proof_runs import (
+    ProofAuthBypass,
+    ProofChange,
+    ProofEnvironmentValue,
+    ProofHarness,
+    PullRequestContext,
+    SecretRef,
+)
 from ._session import Session
 from ._transport import Cancellation, CleanupStatus, RefusalReason, VerifyError, origin, seconds
+from ._upload import ReviewCorrelation, ScmIdentity, UploadResult, UrlBuildResult, upload_build
 
 __version__ = "0.4.1"
 __all__ = [
+    "AsyncEnvironment",
     "AsyncSession",
     "ComputerProcess",
     "ComputerRecording",
     "ComputerSession",
     "CleanupStatus",
     "CustomModel",
+    "Environment",
     "ExecResult",
     "FileStat",
     "Grounding",
@@ -76,24 +90,42 @@ __all__ = [
     "ModelUsage",
     "Platform",
     "Point",
+    "ProofAuthBypass",
+    "ProofChange",
+    "ProofEnvironmentValue",
+    "ProofHarness",
+    "ProofRun",
+    "ProofTarget",
+    "ProofTargetRun",
+    "PullRequestContext",
     "RefusalReason",
+    "ReviewCorrelation",
+    "ScmIdentity",
     "ScreenSize",
+    "SecretRef",
     "Session",
     "SignIn",
     "StepResult",
     "SwipeDirection",
     "Target",
+    "UploadResult",
+    "UrlBuildResult",
     "VerifyError",
     "Viewport",
     "anthropic",
+    "async_environment",
     "attach",
     "async_attach",
     "async_current_computer",
     "async_open",
+    "change_from_git",
     "current_computer",
+    "environment",
     "local_agent",
     "open",
     "openai_compatible",
+    "proof",
+    "upload_build",
 ]
 
 
