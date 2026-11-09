@@ -41,7 +41,9 @@ var proofRunRefusals = map[string]proofRefusal{
 	"head_sha_mismatch":                        {ErrHeadNotCurrent, "The pull request moved on; prove its current head."},
 	"base_sha_mismatch":                        {ErrHeadNotCurrent, "The pull request's base moved on; prove it again from a fresh run of the job."},
 	"config_managed_review":                    {ErrConfigManagedReview, "The repository's own Revyl config already proves this head."},
-	"proof_settings_conflict":                  {ErrProofRunConflict, "Proofs with other apps, settings, environment, or auth bypass already cover this head; upload a new build or push a new commit to prove again."},
+	"proof_settings_conflict":                  {ErrProofRunConflict, "Proofs with other apps, settings, environment, auth bypass, or change content already cover this head; upload a new build or prove a new head to prove again."},
+	"head_superseded":                          {ErrHeadSuperseded, "A newer head of this review key was already proved, so this older head is not proved again."},
+	"diff_too_large":                           {ErrInvalidArgument, "The diff is over 5 MiB."},
 	"untrusted_pull_request_head":              {ErrUntrustedPRHead, "Pull requests from forks are not proved."},
 	"build_not_supported":                      {ErrBuildRejected, ""},
 	"build_scm_mismatch":                       {ErrBuildRejected, "The build was uploaded for another repository, pull request, or commit."},
@@ -62,7 +64,7 @@ var proofRunRefusals = map[string]proofRefusal{
 
 // proofRunState is one run as Revyl reports it. appID and platform come from the create response; a GET may not repeat them.
 type proofRunState struct {
-	id, appID, platform, status, verdict, label, reportURL, reviewURL, createdAt, settledAt string
+	id, appID, platform, status, verdict, label, reportURL, reviewURL, createdAt, settledAt, summaryMarkdown string
 }
 
 type proofRunTarget struct {
@@ -72,7 +74,8 @@ type proofRunTarget struct {
 }
 
 type createProofRunsRequest struct {
-	pullRequest PullRequestContext
+	pullRequest *PullRequestContext
+	change      *ProofChange
 	targets     []proofRunTarget
 	harness     ProofHarness
 	guidance    string
@@ -100,20 +103,37 @@ func createProofRuns(ctx context.Context, c *client, request createProofRunsRequ
 		}
 		targets = append(targets, wire)
 	}
-	scm := map[string]any{
-		"provider":  request.pullRequest.Provider,
-		"repo":      request.pullRequest.Repository,
-		"pr_number": request.pullRequest.Number,
-		"head_sha":  request.pullRequest.HeadSHA,
-	}
-	if request.pullRequest.BaseSHA != "" {
-		scm["base_sha"] = request.pullRequest.BaseSHA
+	body := map[string]any{"targets": targets}
+	if change := request.change; change != nil {
+		wire := map[string]any{"review_key": change.ReviewKey, "head_sha": change.HeadSHA, "title": change.Title, "diff": change.Diff}
+		if change.BaseSHA != "" {
+			wire["base_sha"] = change.BaseSHA
+		}
+		if change.Description != "" {
+			wire["description"] = change.Description
+		}
+		if change.SourceURL != "" {
+			wire["source_url"] = change.SourceURL
+		}
+		body["change"] = wire
+	} else if pullRequest := request.pullRequest; pullRequest != nil {
+		scm := map[string]any{
+			"provider":  pullRequest.Provider,
+			"repo":      pullRequest.Repository,
+			"pr_number": pullRequest.Number,
+			"head_sha":  pullRequest.HeadSHA,
+		}
+		if pullRequest.BaseSHA != "" {
+			scm["base_sha"] = pullRequest.BaseSHA
+		}
+		body["scm"] = scm
 	}
 	settings := map[string]any{"harness": request.harness}
 	if request.guidance != "" {
 		settings["guidance"] = request.guidance
 	}
-	r, err := sendProofRunsCreate(ctx, c, map[string]any{"targets": targets, "scm": scm, "settings": settings})
+	body["settings"] = settings
+	r, err := sendProofRunsCreate(ctx, c, body)
 	if err != nil {
 		return nil, err
 	}
@@ -211,15 +231,16 @@ func wireProofRun(raw json.RawMessage, status int, what, knownID string) (proofR
 		return value
 	}
 	state := proofRunState{
-		id:        firstNonEmpty(text("proof_run_id"), knownID),
-		appID:     text("app_id"),
-		platform:  text("platform"),
-		verdict:   text("verdict"),
-		label:     text("display_status_label"),
-		reportURL: text("report_url"),
-		reviewURL: text("review_url"),
-		createdAt: text("created_at"),
-		settledAt: text("settled_at"),
+		id:              firstNonEmpty(text("proof_run_id"), knownID),
+		appID:           text("app_id"),
+		platform:        text("platform"),
+		verdict:         text("verdict"),
+		label:           text("display_status_label"),
+		reportURL:       text("report_url"),
+		reviewURL:       text("review_url"),
+		createdAt:       text("created_at"),
+		settledAt:       text("settled_at"),
+		summaryMarkdown: text("summary_markdown"),
 	}
 	if state.id == "" || json.Unmarshal(wire["status"], &state.status) != nil {
 		return proofRunState{}, &Error{Code: ErrAPI, HTTPStatus: status, Message: "Revyl returned a proof run to " + what + " without an id and status."}

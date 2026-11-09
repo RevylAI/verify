@@ -4,6 +4,7 @@ import os
 from collections.abc import Callable
 
 from ._async import AsyncSession, async_attach, async_open
+from ._change import change_from_git
 from ._cleanup import install_signal_cleanup
 from ._computer import ComputerSession
 from ._models import (
@@ -20,6 +21,7 @@ from ._models import (
 from ._proof import ProofRun, ProofTarget, ProofTargetRun, proof
 from ._proof_runs import (
     ProofAuthBypass,
+    ProofChange,
     ProofEnvironmentValue,
     ProofHarness,
     PullRequestContext,
@@ -40,6 +42,7 @@ __all__ = [
     "FileStat",
     "Platform",
     "ProofAuthBypass",
+    "ProofChange",
     "ProofEnvironmentValue",
     "ProofHarness",
     "ProofRun",
@@ -62,6 +65,7 @@ __all__ = [
     "async_attach",
     "async_current_computer",
     "async_open",
+    "change_from_git",
     "current_computer",
     "open",
     "proof",

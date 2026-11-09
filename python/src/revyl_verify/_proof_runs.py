@@ -38,6 +38,27 @@ class PullRequestContext:
     base_sha: str | None = None
 
 
+@dataclass(frozen=True, kw_only=True)
+class ProofChange:
+    """A change Revyl can't read from a source host, uploaded with the proof request: the proof
+    agent reads ``diff`` instead of a checkout, and Revyl posts nothing anywhere.
+
+    ``review_key`` names the review in your own terms and groups its heads, such as
+    ``gitlab:group/app!17``; a new head supersedes. The proof agent reads ``title`` and
+    ``description`` as the pull request's title and body. ``diff`` is a unified diff
+    (``git diff base...head``), at most 5 MiB of UTF-8. ``source_url`` is an https link to the
+    review: it comes back as each run's ``review_url`` and is never shown to the agent or fetched.
+    """
+
+    review_key: str
+    head_sha: str
+    base_sha: str | None = None
+    title: str
+    description: str | None = field(default=None, repr=False)
+    diff: str = field(repr=False)
+    source_url: str | None = None
+
+
 @dataclass(frozen=True)
 class ProofRunTarget:
     app_id: str
@@ -59,6 +80,7 @@ class ProofRunState:
     review_url: str | None = None
     created_at: str | None = None
     settled_at: str | None = None
+    summary_markdown: str | None = None
 
 
 _PROOF_RUNS_PATH = "/api/v1/proof-runs"
@@ -106,9 +128,15 @@ _REFUSALS: dict[str, tuple[str, str | None]] = {
     ),
     "proof_settings_conflict": (
         "PROOF_RUN_CONFLICT",
-        "Proofs with other apps, settings, environment, or auth bypass already cover this head; "
-        "upload a new build or push a new commit to prove again.",
+        "Proofs with other apps, settings, environment, auth bypass, or change content already "
+        "cover this head; upload a new build or prove a new head to prove again.",
     ),
+    "head_superseded": (
+        "HEAD_SUPERSEDED",
+        "A newer head of this review key was already proved, so this older head is not proved "
+        "again.",
+    ),
+    "diff_too_large": ("INVALID_ARGUMENT", "The diff is over 5 MiB."),
     "untrusted_pull_request_head": (
         "UNTRUSTED_PR_HEAD",
         "Pull requests from forks are not proved.",
@@ -158,7 +186,8 @@ def create_proof_runs(
     client: Client,
     *,
     targets: list[ProofRunTarget],
-    pull_request: PullRequestContext,
+    pull_request: PullRequestContext | None,
+    change: ProofChange | None,
     harness: ProofHarness,
     guidance: str | None,
 ) -> list[ProofRunState]:
@@ -177,18 +206,36 @@ def create_proof_runs(
         if target.auth_bypass is not None:
             wire["auth_bypass"] = {"deep_link": target.auth_bypass["deep_link"]}
         wire_targets.append(wire)
-    scm: dict[str, Json] = {
-        "provider": pull_request.provider,
-        "repo": pull_request.repository,
-        "pr_number": pull_request.number,
-        "head_sha": pull_request.head_sha,
-    }
-    if pull_request.base_sha:
-        scm["base_sha"] = pull_request.base_sha
+    body: dict[str, Json] = {"targets": wire_targets}
+    if change is not None:
+        wire_change: dict[str, Json] = {
+            "review_key": change.review_key,
+            "head_sha": change.head_sha,
+        }
+        if change.base_sha:
+            wire_change["base_sha"] = change.base_sha
+        wire_change["title"] = change.title
+        if change.description is not None:
+            wire_change["description"] = change.description
+        wire_change["diff"] = change.diff
+        if change.source_url is not None:
+            wire_change["source_url"] = change.source_url
+        body["change"] = wire_change
+    elif pull_request is not None:
+        scm: dict[str, Json] = {
+            "provider": pull_request.provider,
+            "repo": pull_request.repository,
+            "pr_number": pull_request.number,
+            "head_sha": pull_request.head_sha,
+        }
+        if pull_request.base_sha:
+            scm["base_sha"] = pull_request.base_sha
+        body["scm"] = scm
     settings: dict[str, Json] = {"harness": harness}
     if guidance is not None:
         settings["guidance"] = guidance
-    response = _send_create(client, {"targets": wire_targets, "scm": scm, "settings": settings})
+    body["settings"] = settings
+    response = _send_create(client, body)
     if not 200 <= response.status < 300:
         raise _proof_run_error(response, "POST", _PROOF_RUNS_PATH)
     runs = obj(response.json()).get("runs")
@@ -279,6 +326,7 @@ def _wire_state(
         review_url=text("review_url"),
         created_at=text("created_at"),
         settled_at=text("settled_at"),
+        summary_markdown=text("summary_markdown"),
     )
 
 

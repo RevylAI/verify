@@ -7,10 +7,12 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Literal
+from urllib.parse import urlsplit
 
 from ._models import UUID_PATTERN
 from ._proof_runs import (
     ProofAuthBypass,
+    ProofChange,
     ProofEnvironmentValue,
     ProofHarness,
     ProofRunState,
@@ -35,6 +37,9 @@ from ._upload import (
 _ENVIRONMENT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _DEEP_LINK_PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _WEB_SCHEME = re.compile(r"\s*https?:", re.IGNORECASE)
+_REVIEW_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._~:/!#@+=-]{0,199}")
+_COMMIT = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+_MAX_DIFF_BYTES = 5 * 1024 * 1024
 _MAX_TARGETS = 3
 _DEFAULT_TIMEOUT = 30 * 60.0
 _POLL_INTERVALS = (5.0, 10.0, 15.0)
@@ -92,11 +97,14 @@ class ProofTargetRun:
     from the run's write-up and findings, such as ``Ready``, ``Ready with issues``, or ``Partial
     coverage``. It can differ from what ``verdict`` suggests."""
     report_url: str | None
-    """The pull request comment with the report."""
+    """The pull request comment with the report, or for a ``change``, the run's report in Revyl."""
     review_url: str | None
+    """The pull request, or for a ``change``, its ``source_url``."""
     created_at: str | None
     settled_at: str | None
     """Set once the run is over."""
+    summary_markdown: str | None
+    """The proof write-up in Markdown, once the run settles and the agent published one."""
     build: UploadResult | UrlBuildResult
     """The uploaded mobile build, or the registered Web URL build."""
 
@@ -111,8 +119,11 @@ class ProofRun:
     label: str | None
     """The ``label`` of the first run whose verdict decided ``verdict``, as Revyl reported it."""
     report_url: str | None
-    """The pull request comment with the report, from the first run that has one."""
-    pull_request: PullRequestContext
+    """The ``report_url`` of the first run that has one."""
+    pull_request: PullRequestContext | None
+    """The pull request proved, without a ``change``."""
+    change: ProofChange | None = None
+    """The change proved, without its ``diff`` and ``description``."""
 
 
 def proof(
@@ -124,6 +135,7 @@ def proof(
     auth_bypass: ProofAuthBypass | None = None,
     version: str | None = None,
     targets: Sequence[ProofTarget] | None = None,
+    change: ProofChange | None = None,
     guidance: str | None = None,
     harness: ProofHarness = "revyl",
     wait: bool = True,
@@ -141,9 +153,15 @@ def proof(
     again, upload a new build or push a new commit. ``harness`` is the agent that runs the proof;
     ``revyl`` is the only one.
 
+    ``change`` proves a ``ProofChange`` instead of a GitHub pull request, for a source host Revyl
+    can't read, such as GitLab. Revyl posts nothing anywhere: read each run's ``report_url`` (a
+    Revyl page for members of the organization) and ``summary_markdown``, and post the summary
+    where your reviewers read it. ``change_from_git()`` builds one from a checkout and CI.
+
     With ``wait`` (the default) it polls until every run settles, for at most ``timeout`` seconds;
     the runs keep going on Revyl after a timeout. Interrupting the wait cancels the runs that
-    haven't settled. Needs a pull request on GitHub Actions.
+    haven't settled. Needs a pull request on GitHub Actions, unless ``change`` gives the change
+    itself.
 
     Revyl reports on the pull request in a comment but adds no check run, so the result is the CI
     gate: fail the job unless ``verdict`` is ``passed``.
@@ -163,7 +181,8 @@ def proof(
     if guidance is not None and not isinstance(guidance, str):
         raise VerifyError("INVALID_ARGUMENT", "guidance must be a string.")
     focus = (guidance or "").strip() or None
-    pull_request = _detect_pull_request()
+    chosen_change = None if change is None else _valid_change(change)
+    pull_request = _detect_pull_request() if chosen_change is None else None
     resolved_token = credentials() if token is None else token
     client = Client(backend_url, resolved_token)
 
@@ -193,6 +212,7 @@ def proof(
             for target, built in zip(chosen, builds)
         ],
         pull_request=pull_request,
+        change=chosen_change,
         harness=harness,
         guidance=focus,
     )
@@ -213,6 +233,7 @@ def proof(
             review_url=state.review_url,
             created_at=state.created_at,
             settled_at=state.settled_at,
+            summary_markdown=state.summary_markdown,
             build=built,
         )
         for state, target, built in zip(states, chosen, builds)
@@ -224,6 +245,7 @@ def proof(
         label=label,
         report_url=next((run.report_url for run in runs if run.report_url), None),
         pull_request=pull_request,
+        change=None if chosen_change is None else replace(chosen_change, description=None, diff=""),
     )
 
 
@@ -385,7 +407,8 @@ def _detect_pull_request() -> PullRequestContext:
         raise VerifyError(
             "PR_CONTEXT_MISSING",
             "proof() needs a pull_request event on GitHub Actions to know the repository, "
-            "pull request, and head commit.",
+            "pull request, and head commit. Elsewhere, prove the change itself with change (see "
+            "change_from_git()).",
         )
     return PullRequestContext(
         provider="github",
@@ -472,6 +495,63 @@ def _valid_auth_bypass(
             "set. Placeholders resolve only from the target's environment.",
         )
     return ProofAuthBypass(deep_link=deep_link)
+
+
+def _valid_change(change: ProofChange) -> ProofChange:
+    if not isinstance(change, ProofChange):
+        raise VerifyError(
+            "INVALID_ARGUMENT",
+            "change must be a ProofChange with review_key, head_sha, title, and diff.",
+        )
+    if not isinstance(change.review_key, str) or not _REVIEW_KEY.fullmatch(change.review_key):
+        raise VerifyError(
+            "INVALID_ARGUMENT",
+            "change.review_key must be 1 to 200 letters, digits, and ._~:/!#@+=-, starting with a "
+            "letter or digit, such as gitlab:group/app!17.",
+        )
+    head_sha = change.head_sha.strip().lower() if isinstance(change.head_sha, str) else ""
+    if not _COMMIT.fullmatch(head_sha):
+        raise VerifyError(
+            "INVALID_ARGUMENT",
+            "change.head_sha must be a full commit SHA (40 or 64 hexadecimal characters).",
+        )
+    base_sha = change.base_sha.strip().lower() if isinstance(change.base_sha, str) else None
+    if change.base_sha is not None and (base_sha is None or not _COMMIT.fullmatch(base_sha)):
+        raise VerifyError(
+            "INVALID_ARGUMENT",
+            "change.base_sha must be a full commit SHA (40 or 64 hexadecimal characters).",
+        )
+    if not isinstance(change.title, str) or not change.title.strip() or len(change.title) > 512:
+        raise VerifyError(
+            "INVALID_ARGUMENT", "change.title is required and takes at most 512 characters."
+        )
+    if change.description is not None and (
+        not isinstance(change.description, str) or len(change.description) > 65_536
+    ):
+        raise VerifyError("INVALID_ARGUMENT", "change.description takes at most 65,536 characters.")
+    if not isinstance(change.diff, str) or not change.diff.strip():
+        raise VerifyError(
+            "INVALID_ARGUMENT",
+            "change.diff must be a non-empty unified diff (git diff base...head).",
+        )
+    if len(change.diff.encode("utf-8", "surrogatepass")) > _MAX_DIFF_BYTES:
+        raise VerifyError("INVALID_ARGUMENT", "change.diff is over 5 MiB, the most a proof takes.")
+    if change.source_url is not None and not _https_url(change.source_url):
+        raise VerifyError(
+            "INVALID_ARGUMENT",
+            "change.source_url must be an https URL of at most 2,048 characters.",
+        )
+    return replace(change, head_sha=head_sha, base_sha=base_sha, title=change.title.strip())
+
+
+def _https_url(value: object) -> bool:
+    if not isinstance(value, str) or len(value) > 2048:
+        return False
+    try:
+        parts = urlsplit(value)
+        return parts.scheme.lower() == "https" and bool(parts.hostname)
+    except ValueError:
+        return False
 
 
 __all__ = ["ProofRun", "ProofTarget", "ProofTargetRun", "proof"]

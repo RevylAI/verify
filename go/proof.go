@@ -4,11 +4,13 @@ import (
 	"context"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // ProofHarness is the agent that runs a Proof of Changes run. HarnessRevyl is the only one.
@@ -88,6 +90,10 @@ type ProofOptions struct {
 	Environment map[string]EnvValue
 	AuthBypass  *AuthBypass
 	Version     string
+	// Change proves this change instead of a GitHub pull request, for a source host Revyl can't read, such as GitLab.
+	// Revyl posts nothing anywhere: read each run's ReportURL (a Revyl page for members of the organization) and
+	// SummaryMarkdown, and post the summary where your reviewers read it. ChangeFromGit builds one from a checkout and CI.
+	Change *ProofChange
 	// Guidance is what the agent should focus on.
 	Guidance string
 	// Harness is the agent that runs the proof; HarnessRevyl, the default, is the only one.
@@ -100,6 +106,25 @@ type ProofOptions struct {
 	Token      string
 	BackendURL string
 	HTTPClient *http.Client
+}
+
+// ProofChange is a change Revyl can't read from a source host, uploaded with the proof request: the proof agent reads
+// Diff instead of a checkout, and Revyl posts nothing anywhere. ChangeFromGit builds one from a checkout and CI.
+type ProofChange struct {
+	// ReviewKey names the review in your own terms and groups its heads, such as "gitlab:group/app!17". A new head
+	// supersedes.
+	ReviewKey string `json:"reviewKey"`
+	HeadSHA   string `json:"headSha"`
+	BaseSHA   string `json:"baseSha,omitempty"`
+	// Title is read by the proof agent as the pull request's title.
+	Title string `json:"title"`
+	// Description is read by the proof agent as the pull request's body.
+	Description string `json:"description,omitempty"`
+	// Diff is a unified diff (git diff base...head), at most 5 MiB of UTF-8.
+	Diff string `json:"diff,omitempty"`
+	// SourceURL is an https link to the review. It comes back as each run's ReviewURL and is never shown to the agent
+	// or fetched.
+	SourceURL string `json:"sourceUrl,omitempty"`
 }
 
 // PullRequestContext is the pull request a Proof of Changes run covers.
@@ -125,12 +150,15 @@ type ProofTargetRun struct {
 	// write-up and findings, such as "Ready", "Ready with issues", or "Partial coverage". It can differ from what Verdict
 	// suggests.
 	Label string `json:"label,omitempty"`
-	// ReportURL is the pull request comment with the report.
+	// ReportURL is the pull request comment with the report, or for a Change, the run's report in Revyl.
 	ReportURL string `json:"reportUrl,omitempty"`
+	// ReviewURL is the pull request, or for a Change, its SourceURL.
 	ReviewURL string `json:"reviewUrl,omitempty"`
 	CreatedAt string `json:"createdAt,omitempty"`
 	// SettledAt is set once the run is over.
 	SettledAt string `json:"settledAt,omitempty"`
+	// SummaryMarkdown is the proof write-up in Markdown, once the run settles and the agent published one.
+	SummaryMarkdown string `json:"summaryMarkdown,omitempty"`
 	// Build is the uploaded mobile build; nil for a URL target.
 	Build *UploadResult `json:"build,omitempty"`
 	// URLBuild is the registered Web URL build; nil for a mobile target.
@@ -145,27 +173,33 @@ type ProofRun struct {
 	Verdict string `json:"verdict,omitempty"`
 	// Label is the Label of the first run whose verdict decided Verdict, as Revyl reported it.
 	Label string `json:"label,omitempty"`
-	// ReportURL is the pull request comment with the report, from the first run that has one.
-	ReportURL   string             `json:"reportUrl,omitempty"`
-	PullRequest PullRequestContext `json:"pullRequest"`
+	// ReportURL is the ReportURL of the first run that has one.
+	ReportURL string `json:"reportUrl,omitempty"`
+	// PullRequest is the pull request proved, without a Change.
+	PullRequest *PullRequestContext `json:"pullRequest,omitempty"`
+	// Change is the change proved, without its Diff and Description.
+	Change *ProofChange `json:"change,omitempty"`
 }
 
 var (
 	environmentNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 	deepLinkPlaceholder    = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 	webScheme              = regexp.MustCompile(`(?i)^\s*https?:`)
+	reviewKeyPattern       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._~:/!#@+=-]{0,199}$`)
 )
 
 const (
 	maxProofTargets     = 3
 	defaultProofTimeout = 30 * time.Minute
+	maxDiffBytes        = 5 * 1024 * 1024
 )
 
 var proofPollIntervals = []time.Duration{5 * time.Second, 10 * time.Second, 15 * time.Second}
 
 // Proof uploads each target's mobile build or registers its Web deployment URL, then starts one Revyl Proof of Changes
 // run per target on the pull request. Unless NoWait is set it polls until every run settles, and cancels the runs
-// still going if ctx is cancelled while waiting. It needs a pull request on GitHub Actions.
+// still going if ctx is cancelled while waiting. It needs a pull request on GitHub Actions, unless Change gives the
+// change itself.
 //
 // Revyl reports on the pull request in a comment but adds no check run, so the result is the CI gate: fail the job
 // unless Verdict is "passed".
@@ -188,8 +222,13 @@ func Proof(ctx context.Context, options ProofOptions) (*ProofRun, error) {
 	if timeout == 0 {
 		timeout = defaultProofTimeout
 	}
-	pullRequest, err := detectPullRequest()
-	if err != nil {
+	var change *ProofChange
+	var pullRequest *PullRequestContext
+	if options.Change != nil {
+		if change, err = validChange(*options.Change); err != nil {
+			return nil, err
+		}
+	} else if pullRequest, err = detectPullRequest(); err != nil {
 		return nil, err
 	}
 	c, _, err := newTokenClient(OpenOptions{BackendURL: options.BackendURL, HTTPClient: options.HTTPClient}, options.Token)
@@ -198,7 +237,7 @@ func Proof(ctx context.Context, options ProofOptions) (*ProofRun, error) {
 	}
 
 	runs := make([]ProofTargetRun, len(targets))
-	request := createProofRunsRequest{pullRequest: pullRequest, harness: harness, guidance: strings.TrimSpace(options.Guidance)}
+	request := createProofRunsRequest{pullRequest: pullRequest, change: change, harness: harness, guidance: strings.TrimSpace(options.Guidance)}
 	platforms := map[string]bool{}
 	var seen []string
 	for i, target := range targets {
@@ -242,11 +281,14 @@ func Proof(ctx context.Context, options ProofOptions) (*ProofRun, error) {
 		}
 	}
 	result := &ProofRun{Runs: runs, PullRequest: pullRequest}
+	if change != nil {
+		result.Change = &ProofChange{ReviewKey: change.ReviewKey, HeadSHA: change.HeadSHA, BaseSHA: change.BaseSHA, Title: change.Title, SourceURL: change.SourceURL}
+	}
 	for i, state := range states {
 		run := &result.Runs[i]
 		run.ID, run.AppID, run.Platform, run.Status = state.id, firstNonEmpty(state.appID, targets[i].AppID), state.platform, state.status
 		run.Verdict, run.Label, run.ReportURL, run.ReviewURL = state.verdict, state.label, state.reportURL, state.reviewURL
-		run.CreatedAt, run.SettledAt = state.createdAt, state.settledAt
+		run.CreatedAt, run.SettledAt, run.SummaryMarkdown = state.createdAt, state.settledAt, state.summaryMarkdown
 		if result.ReportURL == "" {
 			result.ReportURL = state.reportURL
 		}
@@ -336,6 +378,40 @@ func validAuthBypass(authBypass *AuthBypass, environment map[string]EnvValue) er
 	return nil
 }
 
+func validChange(change ProofChange) (*ProofChange, error) {
+	if !reviewKeyPattern.MatchString(change.ReviewKey) {
+		return nil, failure(ErrInvalidArgument, "Change.ReviewKey must be 1 to 200 letters, digits, and ._~:/!#@+=-, starting with a letter or digit, such as gitlab:group/app!17.")
+	}
+	change.HeadSHA = strings.ToLower(strings.TrimSpace(change.HeadSHA))
+	if !commitPattern.MatchString(change.HeadSHA) {
+		return nil, failure(ErrInvalidArgument, "Change.HeadSHA must be a full commit SHA (40 or 64 hexadecimal characters).")
+	}
+	change.BaseSHA = strings.ToLower(strings.TrimSpace(change.BaseSHA))
+	if change.BaseSHA != "" && !commitPattern.MatchString(change.BaseSHA) {
+		return nil, failure(ErrInvalidArgument, "Change.BaseSHA must be a full commit SHA (40 or 64 hexadecimal characters).")
+	}
+	if strings.TrimSpace(change.Title) == "" || utf8.RuneCountInString(change.Title) > 512 {
+		return nil, failure(ErrInvalidArgument, "Change.Title is required and takes at most 512 characters.")
+	}
+	if utf8.RuneCountInString(change.Description) > 65_536 {
+		return nil, failure(ErrInvalidArgument, "Change.Description takes at most 65,536 characters.")
+	}
+	if strings.TrimSpace(change.Diff) == "" {
+		return nil, failure(ErrInvalidArgument, "Change.Diff must be a non-empty unified diff (git diff base...head).")
+	}
+	if len(change.Diff) > maxDiffBytes {
+		return nil, failure(ErrInvalidArgument, "Change.Diff is over 5 MiB, the most a proof takes.")
+	}
+	if change.SourceURL != "" {
+		parsed, err := url.Parse(change.SourceURL)
+		if len(change.SourceURL) > 2048 || err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+			return nil, failure(ErrInvalidArgument, "Change.SourceURL must be an https URL of at most 2,048 characters.")
+		}
+	}
+	change.Title = strings.TrimSpace(change.Title)
+	return &change, nil
+}
+
 func overallVerdict(runs []ProofTargetRun) (string, string) {
 	decide := func(verdict string) string {
 		if verdict == "passed" || verdict == "failed" {
@@ -422,15 +498,15 @@ func cancelUnsettledProofRuns(ctx context.Context, c *client, ids []string) erro
 	return ctx.Err()
 }
 
-func detectPullRequest() (PullRequestContext, error) {
+func detectPullRequest() (*PullRequestContext, error) {
 	identity, err := detectScmIdentity(UploadOptions{}, os.Getenv)
 	if err != nil {
-		return PullRequestContext{}, err
+		return nil, err
 	}
 	if identity == nil || identity.CISystem != "github-actions" || identity.PR <= 0 {
-		return PullRequestContext{}, failure(ErrPRContextMissing, "Proof needs a pull_request event on GitHub Actions to know the repository, pull request, and head commit.")
+		return nil, failure(ErrPRContextMissing, "Proof needs a pull_request event on GitHub Actions to know the repository, pull request, and head commit. Elsewhere, prove the change itself with Change (see ChangeFromGit).")
 	}
-	return PullRequestContext{Provider: "github", Repository: identity.Repository, Number: identity.PR, HeadSHA: identity.Commit, BaseSHA: identity.BaseCommit}, nil
+	return &PullRequestContext{Provider: "github", Repository: identity.Repository, Number: identity.PR, HeadSHA: identity.Commit, BaseSHA: identity.BaseCommit}, nil
 }
 
 func proofRunLink(states []proofRunState) string {

@@ -74,6 +74,7 @@ const (
 	ErrUntrustedPRHead        Code = "UNTRUSTED_PR_HEAD"
 	ErrSecretRefNotAllowed    Code = "SECRET_REF_NOT_ALLOWED"
 	ErrProofRunLimit          Code = "PROOF_RUN_LIMIT"
+	ErrHeadSuperseded         Code = "HEAD_SUPERSEDED"
 	ErrProviderUnavailable    Code = "PROVIDER_UNAVAILABLE"
 	ErrPreviewUnreachable     Code = "PREVIEW_UNREACHABLE"
 	ErrTimeout                Code = "TIMEOUT"
