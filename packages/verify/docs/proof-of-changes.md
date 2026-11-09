@@ -36,6 +36,8 @@ npx @revyl/verify upload <artifact> --app-id <id> [--platform ios|android] [--ve
 - `--version` must be unique within the app. It defaults to the first 12 characters of the head commit plus a UTC timestamp.
 - On GitHub Actions the pull request identity is detected: the repository, the pull request number, and the PR **head** commit (never the merge commit GitHub checks out).
 - On another runner, pass `--repo` (the base repository receiving the pull request) and `--commit` (the full PR head SHA). Add `--pr` to pick the pull request explicitly; without it Revyl matches by head commit.
+- `--summary-file` writes each run's write-up as Markdown to a file once the runs settle. It doesn't go with `--no-wait`.
+- `--no-scm`, and the flags after it, prove the checkout's diff instead of a pull request (see [Prove a change without GitHub](#prove-a-change-without-github)).
 - `--json` prints the result object below.
 - Header values that aren't plain ASCII, such as a non-ASCII branch name, are sent only in the build metadata.
 
@@ -86,6 +88,8 @@ result, err := verify.UploadBuild(ctx, verify.UploadOptions{File: "app/build/out
 
 **Revyl adds no check run for these proofs, so your CI job is the gate.** `verify proof` exits `0` only when the overall verdict is `passed`, and `1` for `failed`, `inconclusive`, a run that ended without a verdict, a timeout, or a refusal. From code, fail the job yourself unless `verdict` is `passed`. To block merges on it, make the job a required status check.
 
+Without GitHub, such as on GitLab or Bitrise, prove the change itself instead: see [Prove a change without GitHub](#prove-a-change-without-github).
+
 The first owner of a pull request head keeps it. A head the repository's own Revyl config already proves is refused with `CONFIG_MANAGED_REVIEW`, and when `verify proof` proves a head first, the config skips that head and resumes on the next one.
 
 ### Requirements
@@ -109,7 +113,8 @@ The first owner of a pull request head keeps it. A head the repository's own Rev
 ```text
 npx @revyl/verify proof <artifact> | --url <https-url> --app-id <id> [options]
 npx @revyl/verify proof --target <app-id>=<artifact-or-https-url>... [options]
-options: [--guidance <text>] [--env NAME[=value]]... [--env-secret NAME]... [--auth-deep-link <template>]... [--timeout <minutes>] [--no-wait] [--json]
+options: [--guidance <text>] [--env NAME[=value]]... [--env-secret NAME]... [--auth-deep-link <template>]... [--timeout <minutes>] [--no-wait] [--summary-file <path>] [--json]
+change mode: --no-scm [--review-key <key>] [--base-sha <sha>] [--head-sha <sha>] [--title <text>] [--source-url <https-url>]
 ```
 
 - Prove up to three targets, one per platform: an iOS build, an Android build, and a Web URL. Give one with `<artifact>` or `--url` and `--app-id`, or several with repeated `--target`; a value starting with `https://` is a Web URL. Builds are the artifacts `verify upload` takes.
@@ -126,7 +131,7 @@ options: [--guidance <text>] [--env NAME[=value]]... [--env-secret NAME]... [--a
 | --- | --- |
 | `0` | The overall verdict is `passed`, or `--no-wait` started the runs. |
 | `1` | The overall verdict is `failed` or `inconclusive`, a run ended without a verdict, the wait timed out, or Revyl refused the proof. |
-| `2` | A usage problem, missing or rejected credentials, or no pull request context. |
+| `2` | A usage problem, missing or rejected credentials, or no pull request or change to prove. |
 | `130` | Interrupted; the runs that hadn't settled were cancelled. |
 
 The same call from code:
@@ -197,9 +202,10 @@ Each run has its own raw `verdict` (`passed`, `failed`, or `inconclusive`) and i
 
 | Field | Meaning |
 | --- | --- |
-| `runs` | One per target, in order: `id`, `appId`, `platform`, Revyl's `status`, `verdict`, `label`, `reportUrl`, `reviewUrl`, `createdAt`, `settledAt`, and the `build` that was uploaded or registered. |
+| `runs` | One per target, in order: `id`, `appId`, `platform`, Revyl's `status`, `verdict`, `label`, `reportUrl`, `reviewUrl`, `summaryMarkdown` (Revyl's write-up, once the run settles), `createdAt`, `settledAt`, and the `build` that was uploaded or registered. |
 | `verdict`, `label`, `reportUrl` | The overall outcome, as above. |
 | `pullRequest` | The repository, pull request number, and head commit that were proved. |
+| `change` | Instead of `pullRequest` for a proved change: its `reviewKey`, `headSha`, `baseSha`, `title`, and `sourceUrl`. |
 
 A run that is cancelled, or superseded by a newer build or commit, ends without a verdict, and the wait fails with `PROOF_RUN_ENDED` once the other runs settle.
 
@@ -245,15 +251,58 @@ A Web target is proved at its URL, so the URL must be public HTTPS on port 443 a
 
 Keep the URL up from the call until its run settles, which can take minutes; with `--no-wait` keeping it up is yours. After the run settles, the comment's **Re-run** and **Open preview** links still use the URL and fail once it is gone, while the report and the comment stay readable.
 
+### Prove a change without GitHub
+
+When Revyl can't read your source host, or shouldn't, send the change itself: its diff, title, and description. This works from any CI, such as GitLab or Bitrise, and needs no Revyl GitHub App. The proof agent reads the diff instead of a checkout and has no access to your repository.
+
+```yaml
+# .gitlab-ci.yml
+prove:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    GIT_DEPTH: 0
+  script:
+    - npx --yes @revyl/verify@<version> proof app-debug.apk --app-id <app UUID> --no-scm --summary-file proof.md
+```
+
+- `--no-scm` (`changeFromGit()` in TypeScript, `change_from_git()` in Python, `verify.ChangeFromGit` in Go) builds the change from the checkout. On a GitLab merge request pipeline it reads the merge request's project, number, head, base, title, description, and link from GitLab's `CI_MERGE_REQUEST_*` variables. On a Bitrise pull request build it reads the repository, pull request number, head, and the commit message's first line as the title, and diffs from where the head branched off `origin/<target branch>`.
+- Anywhere else, pass `--review-key` and `--base-sha`; `--review-key` alone also selects this mode. The head defaults to the checked-out commit and the title to its subject. `--head-sha`, `--title`, and `--source-url` override what was detected.
+- The review key names the review in your own terms, such as `gitlab:group/app!17`, and groups its heads: 1 to 200 letters, digits, and `._~:/!#@+=-`, starting with a letter or digit.
+- The diff is `git diff <base>...<head>`, so both commits must be in the checkout. Fetch full history (`GIT_DEPTH: 0` on GitLab) or at least the base. It's limited to 5 MiB of UTF-8 text; a larger diff is refused.
+- If the build was uploaded with commit metadata, that commit must be the head being proved, or Revyl refuses the build with `BUILD_REJECTED`.
+
+From code, pass `change` instead of letting Verify detect a pull request:
+
+```ts
+import { changeFromGit, proof } from '@revyl/verify';
+
+const run = await proof({ build: 'app-debug.apk', appId, change: await changeFromGit() });
+```
+
+`change` is `{ reviewKey, headSha, baseSha, title, description, diff, sourceUrl }`, so you can also build it yourself; `title` is at most 512 characters, `description` at most 65,536, and `sourceUrl` an `https` link of at most 2,048.
+
+Revyl posts nothing for these proofs and connects no integrations, because it can't verify anything about an uploaded head. Read the result instead:
+
+- `summaryMarkdown` on each run is Revyl's write-up once the run settles. `--summary-file` writes it to a file, so post it where your reviewers read, such as a merge request note.
+- `reportUrl` is the run's report in Revyl, which needs a Revyl sign-in to the organization. `reviewUrl` is the `sourceUrl` you sent, such as the merge request.
+- The job's exit code is still the gate, exactly as for a pull request.
+
+Heads of one review key follow [Reruns and conflicts](#reruns-and-conflicts), with two additions:
+
+- The same head with a different diff, title, description, base, or link is refused with `PROOF_RUN_CONFLICT`. Prove new content as a new head.
+- A head the key already proved, sent again after a newer head, is refused with `HEAD_SUPERSEDED`, so a retried old job never moves the review back. Revyl can't order commits it can't read, so a head the key never proved always becomes its current head: retry a failed proof only while its head is still the latest.
+
 ### Proof errors
 
 | Code | What happened |
 | --- | --- |
-| `PR_CONTEXT_MISSING` | The job isn't a `pull_request` event on GitHub Actions. |
+| `PR_CONTEXT_MISSING` | The job isn't a `pull_request` event on GitHub Actions, and no change was given. |
 | `AUTH_REJECTED` | The key isn't a member's API key or a CI runner job key, or its user is a Viewer. |
 | `GITHUB_APP_NOT_CONNECTED` | The Revyl GitHub App isn't connected, or can't read the repository or its pull requests. |
 | `CONFIG_MANAGED_REVIEW` | The repository's own Revyl config already proves this head. |
-| `PROOF_RUN_CONFLICT` | Proofs with other apps, settings, or environment already cover this head. The error lists their run ids (`proofRunIds`). |
+| `PROOF_RUN_CONFLICT` | Proofs with other apps, settings, or environment, or a change with other content, already cover this head. The error lists their run ids (`proofRunIds`). |
+| `HEAD_SUPERSEDED` | The review key already proved a newer head than this change's. Verify doesn't retry it. |
 | `PR_CLOSED` | The pull request isn't open. |
 | `HEAD_NOT_CURRENT` | The pull request's head or base moved on since the job started. |
 | `UNTRUSTED_PR_HEAD` | The pull request comes from a fork. |
@@ -263,7 +312,7 @@ Keep the URL up from the call until its run settles, which can take minutes; wit
 | `PROOF_RUN_LIMIT` | Too many Proof API runs are queued or running for the organization. Verify doesn't retry it; try again once some settle. |
 | `PROVIDER_UNAVAILABLE` | Revyl couldn't reach GitHub, after Verify retried. |
 | `NOT_FOUND` | The pull request, app, build, or run doesn't exist for the key's organization. |
-| `INVALID_ARGUMENT` | Checked before any request: no targets or more than three, two targets for one app or platform, both or neither of a build and a URL, a URL that isn't plain HTTPS, environment on a Web target, an invalid variable name, a secret reference that doesn't name its own variable, a deep link on a Web target, a deep-link placeholder the target's environment doesn't set, or an `http` or `https` deep link with placeholders. Revyl also refuses an unknown secret launch variable, an alias, a secret's value sent as a plain value, a deep link on a Web target, or a placeholder the environment doesn't name. |
+| `INVALID_ARGUMENT` | Checked before any request: no targets or more than three, two targets for one app or platform, both or neither of a build and a URL, a URL that isn't plain HTTPS, environment on a Web target, an invalid variable name, a secret reference that doesn't name its own variable, a deep link on a Web target, a deep-link placeholder the target's environment doesn't set, an `http` or `https` deep link with placeholders, or a change outside the limits in [Prove a change without GitHub](#prove-a-change-without-github). Revyl also refuses a diff over 5 MiB, an unknown secret launch variable, an alias, a secret's value sent as a plain value, a deep link on a Web target, or a placeholder the environment doesn't name. |
 | `PROOF_RUN_ENDED` | A run was cancelled or superseded before it had a verdict. |
 | `TIMEOUT` | The wait ran past `--timeout`; the runs keep going on Revyl. |
 
