@@ -17,6 +17,25 @@ export interface PullRequestContext {
   baseSha?: string;
 }
 
+/**
+ * A change Revyl can't read from a source host, uploaded with the proof request: the proof agent reads `diff` instead
+ * of a checkout, and Revyl posts nothing anywhere.
+ */
+export interface ProofChange {
+  /** Names the review in your own terms and groups its heads, such as `gitlab:group/app!17`. A new head supersedes. */
+  reviewKey: string;
+  headSha: string;
+  baseSha?: string;
+  /** Read by the proof agent as the pull request's title. */
+  title: string;
+  /** Read by the proof agent as the pull request's body. */
+  description?: string;
+  /** A unified diff (`git diff base...head`), at most 5 MiB of UTF-8. */
+  diff: string;
+  /** An https link to the review. It comes back as each run's `reviewUrl` and is never shown to the agent or fetched. */
+  sourceUrl?: string;
+}
+
 export type ProofEnvironmentValue = string | { secretRef: string };
 
 export interface ProofAuthBypass {
@@ -31,7 +50,8 @@ export interface ProofRunTarget {
 }
 
 export interface CreateProofRunsRequest {
-  pullRequest: PullRequestContext;
+  pullRequest?: PullRequestContext;
+  change?: ProofChange;
   targets: ProofRunTarget[];
   harness: ProofHarness;
   guidance?: string;
@@ -49,6 +69,7 @@ export interface ProofRunState {
   reviewUrl?: string;
   createdAt?: string;
   settledAt?: string;
+  summaryMarkdown?: string;
 }
 
 const PROOF_RUNS_PATH = '/api/v1/proof-runs';
@@ -72,7 +93,9 @@ const REFUSALS: Record<string, { code: VerifyErrorCode; hint?: string }> = {
   head_sha_mismatch: { code: 'HEAD_NOT_CURRENT', hint: 'The pull request moved on; prove its current head.' },
   base_sha_mismatch: { code: 'HEAD_NOT_CURRENT', hint: "The pull request's base moved on; prove it again from a fresh run of the job." },
   config_managed_review: { code: 'CONFIG_MANAGED_REVIEW', hint: "The repository's own Revyl config already proves this head." },
-  proof_settings_conflict: { code: 'PROOF_RUN_CONFLICT', hint: 'Proofs with other apps, settings, environment, or auth bypass already cover this head; upload a new build or push a new commit to prove again.' },
+  proof_settings_conflict: { code: 'PROOF_RUN_CONFLICT', hint: 'Proofs with other apps, settings, environment, auth bypass, or change content already cover this head; upload a new build or prove a new head to prove again.' },
+  head_superseded: { code: 'HEAD_SUPERSEDED', hint: 'A newer head of this review key was already proved, so this older head is not proved again.' },
+  diff_too_large: { code: 'INVALID_ARGUMENT', hint: 'The diff is over 5 MiB.' },
   untrusted_pull_request_head: { code: 'UNTRUSTED_PR_HEAD', hint: 'Pull requests from forks are not proved.' },
   build_not_supported: { code: 'BUILD_REJECTED' },
   build_scm_mismatch: { code: 'BUILD_REJECTED', hint: 'The build was uploaded for another repository, pull request, or commit.' },
@@ -96,7 +119,7 @@ const REFUSALS: Record<string, { code: VerifyErrorCode; hint?: string }> = {
  * the existing runs, so it is safe to send again.
  */
 export async function createProofRuns(client: RevylClient, request: CreateProofRunsRequest, signal?: AbortSignal): Promise<ProofRunState[]> {
-  const { pullRequest } = request;
+  const { pullRequest, change } = request;
   const body = {
     targets: request.targets.map((target) => ({
       app_id: target.appId,
@@ -104,13 +127,27 @@ export async function createProofRuns(client: RevylClient, request: CreateProofR
       ...(target.environment !== undefined ? { environment: wireEnvironment(target.environment) } : {}),
       ...(target.authBypass !== undefined ? { auth_bypass: { deep_link: target.authBypass.deepLink } } : {}),
     })),
-    scm: {
-      provider: pullRequest.provider,
-      repo: pullRequest.repository,
-      pr_number: pullRequest.number,
-      head_sha: pullRequest.headSha,
-      ...(pullRequest.baseSha ? { base_sha: pullRequest.baseSha } : {}),
-    },
+    ...(change !== undefined
+      ? {
+          change: {
+            review_key: change.reviewKey,
+            head_sha: change.headSha,
+            ...(change.baseSha ? { base_sha: change.baseSha } : {}),
+            title: change.title,
+            ...(change.description !== undefined ? { description: change.description } : {}),
+            diff: change.diff,
+            ...(change.sourceUrl !== undefined ? { source_url: change.sourceUrl } : {}),
+          },
+        }
+      : {
+          scm: {
+            provider: pullRequest!.provider,
+            repo: pullRequest!.repository,
+            pr_number: pullRequest!.number,
+            head_sha: pullRequest!.headSha,
+            ...(pullRequest!.baseSha ? { base_sha: pullRequest!.baseSha } : {}),
+          },
+        }),
     settings: { harness: request.harness, ...(request.guidance !== undefined ? { guidance: request.guidance } : {}) },
   };
   const response = await sendCreate(client, body, signal);
@@ -183,6 +220,7 @@ function wireState(value: unknown, httpStatus: number, what: string, knownId?: s
     ['reviewUrl', text('review_url')],
     ['createdAt', text('created_at')],
     ['settledAt', text('settled_at')],
+    ['summaryMarkdown', text('summary_markdown')],
   ];
   return { id, status: wire.status, ...Object.fromEntries(fields.filter(([, value]) => value !== undefined)) };
 }

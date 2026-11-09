@@ -1,12 +1,12 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { RevylClient } from './api/client.js';
-import { cancelProofRun, createProofRuns, getProofRun, isSettled, type ProofAuthBypass, type ProofEnvironmentValue, type ProofHarness, type ProofRunState, type PullRequestContext } from './api/proof-runs.js';
+import { cancelProofRun, createProofRuns, getProofRun, isSettled, type ProofAuthBypass, type ProofChange, type ProofEnvironmentValue, type ProofHarness, type ProofRunState, type PullRequestContext } from './api/proof-runs.js';
 import { missingCredentialsMessage, resolveCredentials } from './auth.js';
 import { trackSession, untrackSession } from './cleanup.js';
 import { VerifyError, errorMessage } from './errors.js';
 import { detectScmIdentity, registerUrlBuild, uploadBuild, validateWebUrl, type UploadBuildResult, type UrlBuildResult } from './upload.js';
 
-export type { ProofAuthBypass, ProofEnvironmentValue, ProofHarness, PullRequestContext };
+export type { ProofAuthBypass, ProofChange, ProofEnvironmentValue, ProofHarness, PullRequestContext };
 
 /** A mobile CI build to prove. */
 export interface ProofBuildTarget {
@@ -51,6 +51,12 @@ export interface ProofUrlTarget {
 export type ProofTarget = ProofBuildTarget | ProofUrlTarget;
 
 export interface ProofSettings {
+  /**
+   * Prove this change instead of a GitHub pull request, for a source host Revyl can't read, such as GitLab. Revyl posts
+   * nothing anywhere: read each run's `reportUrl` (a Revyl page for members of the organization) and `summaryMarkdown`,
+   * and post the summary where your reviewers read it. `changeFromGit()` builds one from a checkout and CI.
+   */
+  change?: ProofChange;
   /** What the agent should focus on. */
   guidance?: string;
   /** The agent that runs the proof. `revyl` is the only one. */
@@ -87,12 +93,15 @@ export interface ProofTargetRun {
    * and findings, such as `Ready`, `Ready with issues`, or `Partial coverage`. It can differ from what `verdict` suggests.
    */
   label?: string;
-  /** The pull request comment with the report. */
+  /** The pull request comment with the report, or for a `change`, the run's report in Revyl. */
   reportUrl?: string;
+  /** The pull request, or for a `change`, its `sourceUrl`. */
   reviewUrl?: string;
   createdAt?: string;
   /** Set once the run is over. */
   settledAt?: string;
+  /** The proof write-up in Markdown, once the run settles and the agent published one. */
+  summaryMarkdown?: string;
   build: UploadBuildResult | UrlBuildResult;
 }
 
@@ -105,9 +114,12 @@ export interface ProofRun {
   verdict?: 'passed' | 'failed' | 'inconclusive';
   /** The `label` of the first run whose verdict decided `verdict`, as Revyl reported it. */
   label?: string;
-  /** The pull request comment with the report, from the first run that has one. */
+  /** The first run's `reportUrl`. */
   reportUrl?: string;
-  pullRequest: PullRequestContext;
+  /** The pull request proved, without a `change`. */
+  pullRequest?: PullRequestContext;
+  /** The change proved, without its diff and description. */
+  change?: Pick<ProofChange, 'reviewKey' | 'headSha' | 'baseSha' | 'title' | 'sourceUrl'>;
 }
 
 const ENVIRONMENT_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -116,11 +128,15 @@ const MAX_TARGETS = 3;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DEFAULT_TIMEOUT_MS = 30 * 60_000;
 const POLL_INTERVALS_MS = [5_000, 10_000, 15_000];
+const REVIEW_KEY = /^[A-Za-z0-9][A-Za-z0-9._~:/!#@+=-]{0,199}$/;
+const COMMIT = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+const MAX_DIFF_BYTES = 5 * 1024 * 1024;
 
 /**
  * Uploads each target's mobile build or registers its Web deployment URL, then starts one Revyl Proof of Changes run
  * per target on the pull request. With `wait` (the default) it polls until every run settles, and cancels the runs
- * still going if the process is interrupted or `signal` aborts. Needs a pull request on GitHub Actions.
+ * still going if the process is interrupted or `signal` aborts. Needs a pull request on GitHub Actions, unless `change`
+ * gives the change itself.
  *
  * Revyl reports on the pull request in a comment but adds no check run, so the result is the CI gate: fail the job
  * unless `verdict` is `passed`.
@@ -132,7 +148,8 @@ export async function proof(options: ProofOptions): Promise<ProofRun> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new VerifyError('INVALID_ARGUMENT', 'timeoutMs must be a positive number of milliseconds.');
   const guidance = options.guidance?.trim() || undefined;
-  const pullRequest = detectPullRequest();
+  const change = options.change === undefined ? undefined : validChange(options.change);
+  const pullRequest = change === undefined ? detectPullRequest() : undefined;
   const token = options.token ?? (await resolveCredentials())?.token;
   if (!token) throw new VerifyError('AUTH_MISSING', missingCredentialsMessage());
 
@@ -152,7 +169,7 @@ export async function proof(options: ProofOptions): Promise<ProofRun> {
   const started = await createProofRuns(
     client,
     {
-      pullRequest,
+      ...(change !== undefined ? { change } : { pullRequest: pullRequest! }),
       harness,
       ...(guidance ? { guidance } : {}),
       targets: targets.map((target, index) => ({ appId: target.appId, buildId: builds[index]!.buildId, ...(target.environment ? { environment: target.environment } : {}), ...(target.authBypass ? { authBypass: { deepLink: target.authBypass.deepLink } } : {}) })),
@@ -162,7 +179,14 @@ export async function proof(options: ProofOptions): Promise<ProofRun> {
   const current = await Promise.all(started.map(async (state) => (isSettled(state) ? withIdentity(await getProofRun(client, state.id, options.signal), state) : state)));
   const states = options.wait === false ? current : await waitForAll(client, current, timeoutMs, options.signal);
   const runs = states.map((state, index): ProofTargetRun => ({ ...state, appId: state.appId ?? targets[index]!.appId, build: builds[index]! }));
-  return { runs, ...overallVerdict(runs), ...(runs.find((run) => run.reportUrl)?.reportUrl ? { reportUrl: runs.find((run) => run.reportUrl)!.reportUrl! } : {}), pullRequest };
+  return {
+    runs,
+    ...overallVerdict(runs),
+    ...(runs.find((run) => run.reportUrl)?.reportUrl ? { reportUrl: runs.find((run) => run.reportUrl)!.reportUrl! } : {}),
+    ...(change !== undefined
+      ? { change: { reviewKey: change.reviewKey, headSha: change.headSha, ...(change.baseSha ? { baseSha: change.baseSha } : {}), title: change.title, ...(change.sourceUrl ? { sourceUrl: change.sourceUrl } : {}) } }
+      : { pullRequest: pullRequest! }),
+  };
 }
 
 function proofTargets(options: ProofOptions): ProofTarget[] {
@@ -240,7 +264,7 @@ function withIdentity(state: ProofRunState, known: ProofRunState): ProofRunState
 function detectPullRequest(): PullRequestContext {
   const identity = detectScmIdentity();
   if (identity?.ciSystem !== 'github-actions' || identity.pr === undefined) {
-    throw new VerifyError('PR_CONTEXT_MISSING', 'proof() needs a pull_request event on GitHub Actions to know the repository, pull request, and head commit.');
+    throw new VerifyError('PR_CONTEXT_MISSING', 'proof() needs a pull_request event on GitHub Actions to know the repository, pull request, and head commit. Elsewhere, prove the change itself with change (verify proof --no-scm).');
   }
   return { provider: 'github', repository: identity.repository, number: identity.pr, headSha: identity.commit, ...(identity.baseCommit ? { baseSha: identity.baseCommit } : {}) };
 }
@@ -274,4 +298,29 @@ function validAuthBypass(authBypass: ProofAuthBypass | undefined, environment: R
   if (missing.length > 0) {
     throw new VerifyError('INVALID_ARGUMENT', `authBypass.deepLink uses ${[...new Set(missing)].map((name) => '${' + name + '}').join(', ')}, which the target's environment doesn't set. Placeholders resolve only from the target's environment.`);
   }
+}
+
+function validChange(change: ProofChange): ProofChange {
+  if (typeof change !== 'object' || change === null) throw new VerifyError('INVALID_ARGUMENT', 'change must be an object with reviewKey, headSha, title, and diff.');
+  if (typeof change.reviewKey !== 'string' || !REVIEW_KEY.test(change.reviewKey)) {
+    throw new VerifyError('INVALID_ARGUMENT', 'change.reviewKey must be 1 to 200 letters, digits, and ._~:/!#@+=-, starting with a letter or digit, such as gitlab:group/app!17.');
+  }
+  const headSha = typeof change.headSha === 'string' ? change.headSha.trim().toLowerCase() : '';
+  if (!COMMIT.test(headSha)) throw new VerifyError('INVALID_ARGUMENT', 'change.headSha must be a full commit SHA (40 or 64 hexadecimal characters).');
+  const baseSha = typeof change.baseSha === 'string' ? change.baseSha.trim().toLowerCase() : change.baseSha;
+  if (baseSha !== undefined && (typeof baseSha !== 'string' || !COMMIT.test(baseSha))) throw new VerifyError('INVALID_ARGUMENT', 'change.baseSha must be a full commit SHA (40 or 64 hexadecimal characters).');
+  if (typeof change.title !== 'string' || change.title.trim() === '' || [...change.title].length > 512) throw new VerifyError('INVALID_ARGUMENT', 'change.title is required and takes at most 512 characters.');
+  if (change.description !== undefined && (typeof change.description !== 'string' || [...change.description].length > 65_536)) throw new VerifyError('INVALID_ARGUMENT', 'change.description takes at most 65,536 characters.');
+  if (typeof change.diff !== 'string' || change.diff.trim() === '') throw new VerifyError('INVALID_ARGUMENT', 'change.diff must be a non-empty unified diff (git diff base...head).');
+  if (Buffer.byteLength(change.diff, 'utf8') > MAX_DIFF_BYTES) throw new VerifyError('INVALID_ARGUMENT', 'change.diff is over 5 MiB, the most a proof takes.');
+  if (change.sourceUrl !== undefined) {
+    let url: URL | undefined;
+    try {
+      url = typeof change.sourceUrl === 'string' && change.sourceUrl.length <= 2048 ? new URL(change.sourceUrl) : undefined;
+    } catch {
+      url = undefined;
+    }
+    if (url?.protocol !== 'https:') throw new VerifyError('INVALID_ARGUMENT', 'change.sourceUrl must be an https URL of at most 2,048 characters.');
+  }
+  return { ...change, headSha, ...(baseSha ? { baseSha } : { baseSha: undefined }), title: change.title.trim() };
 }
