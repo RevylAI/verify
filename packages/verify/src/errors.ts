@@ -22,6 +22,28 @@ export type VerifyErrorCode =
   | 'ACCESS_DENIED'
   | 'MODEL_ERROR'
   | 'MODEL_KEY_MISSING'
+  | 'ARTIFACT_REJECTED'
+  | 'VERSION_EXISTS'
+  | 'UPLOAD_FAILED'
+  | 'PR_CONTEXT_MISSING'
+  | 'GITHUB_APP_NOT_CONNECTED'
+  | 'PROOF_RUN_ENDED'
+  | 'PROOF_RUN_CONFLICT'
+  | 'CONFIG_MANAGED_REVIEW'
+  | 'PR_CLOSED'
+  | 'HEAD_NOT_CURRENT'
+  | 'BUILD_REJECTED'
+  | 'UNTRUSTED_PR_HEAD'
+  | 'SECRET_REF_NOT_ALLOWED'
+  | 'PROOF_RUN_LIMIT'
+  | 'HEAD_SUPERSEDED'
+  | 'PROVIDER_UNAVAILABLE'
+  | 'PREVIEW_UNREACHABLE'
+  | 'ENVIRONMENT_START_FAILED'
+  | 'ENVIRONMENT_NOT_READY'
+  | 'TUNNEL_FAILED'
+  | 'TUNNEL_UNAVAILABLE'
+  | 'CLEANUP_FAILED'
   | 'TIMEOUT';
 
 export type RefusalReason = 'web_runtime_unavailable' | 'web_runtime_not_configured' | 'computer_limit' | 'runtime_unavailable' | 'computer_runtime_unavailable' | 'computer_at_capacity' | 'computer_platform_at_capacity' | 'computer_not_running' | 'computer_cannot_host_platform' | 'computer_not_found' | 'web_build_required' | 'web_build_not_supported' | 'ios_build_required' | 'ios_build_not_supported' | 'android_build_required' | 'android_build_not_supported' | 'web_session_conflict' | 'ios_session_conflict' | 'android_session_conflict' | 'not_available_on_platform' | 'request_timeout' | 'protocol_error';
@@ -30,13 +52,16 @@ export class VerifyError extends Error {
   readonly code: VerifyErrorCode;
   readonly reason?: RefusalReason;
   readonly httpStatus?: number;
+  /** The existing Proof of Changes runs for the head, on `PROOF_RUN_CONFLICT`. */
+  readonly proofRunIds?: string[];
 
-  constructor(code: VerifyErrorCode, message: string, options?: { cause?: unknown; reason?: RefusalReason; httpStatus?: number }) {
+  constructor(code: VerifyErrorCode, message: string, options?: { cause?: unknown; reason?: RefusalReason; httpStatus?: number; proofRunIds?: string[] }) {
     super(message, options);
     this.name = 'VerifyError';
     this.code = code;
     this.reason = options?.reason;
     this.httpStatus = options?.httpStatus;
+    this.proofRunIds = options?.proofRunIds;
   }
 }
 

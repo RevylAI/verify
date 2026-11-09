@@ -1,6 +1,14 @@
 export { attach, currentComputer, open } from './open.js';
 export type { AttachOptions, OpenOptions } from './open.js';
 export type { OpenedSession, Session, StepOptions, StepResult, StepType, ValidationOptions, OperationOptions, ExecOptions, ExecResult, FileStat, ComputerProcess, ComputerRecording } from './session.js';
+export { uploadBuild } from './upload.js';
+export type { ReviewCorrelation, ReviewCorrelationStatus, ScmIdentity, UploadBuildOptions, UploadBuildResult, UrlBuildResult } from './upload.js';
+export { proof } from './proof.js';
+export { changeFromGit } from './change.js';
+export type { ChangeFromGitOptions } from './change.js';
+export type { ProofAuthBypass, ProofBuildTarget, ProofChange, ProofEnvironmentValue, ProofHarness, ProofOptions, ProofRun, ProofSettings, ProofTarget, ProofTargetRun, ProofUrlTarget, PullRequestContext } from './proof.js';
+export { environment } from './environment.js';
+export type { Environment, EnvironmentOptions, ExposeProviderName } from './environment.js';
 export { defineConfig } from './config.js';
 export type { HostedTargetConfig, MobileAppConfig, MobileTargetConfig, ComputerTargetConfig, TargetConfig, VerifyConfig, WebAppConfig, WebTargetConfig } from './config.js';
 export type { Platform, ComputerPlatform, MobilePlatform } from './api/types.js';
