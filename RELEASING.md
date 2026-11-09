@@ -47,3 +47,7 @@ After both publishers are configured, publish the reviewed release by pushing an
 New npm Trusted Publisher configurations expire if they do not complete their first successful publish within two days. Configure them close to the first tag-based release, or recreate expired entries before publishing. Go tags such as `go/vX.Y.Z` do not trigger this workflow.
 
 After publication, verify the exact package version, integrity, dist-tags and archive contents from a fresh consumer. A successful local build or dry run is not proof of publication.
+
+## Python
+
+`.github/workflows/release-python.yml` publishes `revyl-verify` from an annotated `py/vX.Y.Z` tag on a `main` commit whose `python/pyproject.toml` version matches. It needs, once: a PyPI trusted publisher for project **revyl-verify**, owner **RevylAI**, repository **verify**, workflow **release-python.yml**, environment **pypi**; a GitHub environment named `pypi` (limit deployments to `py/v*` tags); the repository variable `VERIFY_PYPI_PUBLISH_ENABLED=true`; and a public repository, which attestations require. The workflow skips a version already on PyPI and validates without publishing on manual dispatch. Python tags create no GitHub release. After publication, install the exact version into a clean virtual environment and import it.
