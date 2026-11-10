@@ -81,9 +81,9 @@ def _approve(backend: str, viewer: str, deadline: Deadline) -> str:
     device_code = _required(authorization, "device_code")
     user_code = _required(authorization, "user_code")
     url = _required(authorization, "verification_uri_complete")
-    parsed, expected = urlsplit(url), urlsplit(viewer)
+    parsed = urlsplit(url)
     if (
-        (parsed.scheme, parsed.netloc) != (expected.scheme, expected.netloc)
+        _origin(url) != _origin(viewer)
         or parsed.path != "/cli/device"
         or parsed.username is not None
         or parsed.password is not None
@@ -205,8 +205,16 @@ def _call(
             done.set()
 
     threading.Thread(target=fetch, daemon=True).start()
-    while not done.wait(min(0.25, limit.remaining())):
-        pass
+    try:
+        while not done.wait(min(0.25, limit.remaining())):
+            pass
+    except VerifyError:
+        deadline.remaining()
+        raise VerifyError(
+            "AUTH_MISSING",
+            "Could not reach Revyl to sign in. "
+            "Run your script again, use revyl auth login, or set REVYL_API_KEY.",
+        ) from None
     try:
         if isinstance(outcome[0], Exception):
             raise outcome[0]
@@ -236,6 +244,18 @@ def _call(
         return obj(Response(200, raw).json())
     except VerifyError:
         raise _invalid() from None
+
+
+def _origin(raw: str) -> tuple[str, str, int | None]:
+    parts = urlsplit(raw)
+    try:
+        port = parts.port
+    except ValueError:
+        raise _invalid() from None
+    scheme = parts.scheme.lower()
+    if port == {"https": 443, "http": 80}.get(scheme):
+        port = None
+    return scheme, parts.hostname or "", port
 
 
 def _optional(value: dict[str, Json], key: str) -> str | None:
