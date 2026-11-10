@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { VerifyError } from '../errors.js';
 import { PACKAGE_NAME } from '../version.js';
@@ -25,25 +25,28 @@ export async function packageHasVerify(cwd: string): Promise<boolean> {
 export async function installVerify(cwd: string): Promise<void> {
   const manager = detectPackageManager(cwd);
   if (!existsSync(join(cwd, 'package.json'))) await writeFile(join(cwd, 'package.json'), '{\n  "private": true,\n  "type": "module"\n}\n', { flag: 'wx' });
+  const shell = process.platform === 'win32';
   const args = manager === 'npm'
     ? ['install', '--save-dev', '--ignore-scripts']
+    : manager === 'pnpm'
+    ? ['add', '-D', '--ignore-scripts']
     : manager === 'yarn'
-    ? ['add', '--dev', '--mode=skip-builds']
+    ? yarnAddArgs(cwd, shell)
     : ['add', '--dev', '--ignore-scripts'];
   args.push(PACKAGE_NAME);
   process.stdout.write(`Installing ${PACKAGE_NAME} with ${manager}...\n`);
   await new Promise<void>((resolve, reject) => {
-    const env = Object.fromEntries(
-      ['PATH', 'HOME', 'USERPROFILE', 'TMPDIR', 'TEMP', 'TMP'].flatMap((key) => {
-        const value = process.env[key];
-        return value === undefined ? [] : [[key, value]];
-      }),
-    );
-    const child = spawn(manager, args, { cwd, env, stdio: 'inherit', shell: process.platform === 'win32', timeout: 180_000, killSignal: 'SIGKILL' });
+    const child = spawn(manager, args, { cwd, stdio: 'inherit', shell, timeout: 180_000, killSignal: 'SIGKILL' });
     const fail = () => reject(new VerifyError('CONFIG_INVALID', `Could not install ${PACKAGE_NAME} with ${manager}. Install it manually, then retry init --no-install.`));
     child.once('error', fail);
     child.once('exit', (code) => code === 0 ? resolve() : fail());
   });
+}
+
+function yarnAddArgs(cwd: string, shell: boolean): string[] {
+  const major = Number.parseInt(spawnSync('yarn', ['--version'], { cwd, shell, encoding: 'utf8', timeout: 60_000 }).stdout?.trim() ?? '', 10);
+  if (major === 1) return ['add', '--dev', '--ignore-scripts'];
+  return major >= 3 ? ['add', '--dev', '--mode=skip-build'] : ['add', '--dev'];
 }
 
 function detectPackageManager(cwd: string): PackageManager {

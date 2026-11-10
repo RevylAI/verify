@@ -15,4 +15,4 @@ The CLI delegates to `@revyl/verify`, including its output, generated imports, a
 import { open } from 'revyl-verify';
 ```
 
-Use Node.js 22.18 or later. See the [Verify documentation](https://github.com/RevylAI/verify/tree/v0.3.1/packages/verify/docs) for configuration, API and platform availability. This package shares Verify's [Apache 2.0 license](https://github.com/RevylAI/verify/blob/v0.3.1/LICENSE).
+Use Node.js 22.18 or later. See the [Verify documentation](https://github.com/RevylAI/verify/tree/v0.3.2/packages/verify/docs) for configuration, API and platform availability. This package shares Verify's [Apache 2.0 license](https://github.com/RevylAI/verify/blob/v0.3.2/LICENSE).

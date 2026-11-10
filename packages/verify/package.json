@@ -1,6 +1,6 @@
 {
   "name": "@revyl/verify",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Open Revyl cloud browsers and mobile devices for agent steps, or Mac and Linux computers for commands and files, from TypeScript.",
   "keywords": [
     "e2e",

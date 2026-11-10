@@ -144,6 +144,11 @@ async function whoamiCommand(): Promise<number> {
 }
 
 export async function runCli(argv: string[]): Promise<number> {
+  const [major = 0, minor = 0] = process.versions.node.split('.').map(Number);
+  if (major < 22 || (major === 22 && minor < 18)) {
+    process.stderr.write(`Verify needs Node.js 22.18 or later; this is Node.js ${process.version}.\n`);
+    return 1;
+  }
   try {
     return await main(argv);
   } catch (error) {
