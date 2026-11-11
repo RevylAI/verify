@@ -61,6 +61,8 @@ const (
 	ErrCommandFailed          Code = "COMMAND_FAILED"
 	ErrNotFound               Code = "NOT_FOUND"
 	ErrAccessDenied           Code = "ACCESS_DENIED"
+	ErrModelError             Code = "MODEL_ERROR"
+	ErrModelKeyMissing        Code = "MODEL_KEY_MISSING"
 	ErrTimeout                Code = "TIMEOUT"
 )
 
