@@ -5,15 +5,40 @@ import sys
 from collections.abc import Callable
 from typing import Literal
 
+from ._agent import (
+    CustomModel,
+    Grounding,
+    LocalAgent,
+    Location,
+    ModelOption,
+    SwipeDirection,
+    choose_agent,
+    local_agent,
+)
 from ._async import AsyncSession, async_attach, async_open
 from ._cleanup import install_signal_cleanup
 from ._computer import ComputerSession
+from ._model import (
+    ModelAdapter,
+    ModelImage,
+    ModelReply,
+    ModelRequest,
+    ModelTool,
+    ModelToolCall,
+    ModelUsage,
+    anthropic,
+    openai_compatible,
+)
 from ._models import (
     ComputerProcess,
     ComputerRecording,
     ExecResult,
     FileStat,
+    ModelRun,
+    ModelTurn,
     Platform,
+    Point,
+    ScreenSize,
     SignIn,
     StepResult,
     Target,
@@ -29,22 +54,42 @@ __all__ = [
     "ComputerRecording",
     "ComputerSession",
     "CleanupStatus",
+    "CustomModel",
     "ExecResult",
     "FileStat",
+    "Grounding",
+    "LocalAgent",
+    "Location",
+    "ModelAdapter",
+    "ModelImage",
+    "ModelOption",
+    "ModelReply",
+    "ModelRequest",
+    "ModelRun",
+    "ModelTool",
+    "ModelToolCall",
+    "ModelTurn",
+    "ModelUsage",
     "Platform",
+    "Point",
     "RefusalReason",
+    "ScreenSize",
     "Session",
     "SignIn",
     "StepResult",
+    "SwipeDirection",
     "Target",
     "VerifyError",
     "Viewport",
+    "anthropic",
     "attach",
     "async_attach",
     "async_current_computer",
     "async_open",
     "current_computer",
+    "local_agent",
     "open",
+    "openai_compatible",
 ]
 
 
@@ -79,6 +124,8 @@ def open(
     app_url: str | None = None,
     step_timeout: float = 180,
     log: Callable[[str], None] | Literal[False] | None = None,
+    model: ModelOption | None = None,
+    agent: LocalAgent | None = None,
     _cancellation: Cancellation | None = None,
 ) -> Session:
     from ._transport import Client
@@ -86,14 +133,22 @@ def open(
     if not isinstance(target, Target):
         raise VerifyError("INVALID_ARGUMENT", "open() requires a Target value.")
     target.validate()
+    local = choose_agent(model, agent, "open()")
+    computer = target.platform in ("mac", "linux")
+    if local is not None and computer:
+        raise VerifyError(
+            "NOT_AVAILABLE_ON_PLATFORM",
+            "Your own model runs steps on browsers and devices, not on computers.",
+        )
     install_signal_cleanup()
     seconds(step_timeout, 1, 3600, "step_timeout")
     progress = _progress(log)
     viewer = origin(app_url or "https://app.revyl.ai", app=True)
     client = Client(backend_url, app_url, _cancellation)
-    session = (ComputerSession if target.platform in ("mac", "linux") else Session).start(
+    session = (ComputerSession if computer else Session).start(
         client, viewer, target, step_timeout, progress, _cancellation
     )
+    session._agent = local
     return session
 
 

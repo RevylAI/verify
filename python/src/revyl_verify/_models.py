@@ -181,12 +181,44 @@ class Target:
 
 
 @dataclass(frozen=True)
+class Point:
+    x: int
+    y: int
+
+
+@dataclass(frozen=True)
+class ScreenSize:
+    width: int
+    height: int
+
+
+@dataclass(frozen=True)
+class ModelTurn:
+    action: str
+    ok: bool
+    model_seconds: float
+    action_seconds: float
+    input_tokens: int
+    output_tokens: int
+
+
+@dataclass(frozen=True)
+class ModelRun:
+    id: str
+    grounding: Literal["model", "revyl"]
+    turns: list[ModelTurn]
+    input_tokens: int
+    output_tokens: int
+
+
+@dataclass(frozen=True)
 class StepResult:
     type: Literal["instruction", "validation"]
     text: str
     passed: bool
     reason: str | None
     duration_seconds: float
+    model: ModelRun | None = None
 
 
 @dataclass(frozen=True)
