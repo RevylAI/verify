@@ -1,6 +1,6 @@
 {
   "name": "revyl-verify",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Unscoped alias for @revyl/verify, with the same API and CLI.",
   "homepage": "https://github.com/RevylAI/verify#readme",
   "repository": {
@@ -16,7 +16,8 @@
   "exports": {
     ".": {
       "types": "./index.d.ts",
-      "import": "./index.js"
+      "import": "./index.js",
+      "default": "./index.js"
     },
     "./package.json": "./package.json"
   },
@@ -28,7 +29,7 @@
     "node": ">=22.18"
   },
   "dependencies": {
-    "@revyl/verify": "0.3.1"
+    "@revyl/verify": "0.3.2"
   },
   "scripts": {
     "prepack": "cp ../../LICENSE LICENSE && chmod +x cli.js"

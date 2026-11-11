@@ -90,7 +90,7 @@ Web and mobile targets need an app. Open the app in Revyl and copy its id into `
 node verify/example.ts
 ```
 
-If Node warns that the module type is not specified, add `"type": "module"` to your `package.json` or rename the script to `example.mts`.
+If Node warns that the module type is not specified, add `"type": "module"` to your `package.json` or rename the script to `example.mts`. In a Yarn Plug'n'Play project, the default since Yarn 2, run it with `yarn node verify/example.ts`.
 
 Illustrative output (durations vary):
 

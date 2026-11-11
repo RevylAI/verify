@@ -10,7 +10,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
-    "@revyl/verify": "0.3.1",
+    "@revyl/verify": "0.3.2",
     "@types/node": "^22.10.0",
     "typescript": "^5.9.0"
   }
