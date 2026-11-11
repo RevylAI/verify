@@ -28,6 +28,8 @@ import { trackSession, untrackSession } from './cleanup.js';
 import type { HostedTargetConfig, ResolvedDeviceTarget } from './config.js';
 import { VerifyError, errorMessage, isVerifyError } from './errors.js';
 import { screenHasContent } from './screen-readiness.js';
+import { runLocalStep, type DeviceAction, type LocalAgent, type Location, type ModelRun, type Point, type SwipeDirection } from './agent/loop.js';
+import { chooseAgent, type ModelOption } from './agent/providers.js';
 
 const POLL_INTERVAL_MS = 2_000;
 const DEVICE_CONNECT_TIMEOUT_MS = 90_000;
@@ -42,6 +44,7 @@ const ENDED_STATUSES = new Set(['completed', 'failed', 'cancelled', 'timeout', '
 const STEP_TERMINAL_STATUSES = new Set(['completed', 'failed']);
 const SESSION_NOT_RUNNING = /session is (not running|not active|stopping)/i;
 const UNCERTAIN_ERROR_CODES = new Set(['request_timeout', 'connection_closed', 'protocol_error']);
+const WEB_TARGET_ERRORS = new Set(['stale_target', 'target_unstable', 'invalid_coordinates', 'target_not_found', 'unsupported_web_element', 'invalid_action', 'grounding_failed', 'password_field_required', 'password_focus_changed']);
 
 export type StepType = LiveStepType;
 
@@ -50,14 +53,20 @@ export interface StepResult {
   type: StepType;
   text: string;
   passed: boolean;
-  /** Revyl's explanation, when it gave one. */
+  /** Revyl's explanation, or your model's when the step ran on a local agent. */
   reason?: string;
   durationMs: number;
+  /** Present when the step ran on your model: its name, grounding, turns and token use. */
+  model?: ModelRun;
 }
 
 export interface StepOptions {
-  /** Milliseconds before the step is cancelled on Revyl. Defaults to stepTimeout from the config, or 180000. */
+  /** Milliseconds before the step is cancelled. Defaults to stepTimeout from the config, or 180000. */
   timeout?: number;
+  /** Runs this step on your model, such as 'anthropic/claude-sonnet-5-5', instead of Revyl's agent. Overrides the model passed to open(). */
+  model?: ModelOption;
+  /** Runs this step on a custom agent from localAgent(). Overrides the one passed to open(); pass model or agent, not both. */
+  agent?: LocalAgent;
 }
 
 export interface ValidationOptions extends StepOptions {
@@ -146,12 +155,31 @@ export interface OpenedSession extends Session {
   report(): Promise<Record<string, unknown>>;
   navigate(url: string): Promise<void>;
   open(target: HostedTargetConfig): Promise<OpenedSession>;
+  /** Taps a point in device units, or an element Revyl locates from a description. Returns the point tapped. Browsers and devices only. */
+  tap(at: Location): Promise<Point>;
+  /** Taps a text field and types into it, clearing it first unless clear is false. Returns the point tapped. Browsers and devices only. */
+  type(at: Location, text: string, options?: { clear?: boolean }): Promise<Point>;
+  /** Swipes from a point or the screen's center. 'up' moves the finger up, which scrolls content down. Browsers and devices only. */
+  swipe(direction: SwipeDirection, options?: { from?: Location }): Promise<void>;
+  /** Presses Enter or Backspace on the focused field. Browsers and devices only. */
+  pressKey(key: 'enter' | 'backspace'): Promise<void>;
+  /** Goes back: browser history on Web, the back button on Android. Not on iOS. */
+  back(): Promise<void>;
+  /** Opens a URL or deep link on a device, or loads a URL in a browser. */
+  openUrl(url: string): Promise<void>;
+  /** Launches an installed app by bundle ID or package name. Devices only. */
+  launchApp(bundleId: string): Promise<void>;
+  /** Asks Revyl's grounding model where an element is on the current screen, in device units. Browsers and devices only. */
+  locate(target: string): Promise<Point>;
+  /** The screen size in device units: iOS points, Android and Web pixels. Browsers and devices only. */
+  screenSize(): Promise<{ width: number; height: number }>;
 }
 
 export interface SessionOptions {
   stepTimeout: number;
   log: ((line: string) => void) | undefined;
   appUrl?: string;
+  agent?: LocalAgent;
 }
 
 export interface HostingParent {
@@ -177,6 +205,8 @@ export class DeviceSession implements Session {
   private stepRunning = false;
   private parent?: HostingParent;
   private readySignal?: AbortSignal;
+  private size?: { width: number; height: number };
+  private attribution?: Record<string, string>;
 
   get expiresAt(): Date | undefined {
     return this.parent?.expiresAt;
@@ -330,7 +360,7 @@ export class DeviceSession implements Session {
 
   /** Asks Revyl's agent to do something on the app, such as "add the first product to the cart". Throws INSTRUCTION_FAILED when it cannot. */
   async instruction(text: string, options: StepOptions = {}): Promise<StepResult> {
-    const result = await this.step('instruction', text, options.timeout);
+    const result = await this.step('instruction', text, options);
     if (!result.passed) {
       throw new VerifyError('INSTRUCTION_FAILED', `Instruction failed: "${result.text}". ${sentence(result.reason)} See ${this.viewerUrl}`);
     }
@@ -342,7 +372,7 @@ export class DeviceSession implements Session {
    * unless soft is set, and STEP_FAILED when Revyl could not reach a verdict.
    */
   async validation(text: string, options: ValidationOptions = {}): Promise<StepResult> {
-    const result = await this.step('validation', text, options.timeout);
+    const result = await this.step('validation', text, options);
     if (!result.passed && !options.soft) {
       throw new VerifyError('VALIDATION_FAILED', `Validation failed: "${result.text}". ${sentence(result.reason)} See ${this.viewerUrl}`);
     }
@@ -368,13 +398,18 @@ export class DeviceSession implements Session {
     return report as Record<string, unknown>;
   }
 
-  async navigate(url: string): Promise<void> {
-    if (this.platform !== 'web') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'navigate() is available only on web sessions.');
+  navigate(url: string): Promise<void> {
+    return this.navigateTo(url);
+  }
+
+  private async navigateTo(url: string, signal?: AbortSignal): Promise<void> {
+    if (this.platform !== 'web') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'navigate() is available only on web sessions; use openUrl() on iOS and Android.');
     if (typeof url !== 'string' || url.length > 2048 || /[\x00-\x20\x7f-\x9f\s\\]/.test(url)) throw new VerifyError('INVALID_ARGUMENT', 'navigate() requires an http(s) URL without credentials, whitespace, or backslashes.');
     let parsed: URL;
     try { parsed = new URL(url); } catch { throw new VerifyError('INVALID_ARGUMENT', 'navigate() requires a valid http(s) URL.'); }
     if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password) throw new VerifyError('INVALID_ARGUMENT', 'navigate() requires an http(s) URL without credentials.');
-    const response = await this.worker('POST', 'open_url', { body: { url }, retry: false });
+    signal?.throwIfAborted();
+    const response = await this.worker('POST', 'open_url', { body: { url }, retry: false, ...(signal ? { signal } : {}) });
     const result = parseJson<{ success?: boolean; action?: string; status_code?: number }>(response, 'open_url');
     if (!result || typeof result !== 'object' || typeof result.success !== 'boolean' || (result.action !== undefined && result.action !== 'navigate') || (result.status_code !== undefined && (!Number.isInteger(result.status_code) || result.status_code < 100 || result.status_code > 599))) throw new VerifyError('API_ERROR', 'Revyl returned an invalid navigation response.');
     if (!result.success) throw new VerifyError('ACTION_FAILED', `Revyl did not confirm navigation. See ${this.viewerUrl}`);
@@ -430,11 +465,12 @@ export class DeviceSession implements Session {
     return this.close();
   }
 
-  private async step(type: StepType, text: string, timeout: number | undefined): Promise<StepResult> {
+  private async step(type: StepType, text: string, options: StepOptions): Promise<StepResult> {
     if (typeof text !== 'string' || text.trim() === '' || text.length > MAX_STEP_TEXT_LENGTH) {
       throw new VerifyError('INVALID_ARGUMENT', `${type}() takes a description of 1 to ${MAX_STEP_TEXT_LENGTH} characters.`);
     }
-    const timeoutMs = timeout ?? this.options.stepTimeout;
+    const agent = chooseAgent(options, `${type}()`) ?? this.options.agent;
+    const timeoutMs = options.timeout ?? this.options.stepTimeout;
     if (!Number.isInteger(timeoutMs) || timeoutMs < 1_000) {
       throw new VerifyError('INVALID_ARGUMENT', `${type}() takes a timeout of at least 1000 ms.`);
     }
@@ -445,6 +481,13 @@ export class DeviceSession implements Session {
     const description = text.trim();
     const startedAt = Date.now();
     try {
+      if (agent) {
+        const local = await this.runLocal(type, description, timeoutMs, agent);
+        const result: StepResult = { type, text: description, passed: local.passed, ...(local.reason ? { reason: local.reason } : {}), durationMs: Date.now() - startedAt, model: local.run };
+        this.steps.push(result);
+        this.log(`${local.passed ? '✓' : '✗'} ${type} "${description}" (${formatDuration(result.durationMs)}, ${local.run.turns.length} turn${local.run.turns.length === 1 ? '' : 's'} on ${local.run.id}, ${local.run.inputTokens + local.run.outputTokens} tokens)${!local.passed && local.reason ? `: ${local.reason}` : ''}`);
+        return result;
+      }
       const outcome = await this.runStep(type, description, timeoutMs);
       const output = outcome.step_output ?? {};
       const reason = output.status_reason ?? output.reasoning ?? undefined;
@@ -523,6 +566,169 @@ export class DeviceSession implements Session {
     }
   }
 
+  private async runLocal(type: StepType, description: string, timeoutMs: number, agent: LocalAgent): Promise<{ passed: boolean; reason?: string; run: ModelRun }> {
+    const signal = AbortSignal.timeout(timeoutMs);
+    this.attribution = {
+      'X-Revyl-Agent': `Verify local: ${agent.model.name}`.replace(/[^\x20-\x7e]/g, '?').slice(0, 100),
+      'X-Revyl-Agent-Session-Id': randomUUID(),
+    };
+    try {
+      return await runLocalStep(type, description, agent, this.agentControls(), signal, (line) => this.log(line));
+    } catch (error) {
+      if (signal.aborted && !(isVerifyError(error) && error.code !== 'TIMEOUT')) {
+        throw new VerifyError('TIMEOUT', `The ${type} did not finish within ${timeoutMs} ms on ${agent.model.name}: "${description}". See ${this.viewerUrl}`, { cause: error });
+      }
+      throw error;
+    } finally {
+      this.attribution = undefined;
+    }
+  }
+
+  private agentControls() {
+    const platform = this.platform;
+    if (platform !== 'ios' && platform !== 'android' && platform !== 'web') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `Local agents run on browsers and devices, not on ${platform}.`);
+    return {
+      platform,
+      capture: (signal: AbortSignal) => this.capture(signal),
+      screenSize: (signal: AbortSignal) => this.readScreenSize(signal),
+      perform: (action: DeviceAction, screenToken: string | undefined, signal: AbortSignal) => this.perform(action, screenToken, signal),
+    };
+  }
+
+  /** Taps a point in device units, or an element Revyl locates from a description. Returns the point tapped. */
+  async tap(at: Location): Promise<Point> {
+    return (await this.perform({ kind: 'tap', at: checkLocation(at) }))!;
+  }
+
+  /** Taps a text field and types into it, clearing it first unless clear is false. Returns the point tapped. */
+  async type(at: Location, text: string, options: { clear?: boolean } = {}): Promise<Point> {
+    if (typeof text !== 'string' || text.length > 16_384) throw new VerifyError('INVALID_ARGUMENT', 'type() takes text of at most 16384 characters.');
+    return (await this.perform({ kind: 'type', at: checkLocation(at), text, clear: options.clear !== false }))!;
+  }
+
+  /** Swipes from a point or the screen's center. 'up' moves the finger up, which scrolls content down. */
+  async swipe(direction: SwipeDirection, options: { from?: Location } = {}): Promise<void> {
+    if (!['up', 'down', 'left', 'right'].includes(direction)) throw new VerifyError('INVALID_ARGUMENT', "swipe() takes 'up', 'down', 'left' or 'right'.");
+    await this.perform({ kind: 'swipe', direction, ...(options.from ? { from: checkLocation(options.from) } : {}) });
+  }
+
+  /** Presses Enter or Backspace on the focused field. */
+  async pressKey(key: 'enter' | 'backspace'): Promise<void> {
+    if (key !== 'enter' && key !== 'backspace') throw new VerifyError('INVALID_ARGUMENT', "pressKey() takes 'enter' or 'backspace'.");
+    await this.perform({ kind: 'key', key });
+  }
+
+  /** Goes back: browser history on Web, the back button on Android. Not on iOS. */
+  async back(): Promise<void> {
+    await this.perform({ kind: 'back' });
+  }
+
+  /** Opens a URL or deep link on a device, or loads a URL in a browser. */
+  async openUrl(url: string): Promise<void> {
+    if (typeof url !== 'string' || url.length === 0 || url.length > 8_192) throw new VerifyError('INVALID_ARGUMENT', 'openUrl() takes a URL of 1 to 8192 characters.');
+    await this.perform({ kind: 'open_url', url });
+  }
+
+  /** Launches an installed app by bundle ID or package name. Devices only. */
+  async launchApp(bundleId: string): Promise<void> {
+    if (this.platform === 'web') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'launchApp() is available only on iOS and Android sessions; on web, use openUrl() or navigate().');
+    if (typeof bundleId !== 'string' || !/^[A-Za-z0-9._-]{1,255}$/.test(bundleId)) throw new VerifyError('INVALID_ARGUMENT', 'launchApp() takes a bundle ID or package name.');
+    await this.act('launch', { bundle_id: bundleId });
+  }
+
+  /** Asks Revyl's grounding model where an element is on the current screen, in device units. */
+  async locate(target: string): Promise<Point> {
+    const { x, y } = await this.resolve(checkLocation({ target }));
+    return { x, y };
+  }
+
+  /** The screen size in device units: iOS points, Android and Web pixels. */
+  screenSize(): Promise<{ width: number; height: number }> {
+    return this.readScreenSize();
+  }
+
+  private async readScreenSize(signal?: AbortSignal): Promise<{ width: number; height: number }> {
+    if (this.size) return this.size;
+    if (this.platform !== 'web') {
+      const health = parseJson<WorkerHealth>(await this.worker('GET', 'health', { retry: true, ...(signal ? { signal } : {}) }), 'health');
+      if (Number.isInteger(health.screen_width) && Number.isInteger(health.screen_height) && health.screen_width! > 0 && health.screen_height! > 0) {
+        this.size = { width: health.screen_width!, height: health.screen_height! };
+        return this.size;
+      }
+    }
+    const size = pngSize((await this.capture(signal)).png);
+    if (!size) throw new VerifyError('ACTION_FAILED', 'Revyl returned a screenshot that is not a PNG image.');
+    this.size = size;
+    return size;
+  }
+
+  private async capture(signal?: AbortSignal): Promise<{ png: Uint8Array; screenToken?: string }> {
+    const response = await this.worker('GET', 'screenshot', { retry: true, ...(signal ? { signal } : {}) });
+    if (!pngSize(response.body)) throw new VerifyError('ACTION_FAILED', 'Revyl returned a screenshot that is not a PNG image.');
+    const screenToken = this.platform === 'web' ? response.headers.get('x-revyl-screen-token') ?? undefined : undefined;
+    return { png: response.body, ...(screenToken ? { screenToken } : {}) };
+  }
+
+  private async perform(action: DeviceAction, screenToken?: string, signal?: AbortSignal): Promise<Point | undefined> {
+    switch (action.kind) {
+      case 'tap': {
+        if ('target' in action.at && this.platform !== 'web') {
+          signal?.throwIfAborted();
+          const result = parseJson<{ success?: boolean; found?: boolean; x?: number; y?: number; error?: string | null }>(
+            await this.worker('POST', 'tap_target', { body: { target: action.at.target, ...(this.id ? { session_id: this.id } : {}) }, ...(signal ? { signal } : {}) }),
+            'tap_target',
+          );
+          if (result.found === false) throw new VerifyError('ACTION_FAILED', `Revyl could not find "${action.at.target}" on the screen.`);
+          if (result.success !== true || typeof result.x !== 'number' || typeof result.y !== 'number') throw new VerifyError('ACTION_FAILED', `tap failed: ${result.error ?? 'no reason given'}`);
+          return { x: Math.round(result.x), y: Math.round(result.y) };
+        }
+        const point = await this.resolve(action.at, screenToken, signal);
+        await this.act('tap', pointBody(point, action.at), signal);
+        return { x: point.x, y: point.y };
+      }
+      case 'type': {
+        const point = await this.resolve(action.at, screenToken, signal);
+        await this.act('input', { ...pointBody(point, action.at), text: action.text, clear_first: action.clear }, signal);
+        return { x: point.x, y: point.y };
+      }
+      case 'swipe': {
+        const point = action.from ? await this.resolve(action.from, screenToken, signal) : await this.readScreenSize(signal).then((size) => ({ x: Math.floor(size.width / 2), y: Math.floor(size.height / 2) }));
+        await this.act('swipe', { ...pointBody(point, action.from), direction: action.direction, duration_ms: 500 }, signal);
+        return undefined;
+      }
+      case 'key':
+        await this.act('key', { key: this.platform === 'web' ? (action.key === 'enter' ? 'Enter' : 'Backspace') : action.key.toUpperCase() }, signal);
+        return undefined;
+      case 'back':
+        if (this.platform === 'ios') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'back() is not available on iOS; tap the on-screen back control.');
+        await this.act('back', undefined, signal);
+        return undefined;
+      case 'open_url':
+        signal?.throwIfAborted();
+        if (this.platform === 'web') await this.navigateTo(action.url, signal);
+        else await this.act('open_url', { url: action.url }, signal);
+        return undefined;
+    }
+  }
+
+  private async resolve(at: Location, screenToken?: string, signal?: AbortSignal): Promise<Point & { screenToken?: string }> {
+    if ('x' in at) return { x: at.x, y: at.y, ...(screenToken ? { screenToken } : {}) };
+    const result = parseJson<{ found?: boolean; x?: number | null; y?: number | null; error?: string | null; screen_token?: string | null }>(
+      await this.worker('POST', 'resolve_target', { body: { target: at.target, ...(this.id ? { session_id: this.id } : {}), ...(screenToken ? { screen_token: screenToken } : {}) }, ...(signal ? { signal } : {}) }),
+      'resolve_target',
+    );
+    if (result.found !== true || typeof result.x !== 'number' || typeof result.y !== 'number') {
+      throw new VerifyError('ACTION_FAILED', `Revyl could not find "${at.target}" on the screen${result.error && this.platform !== 'web' ? `: ${result.error}` : ''}.`);
+    }
+    return { x: Math.round(result.x), y: Math.round(result.y), ...(result.screen_token ? { screenToken: result.screen_token } : {}) };
+  }
+
+  private async act(action: string, body: Record<string, unknown> | undefined, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
+    const result = parseJson<WorkerActionResult>(await this.worker('POST', action, { body: body ?? {}, ...(signal ? { signal } : {}) }), action);
+    if (result.success !== true) throw new VerifyError('ACTION_FAILED', `${action} failed on the ${this.target} session: ${result.error ?? 'no reason given'}. See ${this.viewerUrl}`);
+  }
+
   private async launch(bundleId: string): Promise<void> {
     const response = await this.worker('POST', 'launch', { body: { bundle_id: bundleId } });
     const result = parseJson<WorkerActionResult>(response, 'launch');
@@ -576,9 +782,17 @@ export class DeviceSession implements Session {
       ...(options.signal ? [options.signal] : []),
     ]) : options.signal;
     const { allow, ...request } = options;
-    const response = await this.client.worker(this.workflowRunId, action, { method, ...request, signal });
+    let response: RawResponse;
+    try {
+      response = await this.client.worker(this.workflowRunId, action, { method, ...request, signal, ...(this.attribution ? { headers: this.attribution } : {}) });
+    } catch (error) {
+      if (method === 'POST' && action !== 'resolve_target' && options.signal?.aborted && isVerifyError(error) && error.code === 'TIMEOUT') {
+        throw new VerifyError('ACTION_UNCERTAIN', `The step deadline passed while ${action} was in flight, so it may have been applied. Verify did not repeat it. See ${this.viewerUrl}`, { cause: error });
+      }
+      throw error;
+    }
     if ((response.status >= 200 && response.status < 300) || allow?.(response)) return response;
-    if (action === 'open_url') {
+    if (action === 'open_url' && this.platform === 'web') {
       const error = this.workerError(method, action, response);
       const reason = responseRefusalReason(response);
       const message = error.code === 'ACTION_UNCERTAIN' && reason === 'request_timeout'
@@ -603,6 +817,9 @@ export class DeviceSession implements Session {
         );
       }
       return new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `${baseAction} is not available on ${this.platform} sessions (${reason}).`);
+    }
+    if (WEB_TARGET_ERRORS.has(code ?? detail ?? '')) {
+      return new VerifyError('ACTION_FAILED', `${baseAction} could not act on the screen (${code ?? detail}). Take a fresh screenshot and try again. See ${this.viewerUrl}`);
     }
     if (response.status === 404 || response.status === 410) {
       return new VerifyError('SESSION_ENDED', `The ${this.target} session is no longer reachable (${reason}). See ${this.viewerUrl}`);
@@ -731,6 +948,21 @@ export function pngSize(bytes: Uint8Array): { width: number; height: number } | 
   const width = view.getUint32(16);
   const height = view.getUint32(20);
   return width > 0 && height > 0 ? { width, height } : undefined;
+}
+
+function checkLocation(at: Location): Location {
+  if (at && typeof at === 'object' && 'target' in at) {
+    if (typeof at.target !== 'string' || at.target.trim() === '' || at.target.length > 500) throw new VerifyError('INVALID_ARGUMENT', 'A target is a description of 1 to 500 characters.');
+    return { target: at.target.trim() };
+  }
+  if (!at || typeof at !== 'object' || !Number.isInteger(at.x) || !Number.isInteger(at.y) || at.x < 0 || at.y < 0) {
+    throw new VerifyError('INVALID_ARGUMENT', 'A location is { x, y } in non-negative whole device units, or { target: "description" }.');
+  }
+  return { x: at.x, y: at.y };
+}
+
+function pointBody(point: Point & { screenToken?: string }, at: Location | undefined): Record<string, unknown> {
+  return { x: point.x, y: point.y, ...(point.screenToken ? { screen_token: point.screenToken } : {}), ...(at && 'target' in at ? { target: at.target } : {}) };
 }
 
 function formatDuration(ms: number): string {

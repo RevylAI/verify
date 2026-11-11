@@ -43,7 +43,7 @@ try {
 | `AUTH_MISSING` | No `REVYL_API_KEY` and no saved login | Run `npx @revyl/verify login` in a terminal, or set `REVYL_API_KEY` |
 | `AUTH_REJECTED` | Revyl rejected the credentials | Create a new API key, or log in again |
 | `EDGE_BLOCKED` | An HTTP 403 has a `text/html` content type and nonempty `cf-ray`, without a valid JSON body | Check network access or contact support; Verify does not retry the request |
-| `API_ERROR` | Revyl returned an unexpected response | Try again; if it persists, report it with the session link |
+| `API_ERROR` | Revyl returned an unexpected response | Try again; after an exact action, check the session first, since the action may have run. If it persists, report it with the session link |
 | `SESSION_START_FAILED` | The browser, device, or computer did not start | Computer `no_host` reports the 120-second unclaimed-start context; `device_limit` reports queued-work/concurrency context. Inspect the session and cleanup before starting again. |
 | `SESSION_ENDED` | The session was closed, stopped, or expired, or Revyl answered 404 for the session itself | Close explicitly; computer expiry does not prove release |
 | `SESSION_BUSY` | A step conflict, computer operation limit, or recording requested before terminal state and confirmed release | Inspect the state before another call; a terminal computer alone does not prove release |
@@ -57,6 +57,8 @@ try {
 | `INSTRUCTION_FAILED` | Revyl's agent could not do what the instruction asked | Make the instruction more specific, or split it into smaller steps |
 | `VALIDATION_FAILED` | The validation did not hold | The message has Revyl's reason; watch the recording at the session link |
 | `STEP_FAILED` | Revyl could not run the step to an outcome: it errored, it was cancelled on Revyl, a validation came back without a verdict, or Revyl accepted the step but still answered "Live step not found" about 10 seconds later (`httpStatus` 404). This says nothing about your app, and `soft` does not cover it. Verify leaves the session open. | Watch the session at the link. After "Live step not found", the step may still be running, so wait for it to finish (another step meanwhile gets `SESSION_BUSY`), then run the step again |
+| `MODEL_ERROR` | Your model's provider refused the request or could not be reached after retries, the model kept answering without calling a tool, or a reply was cut off at the output token cap | The message has the provider's reason, with the key redacted, and the next step: check the key, the model name, image and tool support, or wait out a rate limit. See [troubleshooting your own model](own-model.md#troubleshooting) |
+| `MODEL_KEY_MISSING` | A `'provider/model'` string's key is not in the environment | Set the variable the message names, or pass `{ id, baseURL, apiKey }` |
 | `TIMEOUT` | A step, a session start, or a request ran out of time | Inspect the session before retrying. The default 10-minute start timeout is separate from the 120-second unclaimed-start failure. See [computer availability](computers.md#availability-and-errors). |
 
 `EDGE_BLOCKED` does not require Cloudflare branding in the HTML body. A `cf-ray` header alone is not proof of a block: any syntactically valid JSON body retains its existing error mapping, even if the content type is incorrectly `text/html`. HTTP 401 is unchanged. Edge-block errors include `httpStatus` but never copy the response body or ray ID into the error.

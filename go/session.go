@@ -27,17 +27,33 @@ type OpenOptions struct {
 	StopOnClose *bool
 }
 
+// OpenOption configures Open: an OpenOptions value, or an Option from WithModel, WithCustomModel or WithAgent.
+type OpenOption interface{ openOption() }
+
+// StepOption configures Instruction: a StepOptions value, or an Option that runs the step on your own model.
+type StepOption interface{ stepOption() }
+
+// ValidationOption configures Validation: a ValidationOptions value, or an Option that runs the step on your own model.
+type ValidationOption interface{ validationOption() }
+
 type StepOptions struct{ Timeout time.Duration }
 type ValidationOptions struct {
 	Timeout time.Duration
 	Soft    bool
 }
+
+func (OpenOptions) openOption()             {}
+func (StepOptions) stepOption()             {}
+func (ValidationOptions) validationOption() {}
+
 type StepResult struct {
 	Type     string
 	Text     string
 	Passed   bool
 	Reason   string
 	Duration time.Duration
+	// Model is set when the step ran on your own model: its name, grounding, turns and token use.
+	Model *ModelRun
 }
 
 type Session struct {
@@ -60,6 +76,8 @@ type Session struct {
 	childOpens               sync.WaitGroup
 	children                 []*Session
 	leaveComputerRunning     bool
+	agent                    *agent
+	size                     *Size
 }
 
 func (s *Session) ID() string           { return s.id }
@@ -83,11 +101,18 @@ func openOptions(options []OpenOptions) (OpenOptions, error) {
 	return opt, nil
 }
 
-func Open(ctx context.Context, target Target, options ...OpenOptions) (*Session, error) {
+func Open(ctx context.Context, target Target, options ...OpenOption) (*Session, error) {
 	if err := target.validate(false); err != nil {
 		return nil, err
 	}
-	opt, err := openOptions(options)
+	settings, agent, err := splitOptions[OpenOptions](options, "Open")
+	if err != nil {
+		return nil, err
+	}
+	if agent != nil && target.Platform.computer() {
+		return nil, failure(ErrNotAvailableOnPlatform, "Your own model runs steps on browsers and devices, not on computers.")
+	}
+	opt, err := openOptions(settings)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +167,7 @@ func Open(ctx context.Context, target Target, options ...OpenOptions) (*Session,
 	if (target.Platform == Web && start.SessionID != id) || (target.Platform != Web && start.RunID == "") {
 		return nil, failure(ErrSessionStartFailed, "Revyl did not acknowledge the new session.")
 	}
-	s := &Session{client: c, id: start.SessionID, runID: start.RunID, platform: target.Platform, stepTimeout: opt.StepTimeout, log: opt.Log}
+	s := &Session{client: c, id: start.SessionID, runID: start.RunID, platform: target.Platform, stepTimeout: opt.StepTimeout, log: opt.Log, agent: agent}
 	s.viewer = viewer + "/sessions/" + url.PathEscape(s.id)
 	err = s.ready(ctx, target)
 	if err == nil && target.Platform != Web {
@@ -241,7 +266,7 @@ func (s *Session) ready(ctx context.Context, target Target) error {
 						if r.status == 200 {
 							return failure(ErrActionFailed, "Revyl readiness screenshot is not a PNG.")
 						}
-						return s.workerError("GET", r)
+						return s.workerError("GET", "screenshot", r)
 					}
 				}
 			}
@@ -286,7 +311,7 @@ func (s *Session) ready(ctx context.Context, target Target) error {
 				break
 			}
 		} else if r.status != 503 {
-			return s.workerError("GET", r)
+			return s.workerError("GET", "health", r)
 		}
 		if err := pause(connectCtx, 2*time.Second); err != nil {
 			return err
@@ -316,7 +341,9 @@ func (s *Session) workerPath(action string) string {
 
 var sessionNotRunning = regexp.MustCompile(`(?i)session is (not running|not active|stopping)`)
 
-func (s *Session) workerError(method string, r response) error {
+var webTargetErrors = map[string]bool{"stale_target": true, "target_unstable": true, "invalid_coordinates": true, "target_not_found": true, "unsupported_web_element": true, "invalid_action": true, "grounding_failed": true, "password_field_required": true, "password_focus_changed": true}
+
+func (s *Session) workerError(method, action string, r response) error {
 	var detail struct {
 		Error     string          `json:"error"`
 		Detail    json.RawMessage `json:"detail"`
@@ -329,12 +356,18 @@ func (s *Session) workerError(method string, r response) error {
 	if json.Unmarshal(detail.Detail, &text) == nil {
 		reason = text
 	}
+	targetError := detail.Error
+	if targetError == "" {
+		targetError = reason
+	}
 	code := ErrActionFailed
 	switch {
 	case r.status == 401 || r.status == 403:
 		return httpError(r)
 	case r.status == 501 || detail.Error == "not_available_on_platform" || detail.Error == "step_output_not_available":
 		code = ErrNotAvailableOnPlatform
+	case webTargetErrors[targetError]:
+		return responseFailure(r, ErrActionFailed, fmt.Sprintf("%s could not act on the screen (%s). Take a fresh screenshot and try again. See %s", strings.Split(action, "/")[0], targetError, s.viewer))
 	case r.status == 404 || r.status == 410:
 		code = ErrSessionEnded
 	case r.status == 409:
@@ -389,7 +422,7 @@ func (s *Session) worker(ctx context.Context, method, action string, body any, r
 		}
 	}
 	if err == nil && (r.status < 200 || r.status >= 300) {
-		err = s.workerError(method, r)
+		err = s.workerError(method, action, r)
 	}
 	return r, err
 }
@@ -421,10 +454,10 @@ func (s *Session) Close(ctx context.Context) error {
 			if err != nil {
 				err = errors.Join(err, childErr)
 			} else if childErr != nil {
-				s.computerLog("child stop failed; parent physical release is confirmed")
+				s.logLine("child stop failed; parent physical release is confirmed")
 			}
 		} else {
-			s.computerLog("detached; computer left running")
+			s.logLine("detached; computer left running")
 		}
 		s.mu.Lock()
 		s.closeErr = err

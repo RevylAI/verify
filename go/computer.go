@@ -97,7 +97,7 @@ func startComputer(ctx context.Context, c *client, viewer string, target Target,
 	}
 	lifetime, stop := context.WithCancel(context.Background())
 	s := &Session{client: c, id: id, platform: target.Platform, viewer: viewer + "/sessions/" + url.PathEscape(id) + "?kind=computer", viewerBase: viewer, lifetime: lifetime, stopLifetime: stop, log: options.Log, stepTimeout: options.StepTimeout}
-	s.computerLog("starting " + string(s.platform) + " computer " + s.viewer + ". " + computerAvailability)
+	s.logLine("starting " + string(s.platform) + " computer " + s.viewer + ". " + computerAvailability)
 	computerOS := "macos"
 	if target.Platform == Linux {
 		computerOS = "linux"
@@ -140,7 +140,7 @@ func startComputer(ctx context.Context, c *client, viewer string, target Target,
 		}
 	}()
 	if err == nil {
-		s.computerLog("ready")
+		s.logLine("ready")
 		return s, nil
 	}
 	if !createAcknowledged && (errors.Is(err, ErrAuthRejected) || errors.Is(err, ErrEdgeBlocked) || errors.Is(err, ErrNotAvailableOnPlatform) || errors.Is(err, ErrInvalidArgument) || errors.Is(err, ErrComputerLimit)) {
@@ -156,7 +156,7 @@ func startComputer(ctx context.Context, c *client, viewer string, target Target,
 	return nil, err
 }
 
-func (s *Session) computerLog(message string) {
+func (s *Session) logLine(message string) {
 	if s.log != nil {
 		s.log(string(s.platform) + ": " + message)
 	}
@@ -291,7 +291,7 @@ func (s *Session) closeComputer(ctx context.Context) error {
 		}
 	}
 	if err == nil {
-		s.computerLog("closed")
+		s.logLine("closed")
 		return nil
 	}
 	if errors.Is(err, ErrActionUncertain) {
@@ -299,7 +299,7 @@ func (s *Session) closeComputer(ctx context.Context) error {
 		errors.As(err, &typed)
 		err = &Error{Code: ErrActionUncertain, Reason: typed.Reason, HTTPStatus: typed.HTTPStatus, Message: typed.Message + " A possible cause is that no computer host could be assigned. " + computerAvailability, Cause: typed.Cause}
 	}
-	s.computerLog("close failed; inspect " + s.viewer)
+	s.logLine("close failed; inspect " + s.viewer)
 	return err
 }
 
@@ -419,7 +419,7 @@ func (s *Session) computerOperation(ctx context.Context, command map[string]any,
 					return result, invalidComputerResponse()
 				}
 				if envelope.Evidence != "recorded" {
-					s.computerLog(fmt.Sprintf("operation %s: execution observed, report evidence %s", operationID, envelope.Evidence))
+					s.logLine(fmt.Sprintf("operation %s: execution observed, report evidence %s", operationID, envelope.Evidence))
 				}
 				return result, nil
 			}

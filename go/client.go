@@ -19,7 +19,7 @@ import (
 const (
 	backendURL = "https://backend.revyl.ai"
 	appURL     = "https://app.revyl.ai"
-	Version    = "0.1.0"
+	Version    = "0.3.0"
 )
 
 type client struct {
@@ -33,7 +33,11 @@ type response struct {
 	body        []byte
 	contentType string
 	cfRay       string
+	screenToken string
 }
+
+// attributionKey carries the X-Revyl-Agent and X-Revyl-Agent-Session-Id values of a step run on your own model.
+type attributionKey struct{}
 
 func newClient(options OpenOptions) (*client, string, error) {
 	token, err := credentials()
@@ -170,6 +174,10 @@ func (c *client) sendOnce(ctx context.Context, method, path string, body []byte,
 	req.Header.Set("X-Revyl-Client", "verify")
 	if worker {
 		req.Header.Set("X-Revyl-Agent", "Verify")
+		if agent, ok := ctx.Value(attributionKey{}).([2]string); ok {
+			req.Header.Set("X-Revyl-Agent", agent[0])
+			req.Header.Set("X-Revyl-Agent-Session-Id", agent[1])
+		}
 	}
 	if method == "POST" && strings.HasPrefix(path, "/api/v1/computer-runs/") && strings.HasSuffix(path, "/operations") {
 		req.Header.Set("Prefer", "respond-async")
@@ -202,7 +210,7 @@ func (c *client) sendOnce(ctx context.Context, method, path string, body []byte,
 	if int64(len(data)) > maxBytes {
 		return response{}, failure(ErrAPI, "Revyl response exceeds the response size limit.")
 	}
-	return response{status: r.StatusCode, body: data, contentType: r.Header.Get("Content-Type"), cfRay: r.Header.Get("Cf-Ray")}, nil
+	return response{status: r.StatusCode, body: data, contentType: r.Header.Get("Content-Type"), cfRay: r.Header.Get("Cf-Ray"), screenToken: r.Header.Get("X-Revyl-Screen-Token")}, nil
 }
 
 func decode(r response, into any) error {

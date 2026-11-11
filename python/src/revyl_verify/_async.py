@@ -9,6 +9,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Literal, TypeVar
 
+from ._agent import LocalAgent, Location, ModelOption, SwipeDirection
 from ._cleanup import _close, install_signal_cleanup
 from ._models import (
     ComputerProcess,
@@ -16,6 +17,8 @@ from ._models import (
     ExecResult,
     FileStat,
     Platform,
+    Point,
+    ScreenSize,
     StepResult,
     Target,
 )
@@ -80,15 +83,61 @@ class AsyncSession:
             task.add_done_callback(_consume)
             raise
 
-    async def instruction(self, text: str, *, timeout: float | None = None) -> StepResult:
-        return await self._call(functools.partial(self._session.instruction, text, timeout=timeout))
-
-    async def validation(
-        self, text: str, *, timeout: float | None = None, soft: bool = False
+    async def instruction(
+        self,
+        text: str,
+        *,
+        timeout: float | None = None,
+        model: ModelOption | None = None,
+        agent: LocalAgent | None = None,
     ) -> StepResult:
         return await self._call(
-            functools.partial(self._session.validation, text, timeout=timeout, soft=soft)
+            functools.partial(
+                self._session.instruction, text, timeout=timeout, model=model, agent=agent
+            )
         )
+
+    async def validation(
+        self,
+        text: str,
+        *,
+        timeout: float | None = None,
+        soft: bool = False,
+        model: ModelOption | None = None,
+        agent: LocalAgent | None = None,
+    ) -> StepResult:
+        return await self._call(
+            functools.partial(
+                self._session.validation, text, timeout=timeout, soft=soft, model=model, agent=agent
+            )
+        )
+
+    async def tap(self, at: Location) -> Point:
+        return await self._call(functools.partial(self._session.tap, at))
+
+    async def type(self, at: Location, text: str, *, clear: bool = True) -> Point:
+        return await self._call(functools.partial(self._session.type, at, text, clear=clear))
+
+    async def swipe(self, direction: SwipeDirection, *, from_: Location | None = None) -> None:
+        await self._call(functools.partial(self._session.swipe, direction, from_=from_))
+
+    async def press_key(self, key: Literal["enter", "backspace"]) -> None:
+        await self._call(functools.partial(self._session.press_key, key))
+
+    async def back(self) -> None:
+        await self._call(self._session.back)
+
+    async def open_url(self, url: str) -> None:
+        await self._call(functools.partial(self._session.open_url, url))
+
+    async def launch_app(self, bundle_id: str) -> None:
+        await self._call(functools.partial(self._session.launch_app, bundle_id))
+
+    async def locate(self, target: str) -> Point:
+        return await self._call(functools.partial(self._session.locate, target))
+
+    async def screen_size(self) -> ScreenSize:
+        return await self._call(self._session.screen_size)
 
     async def screenshot(self, *, path: str | Path | None = None) -> bytes:
         return await self._call(functools.partial(self._session.screenshot, path=path))
@@ -145,6 +194,8 @@ async def async_open(
     app_url: str | None = None,
     step_timeout: float = 180,
     log: Callable[[str], None] | Literal[False] | None = None,
+    model: ModelOption | None = None,
+    agent: LocalAgent | None = None,
 ) -> AsyncSession:
     from . import open
 
@@ -155,6 +206,8 @@ async def async_open(
             app_url=app_url,
             step_timeout=step_timeout,
             log=log,
+            model=model,
+            agent=agent,
             _cancellation=cancellation,
         )
     )

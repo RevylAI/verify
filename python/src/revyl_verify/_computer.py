@@ -9,9 +9,10 @@ import uuid
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import NoReturn
+from typing import Literal, NoReturn
 from urllib.parse import quote, urlsplit
 
+from ._agent import LocalAgent, Location, ModelOption, SwipeDirection
 from ._cleanup import track, untrack
 from ._models import (
     ComputerProcess,
@@ -788,19 +789,58 @@ class ComputerSession(Session):
         started_at = timestamp(raw["started_at"]) if raw.get("started_at") is not None else None
         return ComputerRecording(url, duration, started_at)
 
-    def instruction(self, text: str, *, timeout: float | None = None) -> NoReturn:
-        raise VerifyError(
-            "NOT_AVAILABLE_ON_PLATFORM",
-            "instruction() is not available on computers; use exec() and file operations. "
-            f"See {self.viewer_url}",
-        )
+    def instruction(
+        self,
+        text: str,
+        *,
+        timeout: float | None = None,
+        model: ModelOption | None = None,
+        agent: LocalAgent | None = None,
+    ) -> NoReturn:
+        self._unavailable("instruction")
 
     def validation(
-        self, text: str, *, soft: bool = False, timeout: float | None = None
+        self,
+        text: str,
+        *,
+        timeout: float | None = None,
+        soft: bool = False,
+        model: ModelOption | None = None,
+        agent: LocalAgent | None = None,
     ) -> NoReturn:
+        self._unavailable("validation")
+
+    def tap(self, at: Location) -> NoReturn:
+        self._unavailable("tap")
+
+    def type(self, at: Location, text: str, *, clear: bool = True) -> NoReturn:
+        self._unavailable("type")
+
+    def swipe(self, direction: SwipeDirection, *, from_: Location | None = None) -> NoReturn:
+        self._unavailable("swipe")
+
+    def press_key(self, key: Literal["enter", "backspace"]) -> NoReturn:
+        self._unavailable("press_key")
+
+    def back(self) -> NoReturn:
+        self._unavailable("back")
+
+    def open_url(self, url: str) -> NoReturn:
+        self._unavailable("open_url")
+
+    def launch_app(self, bundle_id: str) -> NoReturn:
+        self._unavailable("launch_app")
+
+    def locate(self, target: str) -> NoReturn:
+        self._unavailable("locate")
+
+    def screen_size(self) -> NoReturn:
+        self._unavailable("screen_size")
+
+    def _unavailable(self, method: str) -> NoReturn:
         raise VerifyError(
             "NOT_AVAILABLE_ON_PLATFORM",
-            "validation() is not available on computers; use exec() and file operations. "
+            f"{method}() is not available on computers; use exec() and file operations. "
             f"See {self.viewer_url}",
         )
 

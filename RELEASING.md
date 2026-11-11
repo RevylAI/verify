@@ -32,6 +32,10 @@ uv run --frozen python scripts/check_package.py
 
 Review both npm archives and the Python wheel and source distribution. Package checks validate archive contents and local fake-server behavior; they do not prove publication permissions or live service behavior.
 
+## Prepare a version
+
+Set the same version in `packages/verify/package.json`, `packages/revyl-verify/package.json` (its version and its exact `@revyl/verify` dependency), the alias README's versioned links, and the `@revyl/verify` pin of every example, then run `npm install` to update `package-lock.json`. Add a `## X.Y.Z (unreleased)` section to `CHANGELOG.md` and replace `unreleased` with the release date just before tagging. Docs pages for the release ship in the same change; the docs.revyl.com update merges right after the release is published.
+
 ## Package rules
 
 Keep the scoped npm package and its alias at the same version, with the alias depending on that exact scoped version. The Go module and Python distribution use their own versions and tags. Never reuse a published version or move an existing tag.

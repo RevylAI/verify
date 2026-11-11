@@ -9,10 +9,11 @@ Mac computers are early access; ask support@revyl.ai about access. See computers
 - [Getting started](getting-started.md): install, authenticate, init, run a script
 - [API](api.md): open(), attach(), hosted children, navigate(), report(), agent steps, screenshot(), exec(), file/process methods, close()
 - [Configuration](configuration.md): verify.config.ts targets, environment variables, the init and whoami commands
-- [Web](web.md): Revyl web sessions, URLs and builds, sign-in, and steps
-- [Mobile](mobile.md): iOS and Android devices and installing apps
+- [Web](web.md): Revyl web sessions, URLs and builds, sign-in, steps, and exact actions
+- [Mobile](mobile.md): iOS and Android devices, installing apps, and exact actions
 - [Computers](computers.md#availability-and-errors): Mac early access, expiry, capacity errors, recording metadata, and confirmed release
 - [Verify working end to end](end-to-end.md): live verification scope, observed outcomes, and limits of the evidence
 - [CI and test runners](ci.md): GitHub Actions, node:test, Vitest, Jest, Playwright Test
+- [Use your own model](own-model.md): run instructions and validations on Claude, GPT, Gemini, a local model or any OpenAI-compatible endpoint; providers, limits, privacy and troubleshooting
 - [Errors](errors.md): every error code and what to do about it
 - [For coding agents](agents.md): the workflow and rules for agents using Verify

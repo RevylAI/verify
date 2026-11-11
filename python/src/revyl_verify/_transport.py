@@ -13,11 +13,11 @@ import ssl
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypeAlias, cast, get_args
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit
 
 from . import _cleanup
 
@@ -157,6 +157,11 @@ class Deadline:
         self.end = time.monotonic() + seconds
         self.cancellation = cancellation
 
+    def expired(self) -> bool:
+        return time.monotonic() >= self.end or bool(
+            self.cancellation and self.cancellation.event.is_set()
+        )
+
     def remaining(self) -> float:
         remaining = self.end - time.monotonic()
         if remaining <= 0 or (self.cancellation and self.cancellation.event.is_set()):
@@ -229,6 +234,7 @@ class Response:
     body: bytes
     content_type: str = ""
     cf_ray: str = ""
+    headers: dict[str, str] = field(default_factory=dict)
 
     def json(self) -> Json:
         try:
@@ -414,6 +420,83 @@ def http_error(response: Response, *, hosted: bool = False) -> VerifyError:
     )
 
 
+def exchange(
+    url: SplitResult,
+    method: str,
+    path: str,
+    body: bytes | None,
+    headers: dict[str, str],
+    deadline: Deadline,
+    limit: int,
+    name: str,
+) -> Response:
+    connection_type = (
+        http.client.HTTPSConnection if url.scheme == "https" else http.client.HTTPConnection
+    )
+    connection = connection_type(url.hostname or "", url.port, timeout=deadline.remaining())
+    connected_socket: socket.socket | None = None
+
+    def interrupt() -> None:
+        sock = connected_socket or connection.sock
+        if sock is not None:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+    timer = None
+    if not _cleanup.shutting_down:
+        timer = threading.Timer(deadline.remaining(), interrupt)
+        timer.daemon = True
+        timer.start()
+    if deadline.cancellation:
+        deadline.cancellation.add(interrupt)
+    try:
+        if _cleanup.shutting_down:
+            connection.connect()
+        else:
+            connection.sock = _connect(
+                url.hostname or "",
+                url.port or (443 if url.scheme == "https" else 80),
+                url.scheme == "https",
+                deadline,
+            )
+        connected_socket = connection.sock
+        deadline.remaining()
+        connection.request(method, path, body, headers)
+        if connection.sock is not None:
+            connection.sock.settimeout(deadline.remaining())
+        response = connection.getresponse()
+        chunks: list[bytes] = []
+        length = 0
+        while True:
+            if connection.sock is not None:
+                connection.sock.settimeout(deadline.remaining())
+            chunk = response.read1(min(65536, limit + 1 - length))
+            deadline.remaining()
+            if not chunk:
+                if response.length not in (None, 0):
+                    raise VerifyError("API_ERROR", f"Could not read the {name} response.")
+                break
+            chunks.append(chunk)
+            length += len(chunk)
+            if length > limit:
+                raise VerifyError("API_ERROR", f"{name} response exceeds the response size limit.")
+        return Response(
+            response.status,
+            b"".join(chunks),
+            response.getheader("Content-Type", ""),
+            response.getheader("Cf-Ray", ""),
+            {key.lower(): value for key, value in response.getheaders()},
+        )
+    finally:
+        if deadline.cancellation:
+            deadline.cancellation.remove(interrupt)
+        if timer is not None:
+            timer.cancel()
+        connection.close()
+
+
 class Client:
     def __init__(
         self,
@@ -436,10 +519,11 @@ class Client:
         timeout: float = 30,
         retry: bool = False,
         worker: bool = False,
+        headers: dict[str, str] | None = None,
     ) -> Response:
         for attempt in range(3):
             try:
-                response = self._once(method, path, body, deadline.cap(timeout), worker)
+                response = self._once(method, path, body, deadline.cap(timeout), worker, headers)
             except VerifyError:
                 if not retry or attempt == 2:
                     raise
@@ -450,25 +534,25 @@ class Client:
         raise AssertionError("unreachable")
 
     def _once(
-        self, method: str, path: str, body: Json, deadline: Deadline, worker: bool
+        self,
+        method: str,
+        path: str,
+        body: Json,
+        deadline: Deadline,
+        worker: bool,
+        extra: dict[str, str] | None,
     ) -> Response:
-        parsed = urlsplit(self.base)
-        connection_type = (
-            http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
-        )
-        connection = connection_type(
-            parsed.hostname or "", parsed.port, timeout=deadline.remaining()
-        )
         headers = {
             "Authorization": f"Bearer {self._token}",
             "Accept": "application/json",
-            "User-Agent": "revyl-verify/0.1.1 python",
+            "User-Agent": "revyl-verify/0.2.0 python",
             "X-Revyl-Client": "verify",
         }
         if worker:
             headers["X-Revyl-Agent"] = "Verify"
         if method == "POST" and path.endswith("/operations"):
             headers["Prefer"] = "respond-async"
+        headers.update(extra or {})
         encoded = None if body is None else json.dumps(body, allow_nan=False).encode()
         if encoded is not None:
             headers["Content-Type"] = "application/json"
@@ -477,61 +561,9 @@ class Client:
             if path.endswith("/screen/screenshot")
             else 16 * 1024 * 1024
         )
-        connected_socket: socket.socket | None = None
-
-        def interrupt() -> None:
-            sock = connected_socket or connection.sock
-            if sock is not None:
-                try:
-                    sock.shutdown(socket.SHUT_RDWR)
-                except OSError:
-                    pass
-
-        timer = None
-        if not _cleanup.shutting_down:
-            timer = threading.Timer(deadline.remaining(), interrupt)
-            timer.daemon = True
-            timer.start()
-        if deadline.cancellation:
-            deadline.cancellation.add(interrupt)
         try:
-            if _cleanup.shutting_down:
-                connection.connect()
-            else:
-                connection.sock = _connect(
-                    parsed.hostname or "",
-                    parsed.port or (443 if parsed.scheme == "https" else 80),
-                    parsed.scheme == "https",
-                    deadline,
-                )
-            connected_socket = connection.sock
-            deadline.remaining()
-            connection.request(method, path, encoded, headers)
-            if connection.sock is not None:
-                connection.sock.settimeout(deadline.remaining())
-            response = connection.getresponse()
-            chunks: list[bytes] = []
-            length = 0
-            while True:
-                if connection.sock is not None:
-                    connection.sock.settimeout(deadline.remaining())
-                chunk = response.read1(min(65536, limit + 1 - length))
-                deadline.remaining()
-                if not chunk:
-                    if response.length not in (None, 0):
-                        raise VerifyError("API_ERROR", "Could not read the Revyl response.")
-                    break
-                chunks.append(chunk)
-                length += len(chunk)
-                if length > limit:
-                    raise VerifyError(
-                        "API_ERROR", "Revyl response exceeds the response size limit."
-                    )
-            return Response(
-                response.status,
-                b"".join(chunks),
-                response.getheader("Content-Type", ""),
-                response.getheader("Cf-Ray", ""),
+            return exchange(
+                urlsplit(self.base), method, path, encoded, headers, deadline, limit, "Revyl"
             )
         except TimeoutError:
             raise VerifyError("TIMEOUT", "Revyl HTTP client timed out.") from None
@@ -541,12 +573,6 @@ class Client:
                 "API_ERROR",
                 "Could not reach Revyl; the request was not replayed unless it is safe to retry.",
             ) from None
-        finally:
-            if deadline.cancellation:
-                deadline.cancellation.remove(interrupt)
-            if timer is not None:
-                timer.cancel()
-            connection.close()
 
     def json(
         self,
