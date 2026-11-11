@@ -76,7 +76,7 @@ try {
 }
 ```
 
-A location is `{ target: 'a description' }`, which Revyl's grounding model finds on the current page, or `{ x, y }` from the top-left corner of the viewport; `screenSize()` gives the bounds and `locate(target)` gives an element's point without acting. `type()` clicks the field and clears it first unless you pass `{ clear: false }`. `pressKey()` takes `'enter'` or `'backspace'`, and `openUrl(url)` loads a page like `navigate(url)`. A failed action throws `ACTION_FAILED`. One whose outcome Revyl can't confirm throws `ACTION_UNCERTAIN` or `TIMEOUT`, so check the session before acting again. Actions are never repeated. [api.md](api.md#exact-actions) lists every call.
+A location is `{ target: 'a description' }`, which Revyl's grounding model finds on the current page, or `{ x, y }` from the top-left corner of the viewport; `screenSize()` gives the bounds and `locate(target)` gives an element's point without acting. `type()` clicks the field and clears it first unless you pass `{ clear: false }`. `pressKey()` takes `'enter'` or `'backspace'`, and `openUrl(url)` loads a page like `navigate(url)`. A failed action throws `ACTION_FAILED`. One whose outcome Revyl can't confirm throws `ACTION_UNCERTAIN` or `TIMEOUT`, so check the session before acting again. Actions are never repeated. If Verify can't reach Revyl, the action fails with `API_ERROR` and isn't resent either, so check the session before trying it again. [api.md](api.md#exact-actions) lists every call.
 
 | Call | Web | iOS | Android | Mac computer |
 | --- | --- | --- | --- | --- |

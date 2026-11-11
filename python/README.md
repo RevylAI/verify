@@ -173,7 +173,7 @@ A location is a `Point(x, y)` in whole, non-negative device units (iOS points, A
 | `locate(target)` | Returns where Revyl finds an element, without acting |
 | `screen_size()` | Returns `ScreenSize(width, height)` in device units |
 
-A failed action raises `ACTION_FAILED`, including when Revyl cannot find a target or nothing at a point can take the action. One whose outcome Revyl can't confirm raises `ACTION_UNCERTAIN` or `TIMEOUT`, so check the session before acting again. Actions are never repeated.
+A failed action raises `ACTION_FAILED`, including when Revyl cannot find a target or nothing at a point can take the action. One whose outcome Revyl can't confirm raises `ACTION_UNCERTAIN` or `TIMEOUT`, so check the session before acting again. Actions are never repeated. If Verify can't reach Revyl, the action fails with `API_ERROR` and isn't resent either, so check the session before trying it again.
 
 ### Which call works where
 

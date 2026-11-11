@@ -204,7 +204,7 @@ point, err := s.Locate(ctx, "Wi-Fi row")
 | `Locate(ctx, description)` | Returns where Revyl finds an element, without acting |
 | `ScreenSize(ctx)` | Returns the `Size{Width, Height}` in device units |
 
-A failed action returns `ErrActionFailed`, including when Revyl cannot find an element or nothing at a point can take the action. Actions are sent once and never repeated: one cut off by the context's deadline, or whose outcome Revyl can't confirm, returns `ErrActionUncertain`, so check the session before acting again. Each request is bounded at 30 seconds even on `context.Background()`.
+A failed action returns `ErrActionFailed`, including when Revyl cannot find an element or nothing at a point can take the action. Actions are sent once and never repeated: one cut off by the context's deadline, or whose outcome Revyl can't confirm, returns `ErrActionUncertain`, so check the session before acting again. If Verify can't reach Revyl, the action returns `ErrAPI` and isn't resent either, so check the session before trying it again. Each request is bounded at 30 seconds even on `context.Background()`.
 
 ## Your own model
 

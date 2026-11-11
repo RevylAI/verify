@@ -77,7 +77,7 @@ try {
 
 A location is `{ target: 'a description' }`, which Revyl's grounding model finds on the current screen, or `{ x, y }` from the top-left corner in iOS points or Android pixels; `screenSize()` gives the bounds. `type()` taps the field and clears it first unless you pass `{ clear: false }`. `pressKey()` takes `'enter'` or `'backspace'`.
 
-On Android, `back()` presses the system back button. On both platforms, `launchApp(bundleId)` brings an installed app to the front and `openUrl('myapp://orders/42')` opens a deep link. A failed action throws `ACTION_FAILED`. One whose outcome Revyl can't confirm throws `ACTION_UNCERTAIN` or `TIMEOUT`, so check the session before acting again. Actions are never repeated. [api.md](api.md#exact-actions) lists every call.
+On Android, `back()` presses the system back button. On both platforms, `launchApp(bundleId)` brings an installed app to the front and `openUrl('myapp://orders/42')` opens a deep link. A failed action throws `ACTION_FAILED`. One whose outcome Revyl can't confirm throws `ACTION_UNCERTAIN` or `TIMEOUT`, so check the session before acting again. Actions are never repeated. If Verify can't reach Revyl, the action fails with `API_ERROR` and isn't resent either, so check the session before trying it again. [api.md](api.md#exact-actions) lists every call.
 
 | Call | Web | iOS | Android | Mac computer |
 | --- | --- | --- | --- | --- |

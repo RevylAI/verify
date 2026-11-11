@@ -43,7 +43,7 @@ try {
 | `AUTH_MISSING` | No `REVYL_API_KEY` and no saved login | Run `npx @revyl/verify login` in a terminal, or set `REVYL_API_KEY` |
 | `AUTH_REJECTED` | Revyl rejected the credentials | Create a new API key, or log in again |
 | `EDGE_BLOCKED` | An HTTP 403 has a `text/html` content type and nonempty `cf-ray`, without a valid JSON body | Check network access or contact support; Verify does not retry the request |
-| `API_ERROR` | Revyl returned an unexpected response | Try again; if it persists, report it with the session link |
+| `API_ERROR` | Revyl returned an unexpected response | Try again; after an exact action, check the session first, since the action may have run. If it persists, report it with the session link |
 | `SESSION_START_FAILED` | The browser, device, or computer did not start | Computer `no_host` reports the 120-second unclaimed-start context; `device_limit` reports queued-work/concurrency context. Inspect the session and cleanup before starting again. |
 | `SESSION_ENDED` | The session was closed, stopped, or expired, or Revyl answered 404 for the session itself | Close explicitly; computer expiry does not prove release |
 | `SESSION_BUSY` | A step conflict, computer operation limit, or recording requested before terminal state and confirmed release | Inspect the state before another call; a terminal computer alone does not prove release |

@@ -113,7 +113,7 @@ A location is `{ x, y }` in device units (iOS points, Android and Web pixels, fr
 | `locate(target)` | Resolves with where Revyl finds an element, without acting |
 | `screenSize()` | Resolves with `{ width, height }` in device units |
 
-A failed action throws `ACTION_FAILED`, including when Revyl cannot find a target or nothing at a point can take the action. One whose outcome Revyl can't confirm throws `ACTION_UNCERTAIN` or `TIMEOUT`, so check the session before acting again. Actions are never repeated.
+A failed action throws `ACTION_FAILED`, including when Revyl cannot find a target or nothing at a point can take the action. One whose outcome Revyl can't confirm throws `ACTION_UNCERTAIN` or `TIMEOUT`, so check the session before acting again. Actions are never repeated. If Verify can't reach Revyl, the action fails with `API_ERROR` and isn't resent either, so check the session before trying it again.
 
 ## session.report()
 
