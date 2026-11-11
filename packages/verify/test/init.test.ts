@@ -35,12 +35,12 @@ describe('initProject', () => {
     const dir = await mkdtemp(join(tmpdir(), 'verify-init-'));
     await writeFile(join(dir, '.gitignore'), 'node_modules');
     const result = await initProject(dir, { platform: 'web', appId: APP_ID, url: 'https://shop.example.com' });
-    expect(result).toEqual({ created: ['verify.config.ts', 'verify/example.ts'], gitignoreUpdated: true });
+    expect(result).toEqual({ created: ['verify.config.ts', 'verify/example.mts'], gitignoreUpdated: true });
     const config = await readFile(join(dir, 'verify.config.ts'), 'utf8');
     expect(config).toContain(`from '${PACKAGE_NAME}'`);
     expect(config).toContain(`appId: '${APP_ID}'`);
     expect(config).toContain("url: 'https://shop.example.com'");
-    const script = await readFile(join(dir, 'verify/example.ts'), 'utf8');
+    const script = await readFile(join(dir, 'verify/example.mts'), 'utf8');
     expect(script).toContain("await open('web')");
     expect(script).toContain('session.instruction(');
     expect(script).toContain('session.validation(');
@@ -58,7 +58,7 @@ describe('initProject', () => {
       join(dir, 'verify.config.ts'),
     );
     expect(Object.keys(config.targets)).toEqual(['ios']);
-    expect(await readFile(join(dir, 'verify/example.ts'), 'utf8')).toContain("await open('ios')");
+    expect(await readFile(join(dir, 'verify/example.mts'), 'utf8')).toContain("await open('ios')");
   });
 
   it('never overwrites existing files without --force', async () => {
@@ -79,7 +79,7 @@ describe('initProject', () => {
       }
       return json(verdict(firstScreenVisible, firstScreenVisible ? 'First screen visible' : 'Blank screen'));
     });
-    const script = (await readFile(join(dir, 'verify/example.ts'), 'utf8'))
+    const script = (await readFile(join(dir, 'verify/example.mts'), 'utf8'))
       .replace(/^import .*;\n/m, '')
       .replace("'.verify/example.png'", JSON.stringify(join(dir, 'example.png')));
     const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
@@ -108,7 +108,7 @@ describe('initProject', () => {
     );
     expect(config.targets.mac).toMatchObject({ platform: 'mac' });
     expect(source).not.toContain('app');
-    const script = await readFile(join(dir, 'verify/example.ts'), 'utf8');
+    const script = await readFile(join(dir, 'verify/example.mts'), 'utf8');
     expect(script).toContain("await open('mac')");
     expect(script).toContain("session.exec(['uname', '-s'])");
     expect(script).toContain('session.writeFile(');

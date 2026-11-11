@@ -35,7 +35,7 @@ Docs: ${DOCS}
 
 const INIT_HELP = `Usage: ${INIT_USAGE}
 
-Writes verify.config.ts and verify/example.ts, installs Verify when the project lacks it, and signs
+Writes verify.config.ts and verify/example.mts, installs Verify when the project lacks it, and signs
 you in through your browser when no credentials are saved.
 
   --platform    ios, android, web, or mac. Without it, init asks. iOS and Android without --app-id
@@ -130,10 +130,10 @@ async function initCommand(args: string[]): Promise<number> {
   await signInAndCheck(interactive);
   const steps =
     answers.platform === 'mac'
-      ? ['Mac computers are early access. Ask support@revyl.ai about access.', 'Once your organization has Mac access, run: node verify/example.ts']
+      ? ['Mac computers are early access. Ask support@revyl.ai about access.', 'Once your organization has Mac access, run: node verify/example.mts']
       : answers.appId
-        ? ['Run: node verify/example.ts']
-        : ['Run: node verify/example.ts', 'To test your own app, put its Revyl app id in verify.config.ts in place of the Settings bundle id.'];
+        ? ['Run: node verify/example.mts']
+        : ['Run: node verify/example.mts', 'To test your own app, put its Revyl app id in verify.config.ts in place of the Settings bundle id.'];
   process.stdout.write(
     [
       'Next:',

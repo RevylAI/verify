@@ -170,10 +170,12 @@ A location is a `Point(x, y)` in whole, non-negative device units (iOS points, A
 | `back()` | Browser history on Web, the back button on Android; iOS raises `NOT_AVAILABLE_ON_PLATFORM` |
 | `open_url(url)` | Opens a URL or deep link on a device, or loads an http(s) URL in a browser |
 | `launch_app(bundle_id)` | Launches an installed app on a device |
-| `locate(target)` | Returns where Revyl finds an element, without acting |
+| `locate(target)` | Returns Revyl's best match on the current screen, without acting |
 | `screen_size()` | Returns `ScreenSize(width, height)` in device units |
 
 A failed action raises `ACTION_FAILED`, including when Revyl cannot find a target or nothing at a point can take the action. One whose outcome Revyl can't confirm raises `ACTION_UNCERTAIN` or `TIMEOUT`, so check the session before acting again. Actions are never repeated. If Verify can't reach Revyl, the action fails with `API_ERROR` and isn't resent either, so check the session before trying it again.
+
+Exact actions return when Revyl has accepted them, not when the screen has finished changing. After `swipe`, `open_url` or `launch_app`, let the screen settle or check it before you `locate` or tap coordinates. `locate` returns Revyl's best match on the current screen and can return a point for an element that is off screen, so bring the element on screen first and check the point before you use it.
 
 ### Which call works where
 

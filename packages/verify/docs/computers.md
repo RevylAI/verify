@@ -5,7 +5,7 @@ Verify opens a Revyl cloud macOS computer for commands, files, processes, and sc
 ```bash
 export REVYL_API_KEY=...
 npx @revyl/verify init --platform mac
-node verify/example.ts
+node verify/example.mts
 ```
 
 `init` installs the package and checks credentials. Running the script starts a paid computer. No app id, build, device selector, image selector, or local Mac is needed. The generated script checks commands and a file round trip without agent steps.

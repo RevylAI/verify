@@ -626,6 +626,7 @@ export class DeviceSession implements Session {
   /** Opens a URL or deep link on a device, or loads a URL in a browser. */
   async openUrl(url: string): Promise<void> {
     if (typeof url !== 'string' || url.length === 0 || url.length > 8_192) throw new VerifyError('INVALID_ARGUMENT', 'openUrl() takes a URL of 1 to 8192 characters.');
+    if (this.platform === 'web' && !/^https?:/i.test(url)) throw new VerifyError('INVALID_ARGUMENT', 'On web, openUrl() takes an http(s) URL; deep links such as myapp://orders/42 open only on iOS and Android.');
     await this.perform({ kind: 'open_url', url });
   }
 
@@ -693,7 +694,8 @@ export class DeviceSession implements Session {
       }
       case 'swipe': {
         const point = action.from ? await this.resolve(action.from, screenToken, signal) : await this.readScreenSize(signal).then((size) => ({ x: Math.floor(size.width / 2), y: Math.floor(size.height / 2) }));
-        await this.act('swipe', { ...pointBody(point, action.from), direction: action.direction, duration_ms: 500 }, signal);
+        const direction = this.platform === 'web' ? ({ up: 'down', down: 'up', left: 'right', right: 'left' } as const)[action.direction] : action.direction;
+        await this.act('swipe', { ...pointBody(point, action.from), direction, duration_ms: 500 }, signal);
         return undefined;
       }
       case 'key':

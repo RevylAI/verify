@@ -25,7 +25,7 @@ type liveStep struct {
 
 func (s *Session) Instruction(ctx context.Context, text string, options ...StepOption) (StepResult, error) {
 	if s.platform.computer() {
-		return StepResult{}, s.computerAgentUnavailable("instruction")
+		return StepResult{}, s.computerAgentUnavailable("Instruction")
 	}
 	settings, agent, err := splitOptions[StepOptions](options, "Instruction")
 	if err != nil {
@@ -47,7 +47,7 @@ func (s *Session) Instruction(ctx context.Context, text string, options ...StepO
 
 func (s *Session) Validation(ctx context.Context, text string, options ...ValidationOption) (StepResult, error) {
 	if s.platform.computer() {
-		return StepResult{}, s.computerAgentUnavailable("validation")
+		return StepResult{}, s.computerAgentUnavailable("Validation")
 	}
 	settings, agent, err := splitOptions[ValidationOptions](options, "Validation")
 	if err != nil {

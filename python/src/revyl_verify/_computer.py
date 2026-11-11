@@ -828,6 +828,9 @@ class ComputerSession(Session):
     def open_url(self, url: str) -> NoReturn:
         self._unavailable("open_url")
 
+    def navigate(self, url: str) -> NoReturn:
+        self._unavailable("navigate")
+
     def launch_app(self, bundle_id: str) -> NoReturn:
         self._unavailable("launch_app")
 

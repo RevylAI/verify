@@ -212,6 +212,9 @@ func hostedStartError(r response) error {
 }
 
 func (s *Session) Navigate(ctx context.Context, rawURL string) error {
+	if s.platform.computer() {
+		return s.computerAgentUnavailable("Navigate")
+	}
 	if s.platform != Web {
 		return &Error{Code: ErrNotAvailableOnPlatform, Reason: ReasonNotAvailableOnPlatform, Message: "Navigate is available only on web sessions; use OpenURL on iOS and Android."}
 	}
