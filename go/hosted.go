@@ -213,7 +213,7 @@ func hostedStartError(r response) error {
 
 func (s *Session) Navigate(ctx context.Context, rawURL string) error {
 	if s.platform != Web {
-		return &Error{Code: ErrNotAvailableOnPlatform, Reason: ReasonNotAvailableOnPlatform, Message: "Navigate is available only on web sessions."}
+		return &Error{Code: ErrNotAvailableOnPlatform, Reason: ReasonNotAvailableOnPlatform, Message: "Navigate is available only on web sessions; use OpenURL on iOS and Android."}
 	}
 	u, err := url.Parse(rawURL)
 	if err != nil || u.Hostname() == "" || u.User != nil || !strings.EqualFold(u.Scheme, "http") && !strings.EqualFold(u.Scheme, "https") || textLength(rawURL) > 2048 || strings.ContainsRune(rawURL, '\\') || strings.IndexFunc(rawURL, func(r rune) bool { return unicode.IsControl(r) || unicode.IsSpace(r) }) >= 0 {

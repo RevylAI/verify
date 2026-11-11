@@ -3,8 +3,12 @@ package verify
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"math"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -19,43 +23,51 @@ type liveStep struct {
 	} `json:"step_output"`
 }
 
-func (s *Session) Instruction(ctx context.Context, text string, options ...StepOptions) (StepResult, error) {
+func (s *Session) Instruction(ctx context.Context, text string, options ...StepOption) (StepResult, error) {
 	if s.platform.computer() {
 		return StepResult{}, s.computerAgentUnavailable("instruction")
 	}
-	if len(options) > 1 {
+	settings, agent, err := splitOptions[StepOptions](options, "Instruction")
+	if err != nil {
+		return StepResult{}, err
+	}
+	if len(settings) > 1 {
 		return StepResult{}, failure(ErrInvalidArgument, "Instruction accepts at most one options value.")
 	}
 	var timeout time.Duration
-	if len(options) == 1 {
-		timeout = options[0].Timeout
+	if len(settings) == 1 {
+		timeout = settings[0].Timeout
 	}
-	result, err := s.step(ctx, "instruction", text, timeout)
+	result, err := s.step(ctx, "instruction", text, timeout, agent)
 	if err == nil && !result.Passed {
 		err = failure(ErrInstructionFailed, "Instruction failed. See "+s.viewer)
 	}
 	return result, err
 }
 
-func (s *Session) Validation(ctx context.Context, text string, options ...ValidationOptions) (StepResult, error) {
+func (s *Session) Validation(ctx context.Context, text string, options ...ValidationOption) (StepResult, error) {
 	if s.platform.computer() {
 		return StepResult{}, s.computerAgentUnavailable("validation")
 	}
-	if len(options) > 1 {
+	settings, agent, err := splitOptions[ValidationOptions](options, "Validation")
+	if err != nil {
+		return StepResult{}, err
+	}
+	if len(settings) > 1 {
 		return StepResult{}, failure(ErrInvalidArgument, "Validation accepts at most one options value.")
 	}
 	var opt ValidationOptions
-	if len(options) == 1 {
-		opt = options[0]
+	if len(settings) == 1 {
+		opt = settings[0]
 	}
-	result, err := s.step(ctx, "validation", text, opt.Timeout)
+	result, err := s.step(ctx, "validation", text, opt.Timeout, agent)
 	if err == nil && !result.Passed && !opt.Soft {
 		err = failure(ErrValidationFailed, "Validation failed. See "+s.viewer)
 	}
 	return result, err
 }
 
-func (s *Session) step(ctx context.Context, kind, text string, timeout time.Duration) (StepResult, error) {
+func (s *Session) step(ctx context.Context, kind, text string, timeout time.Duration, agent *agent) (StepResult, error) {
 	if err := s.sessionEndError(); err != nil {
 		return StepResult{}, err
 	}
@@ -95,6 +107,12 @@ func (s *Session) step(ctx context.Context, kind, text string, timeout time.Dura
 		if s.lifetime.Err() != nil {
 			cancel()
 		}
+	}
+	if agent == nil {
+		agent = s.agent
+	}
+	if agent != nil {
+		return s.runLocal(ctx, kind, text, timeout, agent, started)
 	}
 	outcome, err := s.runStep(ctx, kind, text, timeout)
 	if err != nil {
@@ -191,6 +209,58 @@ func (s *Session) runStep(ctx context.Context, kind, text string, timeout time.D
 		}
 		return out, nil
 	}
+}
+
+func (s *Session) runLocal(ctx context.Context, kind, text string, timeout time.Duration, agent *agent, started time.Time) (StepResult, error) {
+	name := agent.model.Name()
+	attribution := strings.Map(func(r rune) rune {
+		if r < 0x20 || r > 0x7e {
+			return '?'
+		}
+		return r
+	}, "Verify local: "+name)
+	sessionID, err := newUUID()
+	if err != nil {
+		return StepResult{}, failure(ErrAPI, "Could not generate an agent session ID.")
+	}
+	ctx = context.WithValue(ctx, attributionKey{}, [2]string{clip(attribution, 100), sessionID})
+	local, err := runLocalStep(ctx, kind, text, agent, s.platform, s, s.logLine)
+	if err != nil {
+		var sdkError *Error
+		if ctx.Err() != nil && !(errors.As(err, &sdkError) && sdkError.Code != ErrTimeout) {
+			err = &Error{Code: ErrTimeout, Message: fmt.Sprintf("The %s did not finish within %d ms on %s. See %s", kind, timeout.Milliseconds(), name, s.viewer), Cause: err}
+		}
+		if ended := s.sessionEndError(); ended != nil {
+			err = ended
+		}
+		code := err.Error()
+		if errors.As(err, &sdkError) {
+			code = string(sdkError.Code)
+		}
+		s.logLine(fmt.Sprintf("✗ %s: %s", kind, code))
+		return StepResult{}, err
+	}
+	result := StepResult{Type: kind, Text: text, Passed: local.passed, Reason: local.reason, Duration: time.Since(started), Model: local.run}
+	mark, plural, why := "✓", "s", ""
+	if !local.passed {
+		mark = "✗"
+		if local.reason != "" {
+			why = ": " + local.reason
+		}
+	}
+	if len(local.run.Turns) == 1 {
+		plural = ""
+	}
+	s.logLine(fmt.Sprintf("%s %s (%s, %d turn%s on %s, %d tokens)%s", mark, kind, formatDuration(result.Duration), len(local.run.Turns), plural, local.run.ID, local.run.InputTokens+local.run.OutputTokens, why))
+	return result, nil
+}
+
+func formatDuration(d time.Duration) string {
+	ms := d.Milliseconds()
+	if ms < 60_000 {
+		return strconv.FormatFloat(float64(ms)/1000, 'f', 1, 64) + "s"
+	}
+	return fmt.Sprintf("%dm %ds", ms/60_000, int(math.Floor(float64(ms%60_000)/1000+0.5)))
 }
 
 // Revyl can briefly answer a just-accepted step's status with 404 "Live step not found" before its run is listed.
