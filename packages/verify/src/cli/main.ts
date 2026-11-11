@@ -67,11 +67,16 @@ export async function main(argv: string[]): Promise<number> {
     case 'init':
       return initCommand(rest);
     case 'login':
-      return signInAndCheck(Boolean(process.stdin.isTTY) && !process.env.CI);
     case 'logout':
-      return logoutCommand();
-    case 'whoami':
-      return whoamiCommand();
+    case 'whoami': {
+      const { values } = parseArgs({ args: rest, options: { help: { type: 'boolean', short: 'h' } } });
+      if (values.help) {
+        process.stdout.write(HELP);
+        return 0;
+      }
+      if (command === 'login') return signInAndCheck(Boolean(process.stdin.isTTY) && !process.env.CI);
+      return command === 'logout' ? logoutCommand() : whoamiCommand();
+    }
     default:
       process.stderr.write(`Unknown command: ${command}\n\n${HELP}`);
       return 2;
