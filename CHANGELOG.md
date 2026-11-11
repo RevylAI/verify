@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Classify the hosted refusal `computer_platform_at_capacity` (the computer already runs as many children of that platform as it can, such as a second Web child on a Mac) as `COMPUTER_LIMIT` with that `reason`, in the TypeScript, Python and Go SDKs. Earlier versions report it as `SESSION_BUSY` (TypeScript) or another fallback code.
+- Docs: a computer's lifetime is two hours from create, not 60 minutes; `expiresAt` / `expires_at` is the authoritative deadline.
+
 ## 0.3.2 (2026-11-11)
 
 - Fix `npx @revyl/verify init` in pnpm projects: it now runs `pnpm add -D`. pnpm 9 and 10 rejected `--dev`, and pnpm 12 read it as "install only devDependencies", saved Verify under `dependencies` without installing it, and removed the project's other dependencies from `node_modules`.
