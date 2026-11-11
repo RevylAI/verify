@@ -8,12 +8,31 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from types import TracebackType
-from typing import Literal, NoReturn
+from typing import Literal, NoReturn, cast
 from urllib.parse import quote, urlencode, urlsplit
 from uuid import uuid4
 
 from PIL import Image, UnidentifiedImageError
 
+from ._agent import (
+    AgentControls,
+    Back,
+    DeviceAction,
+    DevicePlatform,
+    LocalAgent,
+    Location,
+    ModelOption,
+    OpenUrl,
+    PressKey,
+    Swipe,
+    SwipeDirection,
+    Tap,
+    TypeText,
+    choose_agent,
+    is_number,
+    js_round,
+    run_local_step,
+)
 from ._cleanup import track, untrack
 from ._models import (
     UUID_PATTERN,
@@ -21,7 +40,10 @@ from ._models import (
     ComputerRecording,
     ExecResult,
     FileStat,
+    ModelRun,
     Platform,
+    Point,
+    ScreenSize,
     StepResult,
     Target,
     text_length,
@@ -44,6 +66,17 @@ from ._transport import (
 # before its run is listed.
 _LIVE_STEP_GRACE_SECONDS = 10.0
 _LIVE_STEP_NOT_FOUND = re.compile(r"live step not found", re.I)
+_WEB_TARGET_ERRORS = {
+    "stale_target",
+    "target_unstable",
+    "invalid_coordinates",
+    "target_not_found",
+    "unsupported_web_element",
+    "invalid_action",
+    "grounding_failed",
+    "password_field_required",
+    "password_focus_changed",
+}
 
 
 def _live_step_not_found(response: Response) -> bool:
@@ -117,6 +150,9 @@ class Session:
         self._cancellation = Cancellation()
         self._log_callback: Callable[[str], None] | None = None
         self._cleanup_status: CleanupStatus = "not_attempted"
+        self._agent: LocalAgent | None = None
+        self._attribution: dict[str, str] | None = None
+        self._size: ScreenSize | None = None
 
     def _log(self, message: str) -> None:
         if self._log_callback:
@@ -431,6 +467,9 @@ class Session:
         except VerifyError:
             raw = {}
         error, reason = raw.get("error"), raw.get("detail", raw.get("message", ""))
+        screen_error = (
+            error if isinstance(error, str) else reason if isinstance(reason, str) else ""
+        )
         code = "ACTION_FAILED"
         if response.status in (401, 403):
             code = "AUTH_REJECTED"
@@ -439,6 +478,14 @@ class Session:
             "step_output_not_available",
         ):
             code = "NOT_AVAILABLE_ON_PLATFORM"
+        elif screen_error in _WEB_TARGET_ERRORS:
+            return VerifyError(
+                "ACTION_FAILED",
+                f"Revyl could not act on the screen ({screen_error}). "
+                f"Take a fresh screenshot and try again. See {self.viewer_url}",
+                reason=refusal_reason(response),
+                http_status=response.status,
+            )
         elif response.status in (404, 410):
             code = "SESSION_ENDED"
         elif response.status == 409:
@@ -489,13 +536,21 @@ class Session:
             timeout=timeout,
             retry=retry,
             worker=True,
+            headers=self._attribution,
         )
         if not 200 <= response.status < 300 and not (allow and allow(response)):
             raise self._worker_error(method, response)
         return response
 
-    def instruction(self, text: str, *, timeout: float | None = None) -> StepResult:
-        result = self._step("instruction", text, timeout)
+    def instruction(
+        self,
+        text: str,
+        *,
+        timeout: float | None = None,
+        model: ModelOption | None = None,
+        agent: LocalAgent | None = None,
+    ) -> StepResult:
+        result = self._step("instruction", text, timeout, model, agent)
         if not result.passed:
             raise VerifyError(
                 "INSTRUCTION_FAILED", "Instruction failed. See " + self.viewer_url, result=result
@@ -506,8 +561,14 @@ class Session:
         self._computer_only()
 
     def navigate(self, url: str) -> None:
+        self._navigate(url, Deadline(self._step_timeout, self._cancellation), False)
+
+    def _navigate(self, url: str, deadline: Deadline, uncertain: bool) -> None:
         if self.platform != "web":
-            raise VerifyError("NOT_AVAILABLE_ON_PLATFORM", "navigate() is available only on web.")
+            raise VerifyError(
+                "NOT_AVAILABLE_ON_PLATFORM",
+                "navigate() is available only on web; use open_url() on iOS and Android.",
+            )
         try:
             if (
                 not isinstance(url, str)
@@ -530,13 +591,10 @@ class Session:
                 "INVALID_ARGUMENT",
                 "Navigation needs an HTTP(S) URL without credentials or controls.",
             ) from None
+        deadline.remaining()
         try:
-            response = self._worker(
-                "POST",
-                "open_url",
-                {"url": url},
-                deadline=Deadline(self._step_timeout, self._cancellation),
-                timeout=self._step_timeout,
+            result = self._post(
+                "open_url", {"url": url}, deadline, uncertain, timeout=self._step_timeout
             )
         except VerifyError as error:
             if error.code == "ACTION_UNCERTAIN" and error.reason == "request_timeout":
@@ -550,7 +608,6 @@ class Session:
                     http_status=error.http_status,
                 ) from error
             raise
-        result = obj(response.json())
         status = result.get("status_code")
         if (
             not isinstance(result.get("success"), bool)
@@ -561,12 +618,251 @@ class Session:
         if result["success"] is not True:
             raise VerifyError("ACTION_FAILED", "Revyl did not confirm web navigation.")
 
+    def tap(self, at: Location) -> Point:
+        return cast(Point, self._perform(Tap(_location(at))))
+
+    def type(self, at: Location, text: str, *, clear: bool = True) -> Point:
+        if not isinstance(text, str) or text_length(text) > 16_384:
+            raise VerifyError("INVALID_ARGUMENT", "type() takes text of at most 16384 characters.")
+        if not isinstance(clear, bool):
+            raise VerifyError("INVALID_ARGUMENT", "clear must be a boolean.")
+        return cast(Point, self._perform(TypeText(_location(at), text, clear)))
+
+    def swipe(self, direction: SwipeDirection, *, from_: Location | None = None) -> None:
+        if direction not in ("up", "down", "left", "right"):
+            raise VerifyError("INVALID_ARGUMENT", "swipe() takes 'up', 'down', 'left' or 'right'.")
+        self._perform(Swipe(direction, None if from_ is None else _location(from_)))
+
+    def press_key(self, key: Literal["enter", "backspace"]) -> None:
+        if key not in ("enter", "backspace"):
+            raise VerifyError("INVALID_ARGUMENT", "press_key() takes 'enter' or 'backspace'.")
+        self._perform(PressKey(key))
+
+    def back(self) -> None:
+        self._perform(Back())
+
+    def open_url(self, url: str) -> None:
+        if not isinstance(url, str) or not url or text_length(url) > 8192:
+            raise VerifyError("INVALID_ARGUMENT", "open_url() takes a URL of 1 to 8192 characters.")
+        self._perform(OpenUrl(url))
+
+    def launch_app(self, bundle_id: str) -> None:
+        if self.platform == "web":
+            raise VerifyError(
+                "NOT_AVAILABLE_ON_PLATFORM",
+                "launch_app() is available only on iOS and Android sessions; "
+                "on web, use open_url() or navigate().",
+            )
+        if not isinstance(bundle_id, str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,255}", bundle_id):
+            raise VerifyError("INVALID_ARGUMENT", "launch_app() takes a bundle ID or package name.")
+        self._act(
+            "launch",
+            {"bundle_id": bundle_id},
+            Deadline(self._step_timeout, self._cancellation),
+            False,
+        )
+
+    def locate(self, target: str) -> Point:
+        if not isinstance(target, str):
+            raise VerifyError(
+                "INVALID_ARGUMENT", "A target is a description of 1 to 500 characters."
+            )
+        point, _ = self._resolve(
+            _location(target), None, Deadline(self._step_timeout, self._cancellation)
+        )
+        return point
+
+    def screen_size(self) -> ScreenSize:
+        return self._read_screen_size(Deadline(self._step_timeout, self._cancellation))
+
+    def _run_local(
+        self,
+        kind: Literal["instruction", "validation"],
+        description: str,
+        duration: float,
+        agent: LocalAgent,
+        deadline: Deadline,
+    ) -> tuple[bool, str | None, ModelRun]:
+        self._attribution = {
+            "X-Revyl-Agent": re.sub(r"[^\x20-\x7e]", "?", f"Verify local: {agent.model.name}")[
+                :100
+            ],
+            "X-Revyl-Agent-Session-Id": str(uuid4()),
+        }
+        controls = AgentControls(
+            cast(DevicePlatform, self.platform),
+            self._capture,
+            self._read_screen_size,
+            self._perform,
+        )
+        try:
+            return run_local_step(kind, description, agent, controls, deadline, self._log)
+        except Exception as error:
+            if deadline.expired() and (
+                not isinstance(error, VerifyError) or error.code == "TIMEOUT"
+            ):
+                raise VerifyError(
+                    "TIMEOUT",
+                    f"The {kind} did not finish within {duration:g} s on {agent.model.name}. "
+                    f"See {self.viewer_url}",
+                ) from error
+            raise
+        finally:
+            self._attribution = None
+
+    def _read_screen_size(self, deadline: Deadline) -> ScreenSize:
+        if self._size is not None:
+            return self._size
+        if self.platform != "web":
+            health = obj(self._worker("GET", "health", deadline=deadline, retry=True).json())
+            width, height = health.get("screen_width"), health.get("screen_height")
+            if type(width) is int and type(height) is int and width > 0 and height > 0:
+                self._size = ScreenSize(width, height)
+                return self._size
+        width, height = png_size(self._capture(deadline)[0])
+        self._size = ScreenSize(width, height)
+        return self._size
+
+    def _capture(self, deadline: Deadline) -> tuple[bytes, str | None]:
+        response = self._worker("GET", "screenshot", deadline=deadline, retry=True)
+        png_size(response.body)
+        token = response.headers.get("x-revyl-screen-token") if self.platform == "web" else None
+        return response.body, token or None
+
+    def _perform(
+        self,
+        action: DeviceAction,
+        screen_token: str | None = None,
+        deadline: Deadline | None = None,
+    ) -> Point | None:
+        uncertain = deadline is not None
+        deadline = deadline or Deadline(self._step_timeout, self._cancellation)
+        if isinstance(action, Tap):
+            if isinstance(action.at, str) and self.platform != "web":
+                deadline.remaining()
+                body: dict[str, Json] = {"target": action.at}
+                if self.id:
+                    body["session_id"] = self.id
+                result = self._post("tap_target", body, deadline, uncertain)
+                if result.get("found") is False:
+                    raise VerifyError(
+                        "ACTION_FAILED", f'Revyl could not find "{action.at}" on the screen.'
+                    )
+                x, y, error = result.get("x"), result.get("y"), result.get("error")
+                if result.get("success") is not True or not is_number(x) or not is_number(y):
+                    raise VerifyError(
+                        "ACTION_FAILED",
+                        f"tap failed: {error if isinstance(error, str) else 'no reason given'}",
+                    )
+                return Point(js_round(x), js_round(y))
+            point, token = self._resolve(action.at, screen_token, deadline)
+            self._act("tap", _point_body(point, token, action.at), deadline, uncertain)
+            return point
+        if isinstance(action, TypeText):
+            point, token = self._resolve(action.at, screen_token, deadline)
+            body = _point_body(point, token, action.at)
+            body.update(text=action.text, clear_first=action.clear)
+            self._act("input", body, deadline, uncertain)
+            return point
+        if isinstance(action, Swipe):
+            if action.start is None:
+                size = self._read_screen_size(deadline)
+                point, token = Point(size.width // 2, size.height // 2), None
+            else:
+                point, token = self._resolve(action.start, screen_token, deadline)
+            body = _point_body(point, token, action.start)
+            body.update(direction=action.direction, duration_ms=500)
+            self._act("swipe", body, deadline, uncertain)
+            return None
+        if isinstance(action, PressKey):
+            key = (
+                ("Enter" if action.key == "enter" else "Backspace")
+                if self.platform == "web"
+                else action.key.upper()
+            )
+            self._act("key", {"key": key}, deadline, uncertain)
+            return None
+        if isinstance(action, Back):
+            if self.platform == "ios":
+                raise VerifyError(
+                    "NOT_AVAILABLE_ON_PLATFORM",
+                    "back() is not available on iOS; tap the on-screen back control.",
+                )
+            self._act("back", {}, deadline, uncertain)
+            return None
+        deadline.remaining()
+        if self.platform == "web":
+            self._navigate(action.url, deadline, uncertain)
+        else:
+            self._act("open_url", {"url": action.url}, deadline, uncertain)
+        return None
+
+    def _resolve(
+        self, at: Location, screen_token: str | None, deadline: Deadline
+    ) -> tuple[Point, str | None]:
+        if isinstance(at, Point):
+            return at, screen_token
+        body: dict[str, Json] = {"target": at}
+        if self.id:
+            body["session_id"] = self.id
+        if screen_token:
+            body["screen_token"] = screen_token
+        result = obj(self._worker("POST", "resolve_target", body, deadline=deadline).json())
+        x, y, error = result.get("x"), result.get("y"), result.get("error")
+        if result.get("found") is not True or not is_number(x) or not is_number(y):
+            detail = (
+                f": {error}" if isinstance(error, str) and error and self.platform != "web" else ""
+            )
+            raise VerifyError(
+                "ACTION_FAILED", f'Revyl could not find "{at}" on the screen{detail}.'
+            )
+        token = result.get("screen_token")
+        return Point(js_round(x), js_round(y)), token if isinstance(token, str) and token else None
+
+    def _act(self, action: str, body: dict[str, Json], deadline: Deadline, uncertain: bool) -> None:
+        deadline.remaining()
+        result = self._post(action, body, deadline, uncertain)
+        if result.get("success") is not True:
+            error = result.get("error")
+            raise VerifyError(
+                "ACTION_FAILED",
+                f"{action} failed on the {self.platform} session: "
+                f"{error if isinstance(error, str) else 'no reason given'}. See {self.viewer_url}",
+            )
+
+    def _post(
+        self,
+        action: str,
+        body: dict[str, Json],
+        deadline: Deadline,
+        uncertain: bool,
+        *,
+        timeout: float = 30,
+    ) -> dict[str, Json]:
+        try:
+            response = self._worker("POST", action, body, deadline=deadline, timeout=timeout)
+        except VerifyError as error:
+            if uncertain and error.code == "TIMEOUT" and deadline.expired():
+                raise VerifyError(
+                    "ACTION_UNCERTAIN",
+                    f"The step deadline passed while {action} was in flight, so it may have "
+                    f"been applied. Verify did not repeat it. See {self.viewer_url}",
+                ) from error
+            raise
+        return obj(response.json())
+
     def validation(
-        self, text: str, *, timeout: float | None = None, soft: bool = False
+        self,
+        text: str,
+        *,
+        timeout: float | None = None,
+        soft: bool = False,
+        model: ModelOption | None = None,
+        agent: LocalAgent | None = None,
     ) -> StepResult:
         if not isinstance(soft, bool):
             raise VerifyError("INVALID_ARGUMENT", "soft must be a boolean.")
-        result = self._step("validation", text, timeout)
+        result = self._step("validation", text, timeout, model, agent)
         if not result.passed and not soft:
             raise VerifyError(
                 "VALIDATION_FAILED", "Validation failed. See " + self.viewer_url, result=result
@@ -574,12 +870,18 @@ class Session:
         return result
 
     def _step(
-        self, kind: Literal["instruction", "validation"], text: str, timeout: float | None
+        self,
+        kind: Literal["instruction", "validation"],
+        text: str,
+        timeout: float | None,
+        model: ModelOption | None,
+        agent: LocalAgent | None,
     ) -> StepResult:
         if not isinstance(text, str) or not text.strip() or text_length(text) > 4000:
             raise VerifyError(
                 "INVALID_ARGUMENT", "Step description must contain 1–4000 characters."
             )
+        local = choose_agent(model, agent, f"{kind}()") or self._agent
         duration = seconds(
             self._step_timeout if timeout is None else timeout, 1, 3600, "Step timeout"
         )
@@ -593,6 +895,20 @@ class Session:
         started = time.monotonic()
         step_id: str | None = None
         try:
+            if local is not None:
+                passed, explanation, run = self._run_local(
+                    kind, text.strip(), duration, local, deadline
+                )
+                result = StepResult(
+                    kind, text.strip(), passed, explanation, time.monotonic() - started, run
+                )
+                self.steps.append(result)
+                self._log(
+                    f"{'✓' if passed else '✗'} {kind} ({result.duration_seconds:.1f}s, "
+                    f"{len(run.turns)} turn{'' if len(run.turns) == 1 else 's'} on {run.id}, "
+                    f"{run.input_tokens + run.output_tokens} tokens)"
+                )
+                return result
             body: dict[str, Json] = {
                 "step_type": kind,
                 "step_description": text.strip(),
@@ -863,3 +1179,34 @@ def _web_build(client: Client, target: Target, deadline: Deadline) -> str:
             "Revyl app has no web build. Set url or create a web build first.",
         )
     return build_id
+
+
+def _location(at: object) -> Location:
+    if isinstance(at, str):
+        if not at.strip() or text_length(at) > 500:
+            raise VerifyError(
+                "INVALID_ARGUMENT", "A target is a description of 1 to 500 characters."
+            )
+        return at.strip()
+    if (
+        not isinstance(at, Point)
+        or type(at.x) is not int
+        or type(at.y) is not int
+        or at.x < 0
+        or at.y < 0
+    ):
+        raise VerifyError(
+            "INVALID_ARGUMENT",
+            "A location is Point(x, y) in non-negative whole device units, "
+            "or a target description.",
+        )
+    return at
+
+
+def _point_body(point: Point, screen_token: str | None, at: Location | None) -> dict[str, Json]:
+    body: dict[str, Json] = {"x": point.x, "y": point.y}
+    if screen_token:
+        body["screen_token"] = screen_token
+    if isinstance(at, str):
+        body["target"] = at
+    return body
