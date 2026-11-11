@@ -628,16 +628,20 @@ class Session:
             raise VerifyError("ACTION_FAILED", "Revyl did not confirm web navigation.")
 
     def tap(self, at: Location) -> Point:
-        return self._to_screenshot(cast(Point, self._perform(Tap(self._to_device(_location(at))))))
+        location = self._to_device(_location(at))
+        if self.platform == "ios":
+            self._read_screenshot_size()
+        return self._to_screenshot(cast(Point, self._perform(Tap(location))))
 
     def type(self, at: Location, text: str, *, clear: bool = True) -> Point:
         if not isinstance(text, str) or text_length(text) > 16_384:
             raise VerifyError("INVALID_ARGUMENT", "type() takes text of at most 16384 characters.")
         if not isinstance(clear, bool):
             raise VerifyError("INVALID_ARGUMENT", "clear must be a boolean.")
-        return self._to_screenshot(
-            cast(Point, self._perform(TypeText(self._to_device(_location(at)), text, clear)))
-        )
+        location = self._to_device(_location(at))
+        if self.platform == "ios":
+            self._read_screenshot_size()
+        return self._to_screenshot(cast(Point, self._perform(TypeText(location, text, clear))))
 
     def swipe(self, direction: SwipeDirection, *, from_: Location | None = None) -> None:
         if direction not in ("up", "down", "left", "right"):
@@ -694,9 +698,11 @@ class Session:
     def screen_size(self) -> ScreenSize:
         return self._read_screenshot_size()[0]
 
-    def _read_screenshot_size(self) -> tuple[ScreenSize, ScreenSize]:
+    def _read_screenshot_size(self, fresh: bool = False) -> tuple[ScreenSize, ScreenSize]:
         # The screenshot's size, then the device size Revyl acts in. They differ on iOS, where
         # Revyl acts in points and a screenshot has more pixels.
+        if fresh:
+            self._size, self._size_from_health, self._screenshot_size = None, False, None
         if self._screenshot_size is not None:
             return self._screenshot_size
         deadline = Deadline(self._step_timeout, self._cancellation)
@@ -716,7 +722,21 @@ class Session:
     def _to_device(self, at: Location) -> Location:
         if isinstance(at, str):
             return at
-        size, device = self._read_screenshot_size()
+
+        def read(fresh: bool) -> tuple[ScreenSize, ScreenSize] | None:
+            try:
+                return self._read_screenshot_size(fresh)
+            except VerifyError:
+                if self.platform == "ios":
+                    raise
+                return None
+
+        sizes = read(False)
+        if sizes is not None and (at.x >= sizes[0].width or at.y >= sizes[0].height):
+            sizes = read(True)
+        if sizes is None:
+            return at
+        size, device = sizes
         if at.x >= size.width or at.y >= size.height:
             raise VerifyError(
                 "INVALID_ARGUMENT",
@@ -733,8 +753,8 @@ class Session:
             return point
         size, device = self._read_screenshot_size()
         return Point(
-            min(size.width - 1, js_round(point.x * size.width / device.width)),
-            min(size.height - 1, js_round(point.y * size.height / device.height)),
+            js_round(point.x * size.width / device.width),
+            js_round(point.y * size.height / device.height),
         )
 
     def _run_local(

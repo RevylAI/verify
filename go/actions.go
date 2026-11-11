@@ -91,6 +91,11 @@ func (s *Session) Tap(ctx context.Context, at Location) (Point, error) {
 	if at, err = s.toDevice(ctx, at); err != nil {
 		return Point{}, err
 	}
+	if s.platform == IOS {
+		if _, err := s.readScreenshotSize(ctx, false); err != nil {
+			return Point{}, err
+		}
+	}
 	point, err := s.perform(ctx, deviceAction{kind: "tap", at: at}, "")
 	if err != nil {
 		return Point{}, err
@@ -115,6 +120,11 @@ func (s *Session) Type(ctx context.Context, at Location, text string, options ..
 	}
 	if at, err = s.toDevice(ctx, at); err != nil {
 		return Point{}, err
+	}
+	if s.platform == IOS {
+		if _, err := s.readScreenshotSize(ctx, false); err != nil {
+			return Point{}, err
+		}
 	}
 	clearFirst := len(options) == 0 || options[0].Clear == nil || *options[0].Clear
 	point, err := s.perform(ctx, deviceAction{kind: "type", at: at, text: text, clear: clearFirst}, "")
@@ -223,7 +233,7 @@ func (s *Session) ScreenSize(ctx context.Context) (Size, error) {
 	if s.platform.computer() {
 		return Size{}, s.computerAgentUnavailable("ScreenSize")
 	}
-	scale, err := s.readScreenshotSize(ctx)
+	scale, err := s.readScreenshotSize(ctx, false)
 	return scale.size, err
 }
 
@@ -231,8 +241,11 @@ type screenshotScale struct{ size, device Size }
 
 // readScreenshotSize returns the screenshot's size and the device size Revyl acts in. They differ on iOS, where
 // Revyl acts in points and a screenshot has more pixels.
-func (s *Session) readScreenshotSize(ctx context.Context) (screenshotScale, error) {
+func (s *Session) readScreenshotSize(ctx context.Context, fresh bool) (screenshotScale, error) {
 	s.mu.Lock()
+	if fresh {
+		s.size, s.sizeFromHealth, s.screenshotScale = nil, false, nil
+	}
 	cached := s.screenshotScale
 	s.mu.Unlock()
 	if cached != nil {
@@ -267,9 +280,26 @@ func (s *Session) toDevice(ctx context.Context, at Location) (Location, error) {
 	if !ok {
 		return at, nil
 	}
-	scale, err := s.readScreenshotSize(ctx)
+	read := func(fresh bool) (*screenshotScale, error) {
+		scale, err := s.readScreenshotSize(ctx, fresh)
+		var verifyErr *Error
+		if err != nil && s.platform != IOS && errors.As(err, &verifyErr) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		return &scale, nil
+	}
+	scale, err := read(false)
+	if err == nil && scale != nil && (point.X >= scale.size.Width || point.Y >= scale.size.Height) {
+		scale, err = read(true)
+	}
 	if err != nil {
 		return nil, err
+	}
+	if scale == nil {
+		return at, nil
 	}
 	if point.X >= scale.size.Width || point.Y >= scale.size.Height {
 		return nil, failure(ErrInvalidArgument, fmt.Sprintf("(%d, %d) is outside the screenshot: X must be 0 to %d and Y 0 to %d, in screenshot pixels.", point.X, point.Y, scale.size.Width-1, scale.size.Height-1))
@@ -284,13 +314,13 @@ func (s *Session) toScreenshot(ctx context.Context, point Point) (Point, error) 
 	if s.platform != IOS {
 		return point, nil
 	}
-	scale, err := s.readScreenshotSize(ctx)
+	scale, err := s.readScreenshotSize(ctx, false)
 	if err != nil {
 		return Point{}, err
 	}
 	return Point{
-		X: min(scale.size.Width-1, round(float64(point.X*scale.size.Width)/float64(scale.device.Width))),
-		Y: min(scale.size.Height-1, round(float64(point.Y*scale.size.Height)/float64(scale.device.Height))),
+		X: round(float64(point.X*scale.size.Width) / float64(scale.device.Width)),
+		Y: round(float64(point.Y*scale.size.Height) / float64(scale.device.Height)),
 	}, nil
 }
 

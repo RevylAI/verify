@@ -599,13 +599,17 @@ export class DeviceSession implements Session {
 
   /** Taps a point in screenshot pixels, or an element Revyl locates from a description. Returns the point tapped, in screenshot pixels. */
   async tap(at: Location): Promise<Point> {
-    return this.toScreenshot((await this.perform({ kind: 'tap', at: await this.toDevice(checkLocation(at)) }))!);
+    const location = await this.toDevice(checkLocation(at));
+    if (this.platform === 'ios') await this.readScreenshotSize();
+    return this.toScreenshot((await this.perform({ kind: 'tap', at: location }))!);
   }
 
   /** Taps a text field and types into it, clearing it first unless clear is false. Returns the point tapped. */
   async type(at: Location, text: string, options: { clear?: boolean } = {}): Promise<Point> {
     if (typeof text !== 'string' || text.length > 16_384) throw new VerifyError('INVALID_ARGUMENT', 'type() takes text of at most 16384 characters.');
-    return this.toScreenshot((await this.perform({ kind: 'type', at: await this.toDevice(checkLocation(at)), text, clear: options.clear !== false }))!);
+    const location = await this.toDevice(checkLocation(at));
+    if (this.platform === 'ios') await this.readScreenshotSize();
+    return this.toScreenshot((await this.perform({ kind: 'type', at: location, text, clear: options.clear !== false }))!);
   }
 
   /** Swipes from a point or the screen's center. 'up' moves the finger up, which scrolls content down. */
@@ -652,7 +656,8 @@ export class DeviceSession implements Session {
   }
 
   /** The screenshot's size and the device size Revyl acts in. They differ on iOS, where Revyl acts in points and a screenshot has more pixels. */
-  private async readScreenshotSize(): Promise<{ width: number; height: number; device: { width: number; height: number } }> {
+  private async readScreenshotSize(fresh = false): Promise<{ width: number; height: number; device: { width: number; height: number } }> {
+    if (fresh) [this.size, this.sizeSource, this.screenshotSize] = [undefined, undefined, undefined];
     if (this.screenshotSize) return this.screenshotSize;
     const device = await this.readScreenSize();
     let size = device;
@@ -666,7 +671,17 @@ export class DeviceSession implements Session {
 
   private async toDevice(at: Location): Promise<Location> {
     if ('target' in at) return at;
-    const size = await this.readScreenshotSize();
+    const read = async (fresh: boolean) => {
+      try {
+        return await this.readScreenshotSize(fresh);
+      } catch (error) {
+        if (this.platform === 'ios' || !(error instanceof VerifyError)) throw error;
+        return undefined;
+      }
+    };
+    let size = await read(false);
+    if (size && (at.x >= size.width || at.y >= size.height)) size = await read(true);
+    if (!size) return at;
     if (at.x >= size.width || at.y >= size.height) {
       throw new VerifyError('INVALID_ARGUMENT', `(${at.x}, ${at.y}) is outside the screenshot: x must be 0 to ${size.width - 1} and y 0 to ${size.height - 1}, in screenshot pixels.`);
     }
@@ -676,7 +691,7 @@ export class DeviceSession implements Session {
   private async toScreenshot(point: Point): Promise<Point> {
     if (this.platform !== 'ios') return point;
     const size = await this.readScreenshotSize();
-    return { x: Math.min(size.width - 1, Math.round((point.x * size.width) / size.device.width)), y: Math.min(size.height - 1, Math.round((point.y * size.height) / size.device.height)) };
+    return { x: Math.round((point.x * size.width) / size.device.width), y: Math.round((point.y * size.height) / size.device.height) };
   }
 
   private async readScreenSize(signal?: AbortSignal): Promise<{ width: number; height: number }> {
