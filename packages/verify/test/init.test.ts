@@ -46,7 +46,7 @@ describe('initProject', () => {
     expect(script).toContain('session.validation(');
     expect(script).toContain('session.close()');
     expect(await readFile(join(dir, '.gitignore'), 'utf8')).toBe('node_modules\n.verify/\n');
-    expect((await initProject(dir, { platform: 'web' }, { force: true })).gitignoreUpdated).toBe(false);
+    expect((await initProject(dir, { platform: 'web', appId: APP_ID }, { force: true })).gitignoreUpdated).toBe(false);
   });
 
   it('writes a mobile config whose target matches the example script', async () => {

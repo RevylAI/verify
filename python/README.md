@@ -2,7 +2,7 @@
 
 <p align="center"><em>Cloud browsers, mobile devices and computers from Python.</em></p>
 
-Verify is a thin [Revyl](https://revyl.com) SDK, not a test runner. Open a web browser, iOS simulator or Android emulator for natural-language instructions and validations, or an early-access Mac/Linux computer for commands, files, processes and screenshots.
+Verify is a thin [Revyl](https://revyl.com) SDK, not a test runner. Open a web browser, iOS simulator or Android emulator for natural-language instructions and validations, or an early-access Mac computer for commands, files, processes and screenshots.
 
 ## For coding agents
 
@@ -90,19 +90,19 @@ asyncio.run(main())
 
 `async_open` returns an `AsyncSession`. Its async methods adapt the synchronous implementation through worker threads, rather than introducing another HTTP stack. Cancelling a method schedules best-effort session close; cancelling open interrupts startup and attempts cleanup as soon as an identity is known. Cancellation does not forcibly terminate an in-flight thread or undo a remote operation; do not replay an uncertain mutation. Always close explicitly or use `async with await async_open(...)`.
 
-### Linux computer (early access)
+### Mac computer (early access)
 
 Ask support@revyl.ai about computer access before running:
 
 ```python
 from revyl_verify import Target, open
 
-with open(Target(platform="linux", start_timeout=600)) as session:
+with open(Target(platform="mac", start_timeout=600)) as session:
     result = session.exec(["uname", "-a"], timeout=30, check=True)
     session.write_file("message.txt", b"Hello from Verify\n")
     contents = session.read_file("message.txt")
     processes = session.processes()
-    session.screenshot(path="linux.png")
+    session.screenshot(path="mac.png")
 
 recording = session.recording()
 ```
@@ -132,7 +132,7 @@ with attach("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee") as computer:
 
 Use real IDs from the same authorized environment; these are placeholders. The existing Web build must point to a supported HTTPS source. After startup, `navigate(url)` sends a single deterministic navigation request and accepts HTTP or HTTPS, including localhost, on every Web session. A cold development server may need a warm-up request before navigation succeeds. For hosted browsers localhost means the hosting computer; for ordinary cloud browsers it means that browser's runtime, not your own computer. If navigation times out uncertainly, it may still commit and the session remains usable; re-navigating is your choice. The server runtime owns navigation network policy. The SDK rejects credentials, control characters and backslashes; it never logs the URL. Navigation is unavailable on mobile and computer sessions and returns `None` after a confirmed response.
 
-`computer.open(target)` requires **both** `app_id` and `build_id` UUIDs. Hosted Web accepts `viewport`, `sign_in`, `idle_timeout_seconds` and `start_timeout`, but no `url` or `branch`; the server currently accepts external Web builds, not bundled Web artifacts. Hosted iOS/Android use the selected build and fixed simulator/emulator configuration, so `bundle_id`, `artifact_url`, `device_model`, `os_version`, `url`, `branch`, `viewport` and `sign_in` are unavailable. Mac hosts Web/iOS; Linux hosts Android and exposes Web only subject to server capability. **Linux-hosted Web is currently unavailable in the runtime.** All hosting depends on server capability and capacity.
+`computer.open(target)` requires **both** `app_id` and `build_id` UUIDs. Hosted Web accepts `viewport`, `sign_in`, `idle_timeout_seconds` and `start_timeout`, but no `url` or `branch`; the server currently accepts external Web builds, not bundled Web artifacts. Hosted iOS/Android use the selected build and fixed simulator/emulator configuration, so `bundle_id`, `artifact_url`, `device_model`, `os_version`, `url`, `branch`, `viewport` and `sign_in` are unavailable. Mac hosts Web/iOS. All hosting depends on server capability and capacity.
 
 Children reuse their parent's credentials, API/viewer origins, step timeout and log callback. They return normal sessions with instruction, validation, screenshot, report and close methods. The parent's remaining lifetime bounds child startup and worker requests; report and close remain available after expiry. Closing a parent prevents new children, cancels in-flight starts, and gives pending starts and child closes one shared five-second cleanup budget before attempting the computer stop. Child startup failure never closes the parent. Confirmed physical parent release supersedes an earlier child-close uncertainty, which is logged safely. An ambiguous child start is cleaned up using its preallocated ID, without replaying creation. A definitive refusal does not issue a child stop.
 
@@ -148,11 +148,11 @@ Construct a frozen `Target(platform=...)`:
 
 - **Web:** `app_id` (Revyl UUID) is required. Supply `url` for a public HTTPS site, `build_id` for a specific build, or `branch` for the selected app's latest build. `build_id` cannot be combined with `url` or `branch`. Optional `Viewport(width, height, device_scale_factor=...)` and `SignIn(path, secret, persona=...)` configure the browser and saved sign-in secret reference, not a raw credential.
 - **iOS / Android:** provide exactly one of `app_id`, `build_id`, HTTPS `artifact_url` or installed-app `bundle_id`. Optional `device_model` and `os_version` select the device. Do not combine mobile app sources.
-- **Mac / Linux:** only `platform` and `start_timeout` are accepted; app/browser/device fields are unavailable.
+- **Mac:** only `platform` and `start_timeout` are accepted; app/browser/device fields are unavailable.
 
 `start_timeout` defaults to 600 seconds (allowed range 10–1800). Web/mobile also accept `idle_timeout_seconds` (60–3600). `open`, `async_open`, `attach` and `async_attach` accept default `step_timeout` in seconds.
 
-Pass `log=callback` to either opening API for sanitized lifecycle progress, including the viewer link as soon as the session identity is known. The default is quiet. Async callbacks run on a worker thread, so make them thread-safe; callback exceptions do not interrupt resource cleanup. Progress never includes app URLs, command or step content, credentials, recording URLs, or raw server errors. Viewer links and session IDs are still private operational context.
+Verify prints sanitized progress to stderr as `[verify] <platform>: …` lines, like the TypeScript SDK: the viewer link as soon as the session identity is known, `ready`, and each step's outcome and duration. Pass `log=callback` to receive the lines yourself, or `log=False` to turn them off. Async callbacks run on a worker thread, so make them thread-safe; callback exceptions do not interrupt resource cleanup. Progress never includes app URLs, command or step content, credentials, recording URLs, or raw server errors. Viewer links and session IDs are still private operational context.
 
 Startup `VerifyError` instances retain optional typed `platform`, `session_id`, `workflow_run_id`, and `viewer_url`, plus `cleanup_status` and `cleanup_error`. These fields remain available even though opening did not return a session:
 
@@ -160,7 +160,7 @@ Startup `VerifyError` instances retain optional typed `platform`, `session_id`, 
 from revyl_verify import Target, VerifyError, open
 
 try:
-    session = open(Target(platform="linux"), log=lambda line: None)
+    session = open(Target(platform="mac"), log=lambda line: None)
 except VerifyError as error:
     session_id = error.session_id
     viewer_url = error.viewer_url
@@ -182,9 +182,9 @@ Session properties include `id`, `platform`, `viewer_url`, `expires_at` and `clo
 | --- | :---: | :---: | :---: |
 | Web | Yes, if the backend supports web steps | — | Yes |
 | iOS simulator / Android emulator | Yes | — | Yes |
-| Mac / Linux computer | — | Yes | Yes |
+| Mac computer | — | Yes | Yes |
 
-Mac and Linux are early access; ask support@revyl.ai about access. Computer admission may return `COMPUTER_LIMIT`; the SDK does not retry creation. Computer sessions have a hard lifetime from creation (two hours today); `expires_at` is the authoritative deadline. Screenshot observation retries structured startup screen-not-ready errors within a bounded window; other errors are not silently replayed.
+Mac computers are early access; ask support@revyl.ai about access. Computer admission may return `COMPUTER_LIMIT`; the SDK does not retry creation. Computer sessions have a hard lifetime from creation (two hours today); `expires_at` is the authoritative deadline. Screenshot observation retries structured startup screen-not-ready errors within a bounded window; other errors are not silently replayed.
 
 Context-manager exit calls `close()`. Device close acknowledges a stop request; computer close requires terminal state **and confirmed resource release**. Close submits its stop mutation once; repeated calls share the first outcome, including an unconfirmed failure. Interpreter-exit cleanup is best effort and cannot replace explicit close, especially with asyncio. A failed close is not proof the resource was released; investigate it rather than starting replacement sessions blindly.
 

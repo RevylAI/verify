@@ -1,18 +1,72 @@
 # Verify for Go
 
-Open a Revyl cloud browser or mobile device for instruction and validation steps, or a Mac/Linux computer for commands and files. This is a standard-library-only Go SDK, not a test runner. It does not provide `test`, `describe`, or `expect`.
+Open a Revyl cloud browser or mobile device for instruction and validation steps, or a Mac computer for commands and files. This is a standard-library-only Go SDK, not a test runner. It does not provide `test`, `describe`, or `expect`.
 
 ## Install
 
-Use Go 1.26.9 or later and a Revyl account. Set `REVYL_API_KEY` through your shell or CI secret manager, or sign in with `revyl auth login`. A usable stored login marked `local_auth_override` takes precedence over the environment key; otherwise the environment key wins.
+Use Go 1.26.9 or later and a Revyl account. Set `REVYL_API_KEY` through your shell or CI secret manager, or use a login saved in `~/.revyl/credentials.json`: run `npx @revyl/verify login` or `revyl auth login` once, or let the TypeScript or Python SDK sign you in. The Go SDK never opens a browser itself. A usable stored login marked `local_auth_override` takes precedence over the environment key; otherwise the environment key wins.
 
 The module lives in the repository's `go/` subdirectory. Install the tagged release with:
 
 ```sh
-go get github.com/RevylAI/verify/go@v0.2.0
+go get github.com/RevylAI/verify/go@v0.2.1
 ```
 
 Go releases use independent repository tags such as `go/v0.2.0`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
+
+## Quick start: iOS Settings
+
+This program opens the iOS Settings app on a cloud simulator, which every account can run before uploading a build. It starts a real, billable session.
+
+```sh
+mkdir verify-go && cd verify-go
+go mod init example.com/verify-go
+go get github.com/RevylAI/verify/go@v0.2.1
+```
+
+Save this as `main.go`:
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+	"time"
+
+	verify "github.com/RevylAI/verify/go"
+)
+
+func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
+	ctx := context.Background()
+	s, err := verify.Open(ctx, verify.Target{Platform: verify.IOS, BundleID: "com.apple.Preferences"})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = s.Close(cleanup)
+	}()
+	log.Println("Watch:", s.ViewerURL())
+	if _, err := s.Instruction(ctx, "Open General, then About"); err != nil {
+		return err
+	}
+	if _, err := s.Validation(ctx, "The screen shows the operating system version"); err != nil {
+		return err
+	}
+	_, err = s.Screenshot(ctx, "about.png")
+	return err
+}
+```
+
+Run it with `go run .`. It prints the session link, exits 0 when the validation passes, and saves `about.png`. Use `verify.Android` with `BundleID: "com.android.settings"` for Android, or `AppID` for your own uploaded app.
 
 ## Core API
 
@@ -96,7 +150,7 @@ Run with `go test -v -timeout 6m`. `t.Fatal` runs deferred cleanup. The URL and 
 
 - **Web:** `Target{Platform: verify.Web, AppID: "…", URL: "https://…"}` registers a deployed HTTPS URL as a web build. Alternatively supply `BuildID`, or omit URL and build ID to select the latest web build on `Branch` (the app's default branch if omitted). `Viewport` accepts `Width`, `Height`, and optional `DeviceScaleFactor`; `SignIn` accepts `Path`, `Secret` (the stored secret's name, never its value), and optional `Persona`.
 - **iOS and Android:** set `Platform` to `verify.IOS` or `verify.Android` and exactly one of `AppID`, `BuildID`, `ArtifactURL` (HTTPS), or `BundleID` (an app already installed). `DeviceModel` and `OSVersion` are optional. `URL`, `Branch`, `Viewport`, and `SignIn` are web-only.
-- **Mac and Linux computers:** `Target{Platform: verify.Mac}` or `Target{Platform: verify.Linux}` creates a workspace; only `StartTimeout` is accepted alongside the platform. Both are early access; ask support@revyl.ai about access. Mac commands are not portable to Linux, so use platform-aware argv when needed. A 429 `ErrComputerLimit` means queued work or a concurrency limit; Verify does not guess which cause applies or retry creation. See [computer availability](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#availability-and-errors).
+- **Mac computers:** `Target{Platform: verify.Mac}` creates a workspace; only `StartTimeout` is accepted alongside the platform. Mac computers are early access; ask support@revyl.ai about access. A 429 `ErrComputerLimit` means queued work or a concurrency limit; Verify does not guess which cause applies or retry creation. See [computer availability](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#availability-and-errors).
 - `Target.StartTimeout` bounds startup (default 10 minutes); on web/mobile, `IdleTimeoutSeconds` sets the session's idle timeout (default 600 seconds). All methods also honor the caller's context.
 - `OpenOptions{StepTimeout: 3*time.Minute}` changes the default step timeout. Per-call `StepOptions{Timeout: time.Minute}` and `ValidationOptions{Timeout: time.Minute, Soft: true}` override it. Run one step at a time per session.
 - Redirects are rejected, not followed with credentials.
@@ -154,7 +208,7 @@ To attach without taking ownership, set `stop := false` and pass `verify.OpenOpt
 
 Call `computer.Open(ctx, target)` to start a web, iOS, or Android app session inside that computer, rather than on an unrelated worker. It reuses the computer's credentials, backend, viewer, HTTP client, step timeout, and log callback. Both `AppID` and `BuildID` must be exact Revyl UUIDs. Hosted targets cannot select `URL`, `Branch`, `ArtifactURL`, `BundleID`, `DeviceModel`, or `OSVersion`. Web targets allow `Viewport`, `SignIn`, `IdleTimeoutSeconds`, and `StartTimeout`; native targets allow the two timeouts and always request simulation.
 
-Mac computers can host web and iOS; Linux computers can host web and Android. These are client-side compatibility limits, not a capacity guarantee: the server can refuse any hosted start. Linux hosted web depends on server runtime capability; accepting the target in the SDK does not imply it works in every runtime. Computers remain early access.
+Mac computers can host web and iOS. This is a client-side compatibility limit, not a capacity guarantee: the server can refuse any hosted start. Computers remain early access.
 
 Inside a function returning `error`, with a computer ID and existing app/build UUIDs supplied by your caller:
 
@@ -189,9 +243,7 @@ Each hosted start gets a distinct preallocated session ID and is never replayed.
 
 `session.Report(ctx)` returns a JSON object as `map[string]any` for normal, hosted, and computer sessions, including after close. It reads the device-session endpoint for app sessions and the computer report endpoint for computers; computer identity and state are validated. A session with no known ID returns `ErrNotFound` locally without a request. Reports may contain private session data: do not log or publish them indiscriminately.
 
-## Mac and Linux commands and files
-
-Use `verify.Linux` for the same file/command API on a Linux guest, with platform-appropriate argv.
+## Mac commands and files
 
 ```go
 package workspace

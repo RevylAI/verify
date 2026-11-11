@@ -1,6 +1,6 @@
-# Mac and Linux computers (early access)
+# Mac computers (early access)
 
-Verify opens a Revyl cloud macOS or Linux computer for commands, files, processes, and screenshots. It does not open an assigned physical computer. Both operating systems are **early access**. Ask [support@revyl.ai](mailto:support@revyl.ai) about access.
+Verify opens a Revyl cloud macOS computer for commands, files, processes, and screenshots. It does not open an assigned physical computer. Mac computers are **early access**. Ask [support@revyl.ai](mailto:support@revyl.ai) about access.
 
 ```bash
 export REVYL_API_KEY=...
@@ -10,7 +10,7 @@ node verify/example.ts
 
 `init` installs the package and checks credentials. Running the script starts a paid computer. No app id, build, device selector, image selector, or local Mac is needed. The generated script checks commands and a file round trip without agent steps.
 
-`init` intentionally generates only Mac computer projects. For Linux, install the package and use `open({ platform: 'linux' })` inline, or add `linux: { platform: 'linux' }` to the `targets` in `verify.config.ts`. The methods below are shared by both operating systems; installed tools, paths, resources, and desktop dimensions are not fixed SDK guarantees.
+Installed tools, paths, resources, and desktop dimensions are not fixed SDK guarantees.
 
 ## Commands and files
 
@@ -55,25 +55,23 @@ The HTTPS URL is signed and short-lived. Keep it private, including its query st
 
 ## Availability and errors
 
-Mac and Linux computers are early access. A `503 runtime_unavailable` or typed `computer_not_enabled` becomes `NOT_AVAILABLE_ON_PLATFORM` with this availability guidance. A `429 computer_limit` becomes `COMPUTER_LIMIT`: queued work (including iOS) or the concurrency limit can cause it, and the response does not identify which. Verify does not retry the create or send a stop after these definite admission refusals. `operation_limit` remains `SESSION_BUSY`. Availability is determined by the server.
+Mac computers are early access. A `503 runtime_unavailable` or typed `computer_not_enabled` becomes `NOT_AVAILABLE_ON_PLATFORM` with this availability guidance. A `429 computer_limit` becomes `COMPUTER_LIMIT`: queued work (including iOS) or the concurrency limit can cause it, and the response does not identify which. Verify does not retry the create or send a stop after these definite admission refusals. `operation_limit` remains `SESSION_BUSY`. Availability is determined by the server.
 
 The default `startTimeout` remains 600000 ms; override it explicitly if needed. An unclaimed start can transition to `failed` with `failure_reason: 'no_host'` after 120 seconds from create. Verify stops readiness polling and throws `SESSION_START_FAILED` with that context, then attempts bounded cleanup. This is not a 120-second timeout for every start: claimed guests may take longer. `device_limit` also yields `SESSION_START_FAILED`, with queued-work/concurrency context. A start timeout or unconfirmed close does not prove resources were released. Inspect the session and contact support rather than blindly repeating a start or stop.
 
-`instruction()` and `validation()` throw `NOT_AVAILABLE_ON_PLATFORM` on both computer operating systems without sending agent requests. Screenshots are supported, but screenshot readiness is separate from command readiness. Agent control of the screen is not part of this release. On web, iOS, and Android, shell/file/process methods throw `NOT_AVAILABLE_ON_PLATFORM`.
+`instruction()` and `validation()` throw `NOT_AVAILABLE_ON_PLATFORM` on computers without sending agent requests. Screenshots are supported, but screenshot readiness is separate from command readiness. Agent control of the screen is not part of this release. On web, iOS, and Android, shell/file/process methods throw `NOT_AVAILABLE_ON_PLATFORM`.
 
 For the first 30 seconds after a computer becomes active, `screenshot()` retries exact structured `screen_unavailable` responses (HTTP 409 or 503) and `screen_starting` (HTTP 409). Backoff starts at 500 ms and doubles up to 2 seconds; the fixed window does not restart on each call. Cancellation, close, expiry, and the observation deadline still bound the wait. Exhausting that window yields `SESSION_BUSY` with a desktop-not-ready message, rather than requiring a caller sleep. Authentication failures, unrelated errors, malformed responses, and transport failures are not replayed. Commands and other mutations are never retried by this screenshot behavior.
-
-Linux named and inline targets use the same computer surface as Mac. `init --platform linux` is intentionally unavailable; use an inline target or write its config entry.
 
 Missing files and access denials throw `NOT_FOUND` and `ACCESS_DENIED`. An operation timeout with confirmed termination throws `TIMEOUT`; unconfirmed termination or execution throws `ACTION_UNCERTAIN`. Neither implies rollback. Execution outcome, evidence recording, and physical release are independent: an observed successful command can return its result while logging pending/failed report evidence. Do not repeat a mutation merely because its response was lost. Check the computer in Revyl before deciding what to do next. See [errors.md](errors.md).
 
 ## Lifecycle and transport
 
-Use `attach(computerId)` to take cleanup ownership of an existing active computer without creating one. `computer.open(target)` starts Web/iOS children on Mac and Android on Linux; Web on Linux depends on runtime availability and currently has a runtime limitation. A child requires an existing app/build pair and inherits the parent's client and expiry. Parent close attempts child cleanup for at most five seconds before requesting computer release; the server also stops remaining children. See [the hosted API](api.md#computeropentarget) for arguments, localhost navigation, and cleanup semantics. These are app sessions, not natural-language control of the computer desktop itself.
+Use `attach(computerId)` to take cleanup ownership of an existing active computer without creating one. `computer.open(target)` starts Web and iOS children on a Mac. A child requires an existing app/build pair and inherits the parent's client and expiry. Parent close attempts child cleanup for at most five seconds before requesting computer release; the server also stops remaining children. See [the hosted API](api.md#computeropentarget) for arguments, localhost navigation, and cleanup semantics. These are app sessions, not natural-language control of the computer desktop itself.
 
 For a computer owned by another caller, such as a CI runner, use `attach(computerId, { stopOnClose: false })`. It is not registered for automatic cleanup. Explicit close still cancels pending child starts and closes hosted children within the five-second cleanup phase, but never sends a stop for the computer. The computer's owner is responsible for releasing it; a child-cleanup failure does not authorize stopping the parent.
 
-Verify mints a session UUID, creates `/api/v1/computer-runs` with `os: 'macos'` for `platform: 'mac'` or `os: 'linux'` for `platform: 'linux'`, then polls `GET /computer-runs/{id}/report` until `state: 'active'`, which means it is ready. `starting` alone is not readiness. The public Mac target spelling is `mac`, not `macos`.
+Verify mints a session UUID, creates `/api/v1/computer-runs` with `os: 'macos'` for `platform: 'mac'`, then polls `GET /computer-runs/{id}/report` until `state: 'active'`, which means it is ready. `starting` alone is not readiness. The public Mac target spelling is `mac`, not `macos`.
 
 Each command is submitted once to `/computer-runs/{id}/operations` with its own UUID `request_id` and `Prefer: respond-async`. The operation id is UUIDv5 with the computer UUID as namespace and the request UUID string as name. A `202` response has JSON `null`; Verify reads the operation by id until it settles instead of submitting it again.
 

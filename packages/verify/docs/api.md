@@ -6,17 +6,14 @@ import { attach, open, defineConfig, VerifyError, isVerifyError } from '@revyl/v
 
 ## open(target, options?)
 
-Linux targets are supported **since 0.2.0**; 0.1.0 includes the target type but rejects Linux locally.
+Starts a Revyl cloud browser, device, or Mac computer. Mobile first-screen readiness is [best-effort](mobile.md#steps), not a foreground/rendered-readiness guarantee. Computer starts retain a 10-minute default timeout; an unclaimed start may fail after 120 seconds with no-host context.
 
-Starts a Revyl cloud browser, device, or Mac or Linux computer. Mobile first-screen readiness is [best-effort](mobile.md#steps), not a foreground/rendered-readiness guarantee. Computer starts retain a 10-minute default timeout; an unclaimed start may fail after 120 seconds with no-host context.
-
-Both computer operating systems are early access. Ask support@revyl.ai about access.
+Mac computers are early access. Ask support@revyl.ai about access.
 
 ```ts
 const web = await open('web');                                       // a target named in verify.config.ts
 const ios = await open({ platform: 'ios', app: { appId: '…' } });    // or a target object, no config needed
 const mac = await open({ platform: 'mac' });                        // computer, no app needed
-const linux = await open({ platform: 'linux' });                    // same computer surface
 ```
 
 - `target`: a target name from `verify.config.ts`, or a target object with the same shape as a config entry (see [configuration.md](configuration.md)). Verify reads the nearest `verify.config.ts` at or above the current folder.
@@ -53,7 +50,7 @@ The attachment, hosted-child and navigation APIs below are included in the TypeS
 
 `open()` and `computer.open()` return the extended `OpenedSession` interface. The original `Session` interface keeps its existing required members, so applications implementing or mocking it do not need to add the new methods. Use `OpenedSession` when explicitly annotating a value that calls `report`, `navigate` or `open`.
 
-Attaches to an active Mac or Linux computer in your organization without creating a new one. `options.log` controls progress. The returned computer owns cleanup by default: `close()` stops it, and automatic cleanup also applies. Attaching requires a valid expiry and does not extend the lifetime. Invalid, inaccessible, inactive or expired computers fail without sending a stop request.
+Attaches to an active Mac computer in your organization without creating a new one. `options.log` controls progress. The returned computer owns cleanup by default: `close()` stops it, and automatic cleanup also applies. Attaching requires a valid expiry and does not extend the lifetime. Invalid, inaccessible, inactive or expired computers fail without sending a stop request.
 
 When attaching to a computer you do not own, such as a CI runner, pass `attach(computerId, { stopOnClose: false })`. The attachment is not registered for automatic cleanup. Its `close()` still cancels pending child starts and gives hosted children the same five-second cleanup phase, but never stops the computer; its owner must release it. Child cleanup failures remain observable. This option is explicit and is never inferred from the environment.
 
@@ -61,7 +58,7 @@ When attaching to a computer you do not own, such as a CI runner, pass `attach(c
 
 Starts a child app session inside this computer, returning the normal session API. It inherits the parent's authenticated client, logging and step timeout; callers cannot route a child to another backend. Both `target.app.appId` and `target.app.buildId` are required. Web accepts an existing external HTTPS build, plus optional viewport/sign-in settings; native builds use the computer's fixed device profile and accept no bundle, artifact or device override. Named targets and initial URL overrides are not supported here.
 
-Mac supports Web and iOS children. Linux supports Android and may support Web when its runtime advertises that capability; Linux Web currently has a runtime limitation, so do not rely on it without confirming availability. The server remains authoritative for access, capability and capacity. Children require and share the parent's known deadline. Closing a child leaves the parent running; closing the parent cancels pending starts and gives child cleanup at most five seconds total before requesting confirmed computer release. The parent stop also stops any remaining children, so a slow child cannot prevent that request. A failed child start never closes the parent.
+Mac supports Web and iOS children. The server remains authoritative for access, capability and capacity. Children require and share the parent's known deadline. Closing a child leaves the parent running; closing the parent cancels pending starts and gives child cleanup at most five seconds total before requesting confirmed computer release. The parent stop also stops any remaining children, so a slow child cannot prevent that request. A failed child start never closes the parent.
 
 ```ts
 const computer = await attach(existingComputerId, { log: false });
@@ -137,7 +134,7 @@ For owning computers, cleanup must be confirmed; a terminal state alone does not
 
 ## Computer commands, files, and processes
 
-Mac and Linux sessions provide `exec(argv: string[], options?)`, `readFile(path, options?)` returning `Buffer`, `writeFile(path, string | Uint8Array, options?)`, `stat(path, options?)` returning `{ kind, size }`, `processes(options?)` returning `{ id, state, exitCode? }[]`, and `terminate(id, options?)`. They throw `NOT_AVAILABLE_ON_PLATFORM` on web/iOS/Android. See [computers.md](computers.md) for complete signatures, limits, timeouts, and examples. Both support `screenshot()`; instruction/validation do not run on computers.
+Mac sessions provide `exec(argv: string[], options?)`, `readFile(path, options?)` returning `Buffer`, `writeFile(path, string | Uint8Array, options?)`, `stat(path, options?)` returning `{ kind, size }`, `processes(options?)` returning `{ id, state, exitCode? }[]`, and `terminate(id, options?)`. They throw `NOT_AVAILABLE_ON_PLATFORM` on web/iOS/Android. See [computers.md](computers.md) for complete signatures, limits, timeouts, and examples. Both support `screenshot()`; instruction/validation do not run on computers.
 
 ### `session.recording(): Promise<ComputerRecording | null>`
 
@@ -151,7 +148,7 @@ Computers only. First reads the report and requires terminal state plus confirme
 | --- | --- |
 | `viewerUrl` | The session in Revyl: a live view while it runs, its recording/report after. Use `revyl device report --session-id <id>` for web/mobile, or `revyl computer report <id>` for computers. |
 | `id` | Revyl's session id |
-| `platform` | `'web'`, `'ios'`, `'android'`, `'mac'`, or `'linux'` |
+| `platform` | `'web'`, `'ios'`, `'android'`, or `'mac'` |
 | `expiresAt` | **Since 0.2.0.** Validated API expiry as a `Date`, or undefined for devices and older APIs. Computers have a hard lifetime from create (two hours today); this value is the authoritative deadline. Operations/screenshot observation are bounded by expiry; close and recording remain possible. |
 | `target` | The target name, or the platform for a target object |
 | `closed` | Whether `close()` was called |

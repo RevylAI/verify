@@ -1,27 +1,52 @@
 #!/usr/bin/env node
+import { rm } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
 import { RevylClient } from '../api/client.js';
 import type { Platform } from '../api/types.js';
-import { missingCredentialsMessage, resolveCredentials } from '../auth.js';
+import { missingCredentialsMessage, resolveCredentials, revylCredentialsPath } from '../auth.js';
 import { VerifyError, errorMessage, isVerifyError } from '../errors.js';
 import { PACKAGE_NAME, VERSION } from '../version.js';
-import { initProject, validateInitAnswers, type InitAnswers } from './init.js';
+import { initProject, validateInitAnswers, webAppIdMissingMessage, type InitAnswers } from './init.js';
 import { installVerify, packageHasVerify } from './install.js';
 import { signIn } from './login.js';
+
+const INIT_USAGE = `npx ${PACKAGE_NAME} init [--platform ios|android|web|mac] [--app-id <id>] [--url <https-url>] [--force] [--yes] [--no-install]`;
+const DOCS = `https://github.com/RevylAI/verify/tree/v${VERSION}/packages/verify/docs`;
 
 const HELP = `verify ${VERSION}: open Revyl cloud browsers, devices, and computers from your code
 
 Usage
-  npx ${PACKAGE_NAME} init [--platform web|ios|android|mac] [--app-id <id>] [--url <https-url>] [--force] [--yes] [--no-install]
-      Install Verify, write verify.config.ts and an example script, then check authentication
+  ${INIT_USAGE}
+      Install Verify, write verify.config.ts and an example script, and sign in
+  npx ${PACKAGE_NAME} login
+      Sign in to Revyl through your browser
+  npx ${PACKAGE_NAME} logout
+      Remove the saved Revyl login from this computer
   npx ${PACKAGE_NAME} whoami
       Check which Revyl account your credentials belong to
 
 Authentication
-  REVYL_API_KEY, or a login from the Revyl CLI ('revyl auth login').
+  In a terminal, init, login, and your first open() sign you in through your browser and save the
+  login to ~/.revyl/credentials.json, which the Revyl CLI shares. In CI, set REVYL_API_KEY instead.
 
-Docs: https://github.com/RevylAI/verify/tree/v${VERSION}/packages/verify/docs
+Docs: ${DOCS}
+`;
+
+const INIT_HELP = `Usage: ${INIT_USAGE}
+
+Writes verify.config.ts and verify/example.ts, installs Verify when the project lacks it, and signs
+you in through your browser when no credentials are saved.
+
+  --platform    ios, android, web, or mac. Without it, init asks. iOS and Android without --app-id
+                open the device's built-in Settings app, so the example runs before you upload anything.
+  --app-id      The Revyl app to open. Required for web; create a Web app at https://app.revyl.ai first.
+  --url         The public HTTPS URL a web target opens (default https://example.com).
+  --force       Overwrite existing files.
+  --yes         Install Verify without asking.
+  --no-install  Skip installing Verify.
+
+Docs: ${DOCS}/getting-started.md
 `;
 
 const USAGE_CODES = new Set(['INVALID_ARGUMENT', 'AUTH_MISSING', 'AUTH_REJECTED']);
@@ -41,8 +66,17 @@ export async function main(argv: string[]): Promise<number> {
       return 0;
     case 'init':
       return initCommand(rest);
-    case 'whoami':
-      return whoamiCommand();
+    case 'login':
+    case 'logout':
+    case 'whoami': {
+      const { values } = parseArgs({ args: rest, options: { help: { type: 'boolean', short: 'h' } } });
+      if (values.help) {
+        process.stdout.write(HELP);
+        return 0;
+      }
+      if (command === 'login') return signInAndCheck(Boolean(process.stdin.isTTY) && !process.env.CI);
+      return command === 'logout' ? logoutCommand() : whoamiCommand();
+    }
     default:
       process.stderr.write(`Unknown command: ${command}\n\n${HELP}`);
       return 2;
@@ -59,8 +93,13 @@ async function initCommand(args: string[]): Promise<number> {
       force: { type: 'boolean' },
       yes: { type: 'boolean' },
       'no-install': { type: 'boolean' },
+      help: { type: 'boolean', short: 'h' },
     },
   });
+  if (values.help) {
+    process.stdout.write(INIT_HELP);
+    return 0;
+  }
   const interactive = Boolean(process.stdin.isTTY) && !process.env.CI;
   let answers: InitAnswers | undefined;
   if (values.platform) {
@@ -88,27 +127,13 @@ async function initCommand(args: string[]): Promise<number> {
   answers ??= await askInitQuestions(values['app-id'], values.url);
   const result = await initProject(process.cwd(), answers, { force: values.force ?? false });
   process.stdout.write(`Created ${result.created.join(' and ')}${result.gitignoreUpdated ? ', and added .verify/ to .gitignore' : ''}.\n`);
-  const credentials = await resolveCredentials();
-  if (!credentials) {
-    if (interactive) {
-      await signIn();
-    } else {
-      throw new VerifyError('AUTH_MISSING', `${missingCredentialsMessage()} In non-interactive environments, set the REVYL_API_KEY secret.`);
-    }
-  }
-  try {
-    await whoamiCommand();
-  } catch (error) {
-    if (!interactive || !isVerifyError(error) || error.code !== 'AUTH_REJECTED') throw error;
-    await signIn({ force: true });
-    await whoamiCommand();
-  }
-  const steps = [
-    'Configure the generated verify.config.ts if needed',
-    ...(answers.platform === 'mac' ? ['Mac computers are early access. Ask support@revyl.ai about access.'] : []),
-    ...(answers.platform === 'mac' || answers.appId ? [] : ['Put your Revyl app id in verify.config.ts (or set REVYL_APP_ID)']),
-    'node verify/example.ts',
-  ];
+  await signInAndCheck(interactive);
+  const steps =
+    answers.platform === 'mac'
+      ? ['Mac computers are early access. Ask support@revyl.ai about access.', 'Once your organization has Mac access, run: node verify/example.ts']
+      : answers.appId
+        ? ['Run: node verify/example.ts']
+        : ['Run: node verify/example.ts', 'To test your own app, put its Revyl app id in verify.config.ts in place of the Settings bundle id.'];
   process.stdout.write(
     [
       'Next:',
@@ -119,12 +144,29 @@ async function initCommand(args: string[]): Promise<number> {
   return 0;
 }
 
+async function signInAndCheck(interactive: boolean): Promise<number> {
+  const credentials = await resolveCredentials();
+  if (!credentials) {
+    if (!interactive) throw new VerifyError('AUTH_MISSING', `${missingCredentialsMessage()} In non-interactive environments, set the REVYL_API_KEY secret.`);
+    await signIn();
+  }
+  try {
+    return await whoamiCommand();
+  } catch (error) {
+    if (!interactive || !isVerifyError(error) || error.code !== 'AUTH_REJECTED') throw error;
+    await signIn({ force: true });
+    return whoamiCommand();
+  }
+}
+
 async function askInitQuestions(appId: string | undefined, url: string | undefined): Promise<InitAnswers> {
   const readline = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const platform = ((await readline.question('What do you want to open? [web/ios/android/mac] (web): ')).trim().toLowerCase() || 'web') as Platform;
+    const platform = ((await readline.question('What do you want to open? [ios/android/web/mac] (ios): ')).trim().toLowerCase() || 'ios') as Platform;
     if (platform === 'mac') return validateInitAnswers({ platform, ...(appId ? { appId } : {}), ...(url ? { url } : {}) });
-    const id = appId ?? ((await readline.question('Revyl app id (Enter to fill in later): ')).trim() || undefined);
+    const question = platform === 'web' ? 'Revyl Web app id (Enter if you have none yet): ' : 'Revyl app id (Enter to use the built-in Settings app): ';
+    const id = appId ?? ((await readline.question(question)).trim() || undefined);
+    if (platform === 'web' && !id) throw new VerifyError('INVALID_ARGUMENT', webAppIdMissingMessage(url));
     const webUrl =
       platform === 'web' ? (url ?? ((await readline.question('HTTPS URL to open (Enter for https://example.com): ')).trim() || undefined)) : undefined;
     return validateInitAnswers({ platform, ...(id ? { appId: id } : {}), ...(webUrl ? { url: webUrl } : {}) });
@@ -140,6 +182,19 @@ async function whoamiCommand(): Promise<number> {
   const name = who.email ?? who.user_id ?? 'an unnamed user';
   const org = who.org_name ?? who.org_id;
   process.stdout.write(`Signed in to Revyl as ${name}${org ? ` in ${org}` : ''} (credentials from ${credentials.source}).\n`);
+  return 0;
+}
+
+async function logoutCommand(): Promise<number> {
+  try {
+    await rm(revylCredentialsPath());
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new VerifyError('AUTH_MISSING', `Could not remove ~/.revyl/credentials.json: ${errorMessage(error)}`);
+    process.stdout.write('No saved Revyl login on this computer.\n');
+    return 0;
+  }
+  process.stdout.write('Signed out: removed ~/.revyl/credentials.json, which the Revyl CLI shares. The API key it held still works until you delete it in Revyl (Settings → API keys).\n');
+  if (process.env.REVYL_API_KEY?.trim()) process.stdout.write('REVYL_API_KEY is still set in this environment, so Verify keeps using it.\n');
   return 0;
 }
 

@@ -33,6 +33,9 @@ const POLL_INTERVAL_MS = 2_000;
 const DEVICE_CONNECT_TIMEOUT_MS = 90_000;
 const STEP_POLL_BASE_MS = 500;
 const STEP_POLL_MAX_MS = 5_000;
+// Revyl can briefly answer a just-accepted step's status with 404 "Live step not found" before its run is listed.
+const LIVE_STEP_GRACE_MS = 10_000;
+const LIVE_STEP_NOT_FOUND = /^live step not found/i;
 const STEP_CANCEL_TIMEOUT_MS = 5_000;
 const MAX_STEP_TEXT_LENGTH = 4_000;
 const ENDED_STATUSES = new Set(['completed', 'failed', 'cancelled', 'timeout', 'stopping']);
@@ -482,12 +485,20 @@ export class DeviceSession implements Session {
         throw new VerifyError('API_ERROR', 'Revyl answered execute_step without a result or an accepted step id.');
       }
       stepId = body.step_id;
+      const acceptedAt = Date.now();
+      const liveStepNotFound = (response: RawResponse) => response.status === 404 && LIVE_STEP_NOT_FOUND.test(responseDetail(response) ?? '');
       for (let wait = STEP_POLL_BASE_MS; ; wait = Math.min(wait * 2, STEP_POLL_MAX_MS)) {
         await delay(wait, undefined, { signal });
-        const status = parseJson<StepStatus>(
-          await this.worker('GET', `step_status/${encodeURIComponent(stepId)}`, { signal, retry: true }),
-          'step_status',
-        );
+        const response = await this.worker('GET', `step_status/${encodeURIComponent(stepId)}`, { signal, retry: true, allow: liveStepNotFound });
+        if (liveStepNotFound(response)) {
+          if (Date.now() - acceptedAt < LIVE_STEP_GRACE_MS) continue;
+          throw new VerifyError(
+            'STEP_FAILED',
+            `Revyl accepted the ${type} but could not find it for ${LIVE_STEP_GRACE_MS / 1000} s: "${description}". The session is still open and the step may still be running, so wait for it to finish before sending another. See ${this.viewerUrl}`,
+            { httpStatus: 404 },
+          );
+        }
+        const status = parseJson<StepStatus>(response, 'step_status');
         if (status.status === 'running') continue;
         if (status.status === 'cancelled') {
           throw new VerifyError('STEP_FAILED', `The ${type} was cancelled on Revyl before it finished: "${description}". See ${this.viewerUrl}`);
@@ -556,7 +567,7 @@ export class DeviceSession implements Session {
   private async worker(
     method: 'GET' | 'POST',
     action: string,
-    options: { body?: unknown; signal?: AbortSignal; retry?: boolean; timeoutMs?: number },
+    options: { body?: unknown; signal?: AbortSignal; retry?: boolean; timeoutMs?: number; allow?: (response: RawResponse) => boolean },
   ): Promise<RawResponse> {
     if (this.closePromise || this.parent?.signal.aborted || (this.parent?.expiresAt && Date.now() >= this.parent.expiresAt.getTime())) throw new VerifyError('SESSION_ENDED', `The ${this.target} session was closed or its parent expired.`);
     const signal = this.parent ? AbortSignal.any([
@@ -564,8 +575,9 @@ export class DeviceSession implements Session {
       ...(this.parent.expiresAt ? [AbortSignal.timeout(Math.max(0, this.parent.expiresAt.getTime() - Date.now()))] : []),
       ...(options.signal ? [options.signal] : []),
     ]) : options.signal;
-    const response = await this.client.worker(this.workflowRunId, action, { method, ...options, signal });
-    if (response.status >= 200 && response.status < 300) return response;
+    const { allow, ...request } = options;
+    const response = await this.client.worker(this.workflowRunId, action, { method, ...request, signal });
+    if ((response.status >= 200 && response.status < 300) || allow?.(response)) return response;
     if (action === 'open_url') {
       const error = this.workerError(method, action, response);
       const reason = responseRefusalReason(response);

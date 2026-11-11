@@ -2,7 +2,7 @@
 
 Opens [Sauce Demo](https://www.saucedemo.com), a public practice store, in a Revyl cloud browser, signs in, adds a product to the cart, and checks the cart.
 
-Web is available to every organization. If `revyl app create --platform web` reports `Web is not enabled for this organization`, Revyl has turned Web off for your organization; email support@revyl.ai.
+Web is available to every organization. Create the Web app first; see [Create the Web app](../../packages/verify/docs/web.md#create-the-web-app).
 
 ```bash
 export REVYL_API_KEY=...            # or: revyl auth login

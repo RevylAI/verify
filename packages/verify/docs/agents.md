@@ -1,10 +1,10 @@
 # For coding agents
 
-This page is for AI coding agents (Claude Code, Cursor, Codex, and others) that use Verify to check an app on a cloud browser/device or run commands and files on a Mac or Linux computer. The rest of this folder describes the API in full; this page is the workflow.
+This page is for AI coding agents (Claude Code, Cursor, Codex, and others) that use Verify to check an app on a cloud browser/device or run commands and files on a Mac computer. The rest of this folder describes the API in full; this page is the workflow.
 
 ## Workflow
 
-1. Read `verify.config.ts` to learn the target names and their platforms. If there is none, run `npx @revyl/verify init --platform <web|ios|android> --app-id <id>`, or `npx @revyl/verify init --platform mac` without an app id. You can also pass a target object to `open()`.
+1. Read `verify.config.ts` to learn the target names and their platforms. If there is none, run `npx @revyl/verify init --platform ios` or `--platform android` (without `--app-id` they open the built-in Settings app), `npx @revyl/verify init --platform web --app-id <id> --url <https-url>`, or `npx @revyl/verify init --platform mac`. You can also pass a target object to `open()`.
 2. Check the credentials once with `npx @revyl/verify whoami`. It starts no session.
 3. Write a short script, or extend an existing one, that opens one target, runs the steps you need, and closes:
    ```ts
@@ -24,9 +24,9 @@ This page is for AI coding agents (Claude Code, Cursor, Codex, and others) that 
 
 ## Rules
 
-Mac and Linux computers are early access. Ask support@revyl.ai about access before starting a computer; do not repeat an uncertain start/stop to probe availability.
+Mac computers are early access. Ask support@revyl.ai about access before starting a computer; do not repeat an uncertain start/stop to probe availability.
 
-For computer work, use structured `exec(['program', 'arg'])`, `readFile`, `writeFile`, `stat`, and run-owned handles from `processes()`/`terminate(id)`. Check command output with ordinary assertions and close in `finally`; screenshots are supported, but instruction/validation are not. Do not fall back to agent steps on computers or shell/file methods on mobile/web. See [computers.md](computers.md) for limits. Linux uses inline targets or config entries; Linux init is intentionally unavailable. Starting a computer is a paid external action and needs the same approval as starting a device.
+For computer work, use structured `exec(['program', 'arg'])`, `readFile`, `writeFile`, `stat`, and run-owned handles from `processes()`/`terminate(id)`. Check command output with ordinary assertions and close in `finally`; screenshots are supported, but instruction/validation are not. Do not fall back to agent steps on computers or shell/file methods on mobile/web. See [computers.md](computers.md) for limits. Starting a computer is a paid external action and needs the same approval as starting a device.
 
 Computers have a hard lifetime from create (two hours today), not from readiness or activity; `expiresAt` is the authoritative deadline. `expiresAt` is optional on older APIs; expiry does not prevent close. After terminal state and confirmed release, `recording()` can return private signed metadata or null, including after close. Never log or share its signed URL/query. Do not automatically wait for recordings or retry `COMPUTER_LIMIT` starts: queued work (including iOS) or the concurrency limit may be responsible.
 

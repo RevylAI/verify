@@ -9,10 +9,10 @@ npx revyl-verify whoami
 npx revyl-verify --version
 ```
 
-The CLI delegates to `@revyl/verify`, including its output, generated imports, authentication and exit codes. Authenticate with the Revyl CLI (`revyl auth login`) or supply `REVYL_API_KEY` securely. No cloud session is needed for `init`, `whoami` or `--version`; `whoami` checks your account over the network.
+The CLI delegates to `@revyl/verify`, including its output, generated imports, authentication and exit codes. Sign in through your browser with `npx revyl-verify login` (or the Revyl CLI's `revyl auth login`), or supply `REVYL_API_KEY` securely. No cloud session is needed for `init`, `login`, `logout`, `whoami` or `--version`; `whoami` checks your account over the network.
 
 ```ts
 import { open } from 'revyl-verify';
 ```
 
-Use Node.js 22.18 or later. See the [Verify documentation](https://github.com/RevylAI/verify/tree/v0.3.2/packages/verify/docs) for configuration, API and platform availability. This package shares Verify's [Apache 2.0 license](https://github.com/RevylAI/verify/blob/v0.3.2/LICENSE).
+Use Node.js 22.18 or later. See the [Verify documentation](https://github.com/RevylAI/verify/tree/v0.3.3/packages/verify/docs) for configuration, API and platform availability. This package shares Verify's [Apache 2.0 license](https://github.com/RevylAI/verify/blob/v0.3.3/LICENSE).
