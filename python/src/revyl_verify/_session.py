@@ -62,6 +62,13 @@ from ._transport import (
     seconds,
 )
 
+_PAGE_DIRECTION: dict[SwipeDirection, SwipeDirection] = {
+    "up": "down",
+    "down": "up",
+    "left": "right",
+    "right": "left",
+}
+
 # Revyl can briefly answer a just-accepted step's status with 404 "Live step not found"
 # before its run is listed.
 _LIVE_STEP_GRACE_SECONDS = 10.0
@@ -644,6 +651,12 @@ class Session:
     def open_url(self, url: str) -> None:
         if not isinstance(url, str) or not url or text_length(url) > 8192:
             raise VerifyError("INVALID_ARGUMENT", "open_url() takes a URL of 1 to 8192 characters.")
+        if self.platform == "web" and not re.match(r"https?:", url, re.I):
+            raise VerifyError(
+                "INVALID_ARGUMENT",
+                "On web, open_url() takes an http(s) URL; "
+                "deep links such as myapp://orders/42 open only on iOS and Android.",
+            )
         self._perform(OpenUrl(url))
 
     def launch_app(self, bundle_id: str) -> None:
@@ -771,7 +784,12 @@ class Session:
             else:
                 point, token = self._resolve(action.start, screen_token, deadline)
             body = _point_body(point, token, action.start)
-            body.update(direction=action.direction, duration_ms=500)
+            body.update(
+                direction=_PAGE_DIRECTION[action.direction]
+                if self.platform == "web"
+                else action.direction,
+                duration_ms=500,
+            )
             self._act("swipe", body, deadline, uncertain)
             return None
         if isinstance(action, PressKey):

@@ -169,6 +169,9 @@ func (s *Session) OpenURL(ctx context.Context, rawURL string) error {
 	if length := textLength(rawURL); length == 0 || length > 8192 {
 		return failure(ErrInvalidArgument, "OpenURL takes a URL of 1 to 8192 characters.")
 	}
+	if lower := strings.ToLower(rawURL); s.platform == Web && !strings.HasPrefix(lower, "http:") && !strings.HasPrefix(lower, "https:") {
+		return failure(ErrInvalidArgument, "On web, OpenURL takes an http(s) URL; deep links such as myapp://orders/42 open only on iOS and Android.")
+	}
 	_, err := s.perform(ctx, deviceAction{kind: "open_url", url: rawURL}, "")
 	return err
 }
@@ -316,7 +319,11 @@ func (s *Session) perform(ctx context.Context, action deviceAction, screenToken 
 			return nil, err
 		}
 		body := pointBody(point, token, action.at)
-		body["direction"], body["duration_ms"] = string(action.direction), 500
+		direction := action.direction
+		if s.platform == Web {
+			direction = map[SwipeDirection]SwipeDirection{SwipeUp: SwipeDown, SwipeDown: SwipeUp, SwipeLeft: SwipeRight, SwipeRight: SwipeLeft}[direction]
+		}
+		body["direction"], body["duration_ms"] = string(direction), 500
 		return nil, s.act(ctx, "swipe", body)
 	case "key":
 		key := strings.ToUpper(string(action.key))

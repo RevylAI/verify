@@ -49,7 +49,7 @@ In CI, Verify never prompts or opens a browser; set `REVYL_API_KEY` as a secret.
 Use `init` when you want named targets in `verify.config.ts` and a generated example script. It is optional; installing the package is enough to use inline targets. It detects your package manager from the lockfile, asks before adding `@revyl/verify` as a dev dependency, asks what you want to open (iOS by default), adds `.verify/` to `.gitignore`, signs you in through the browser when no credentials are saved, and prints the command that runs the example:
 
 - `verify.config.ts`: the targets `open()` can start, by name
-- `verify/example.ts`: a script that opens the target, runs steps and takes a screenshot (web/mobile) or checks commands and files (Mac), and closes
+- `verify/example.mts`: a script that opens the target, runs steps and takes a screenshot (web/mobile) or checks commands and files (Mac), and closes
 
 In scripts and CI, pass the answers as flags. Non-interactive runs never prompt or open a browser; provide `REVYL_API_KEY` as a secret:
 
@@ -91,10 +91,10 @@ The generated iOS and Android targets open Settings. To test your own app, repla
 ## Run the script
 
 ```bash
-node verify/example.ts
+node verify/example.mts
 ```
 
-If Node warns that the module type is not specified, add `"type": "module"` to your `package.json` or rename the script to `example.mts`. In a Yarn Plug'n'Play project, the default since Yarn 2, run it with `yarn node verify/example.ts`.
+The `.mts` extension makes Node run the script as an ES module whatever your `package.json` says about `"type"`. In a Yarn Plug'n'Play project, the default since Yarn 2, run it with `yarn node verify/example.mts`.
 
 Illustrative output (durations vary):
 

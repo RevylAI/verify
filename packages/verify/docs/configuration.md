@@ -86,7 +86,7 @@ npx @revyl/verify --help
 npx @revyl/verify --version
 ```
 
-- `init` writes `verify.config.ts` and `verify/example.ts`, and adds `.verify/` to `.gitignore`. Without `--platform` it asks its questions interactively, defaulting to iOS. It never overwrites files unless you pass `--force`. `init --help` lists its options.
+- `init` writes `verify.config.ts` and `verify/example.mts`, and adds `.verify/` to `.gitignore`. Without `--platform` it asks its questions interactively, defaulting to iOS. It never overwrites files unless you pass `--force`. `init --help` lists its options.
 - iOS and Android without `--app-id` target the device's built-in Settings app by bundle id (`com.apple.Preferences`, `com.android.settings`), so the example runs before you upload a build. Web requires `--app-id`; without it, `init` writes no files and explains how to create the Web app ([web.md](web.md#create-the-web-app)).
 - `npx @revyl/verify init --platform mac` needs no app id and generates a command/file script. `--app-id` is rejected for Mac, and `--url` applies only to web.
 - `init` installs Verify from the project's lockfile when needed and signs in through Revyl's browser approval flow when no credentials are available. Use `--yes` or `--no-install` to control installation. Non-interactive runs do not prompt or open a browser and require `REVYL_API_KEY`.

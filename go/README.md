@@ -201,10 +201,12 @@ point, err := s.Locate(ctx, "Wi-Fi row")
 | `Back(ctx)` | Browser history on Web, the back button on Android; iOS returns `ErrNotAvailableOnPlatform` |
 | `OpenURL(ctx, url)` | Opens a URL or deep link on a device, or loads an http(s) URL in a browser |
 | `LaunchApp(ctx, bundleID)` | Launches an installed app on a device |
-| `Locate(ctx, description)` | Returns where Revyl finds an element, without acting |
+| `Locate(ctx, description)` | Returns Revyl's best match on the current screen, without acting |
 | `ScreenSize(ctx)` | Returns the `Size{Width, Height}` in device units |
 
 A failed action returns `ErrActionFailed`, including when Revyl cannot find an element or nothing at a point can take the action. Actions are sent once and never repeated: one cut off by the context's deadline, or whose outcome Revyl can't confirm, returns `ErrActionUncertain`, so check the session before acting again. If Verify can't reach Revyl, the action returns `ErrAPI` and isn't resent either, so check the session before trying it again. Each request is bounded at 30 seconds even on `context.Background()`.
+
+Exact actions return when Revyl has accepted them, not when the screen has finished changing. After `Swipe`, `OpenURL` or `LaunchApp`, let the screen settle or check it before you `Locate` or tap coordinates. `Locate` returns Revyl's best match on the current screen and can return a point for an element that is off screen, so bring the element on screen first and check the point before you use it.
 
 ## Your own model
 

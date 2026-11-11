@@ -18,7 +18,7 @@ export interface InitResult {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CONFIG_FILE = 'verify.config.ts';
-const EXAMPLE_SCRIPT = join('verify', 'example.ts');
+const EXAMPLE_SCRIPT = join('verify', 'example.mts');
 const SETTINGS_BUNDLE_ID = { ios: 'com.apple.Preferences', android: 'com.android.settings' } as const;
 
 export function webAppIdMissingMessage(url: string | undefined): string {

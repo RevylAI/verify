@@ -81,12 +81,12 @@ try {
   const scopedInit = spawnSync(process.execPath, [scopedCli, 'init', '--platform', 'ios', '--no-install'], { cwd: scopedProject, env, encoding: 'utf8', timeout: 30_000 });
   assert.equal(scopedInit.status, 2);
   assert.match(scopedInit.stderr, /AUTH_MISSING/);
-  for (const file of ['verify.config.ts', 'verify/example.ts']) {
+  for (const file of ['verify.config.ts', 'verify/example.mts']) {
     assert.equal(readFileSync(join(consumer, file), 'utf8'), readFileSync(join(scopedProject, file), 'utf8'));
   }
   execFileSync(process.execPath, ['--input-type=module', '-e', "import assert from 'node:assert/strict'; import * as alias from 'revyl-verify'; import * as scoped from '@revyl/verify'; assert.deepEqual(Object.keys(alias), Object.keys(scoped)); for (const key of Object.keys(scoped)) assert.equal(alias[key], scoped[key]);"], { cwd: consumer, env, stdio: 'pipe', timeout: 30_000 });
   writeFileSync(join(consumer, 'alias.ts'), "import { open, type TargetConfig } from 'revyl-verify';\nconst target: TargetConfig = { platform: 'mac' };\nvoid open; void target;\n");
-  execFileSync(process.execPath, [resolve('node_modules/typescript/bin/tsc'), '--noEmit', '--strict', '--skipLibCheck', '--allowImportingTsExtensions', '--typeRoots', resolve('node_modules/@types'), '--target', 'es2022', '--module', 'nodenext', 'alias.ts', 'verify.config.ts', 'verify/example.ts'], { cwd: consumer, env, stdio: 'inherit', timeout: 30_000 });
+  execFileSync(process.execPath, [resolve('node_modules/typescript/bin/tsc'), '--noEmit', '--strict', '--skipLibCheck', '--allowImportingTsExtensions', '--typeRoots', resolve('node_modules/@types'), '--target', 'es2022', '--module', 'nodenext', 'alias.ts', 'verify.config.ts', 'verify/example.mts'], { cwd: consumer, env, stdio: 'inherit', timeout: 30_000 });
   console.log(`${alias.name}@${alias.version}: ${alias.files.length} files, ${alias.size} bytes packed; clean-install API, types and CLI parity passed`);
 } finally {
   rmSync(directory, { recursive: true, force: true });

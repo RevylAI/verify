@@ -163,7 +163,7 @@ func (s *Session) logLine(message string) {
 }
 
 func (s *Session) computerAgentUnavailable(method string) error {
-	return failure(ErrNotAvailableOnPlatform, method+"() is not available on "+string(s.platform)+" computers; use exec() and file operations. See "+s.viewer)
+	return failure(ErrNotAvailableOnPlatform, method+" is not available on "+string(s.platform)+" computers; use Exec and file operations. See "+s.viewer)
 }
 
 func (s *Session) assertComputerOpen() error {
