@@ -18,7 +18,7 @@ pip install revyl-verify
 uv add revyl-verify
 ```
 
-Pillow is the only runtime dependency, for PNG blank-frame inspection; HTTP uses the standard library.
+Pillow is the only runtime dependency, for PNG blank-frame inspection and for downscaling screenshots sent to your own model; HTTP, model calls included, uses the standard library.
 
 ## Authenticate
 
@@ -140,6 +140,157 @@ When the computer belongs to another caller, such as a CI runner, use `attach(co
 
 For async code use `async with await async_attach(computer_id) as computer`, then `async with await computer.open(target) as browser` and `await browser.navigate(url)`. Cancelling a child open cleans up only that child and leaves the parent open; cancelling attach before it succeeds does not stop the existing computer.
 
+## Exact actions
+
+**Since 0.2.0. Early access.** Web, iOS and Android sessions take device actions that need no agent. They match the TypeScript SDK's exact actions in snake_case, and `AsyncSession` has the same methods to await.
+
+```python
+from revyl_verify import Point, Target, open
+
+with open(Target(platform="ios", bundle_id="com.apple.Preferences")) as session:
+    session.tap("General")  # Revyl's grounding model finds the element
+    session.tap(Point(220, 480))  # or a point in device units
+    session.type("Search", "Bluetooth")  # clears the field first unless clear=False
+    session.swipe("up")  # from the screen's center, or from_=location
+    session.press_key("enter")
+    session.open_url("prefs:root=General")  # a URL or deep link on devices
+    session.launch_app("com.apple.Preferences")
+    where = session.locate("About")  # a Point, without acting
+    size = session.screen_size()  # ScreenSize(width, height) in device units
+```
+
+A location is a `Point(x, y)` in whole, non-negative device units (iOS points, Android and Web pixels, from the top-left corner; `screen_size()` gives the bounds), or a string describing the element, such as `"Login button"`, which Revyl's grounding model finds on the current screen.
+
+| Call | What it does |
+| --- | --- |
+| `tap(at)` | Taps and returns the `Point` tapped |
+| `type(at, text, clear=True)` | Taps a text field and types into it, clearing it first unless `clear` is `False`; returns the `Point` tapped |
+| `swipe(direction, from_=None)` | Swipes from a location or the screen's center; `"up"` moves the finger up, which scrolls content down |
+| `press_key("enter" \| "backspace")` | Presses a key on the focused field |
+| `back()` | Browser history on Web, the back button on Android; iOS raises `NOT_AVAILABLE_ON_PLATFORM` |
+| `open_url(url)` | Opens a URL or deep link on a device, or loads an http(s) URL in a browser |
+| `launch_app(bundle_id)` | Launches an installed app on a device |
+| `locate(target)` | Returns where Revyl finds an element, without acting |
+| `screen_size()` | Returns `ScreenSize(width, height)` in device units |
+
+A failed action raises `ACTION_FAILED`, including when Revyl cannot find a target or nothing at a point can take the action. One whose outcome Revyl can't confirm raises `ACTION_UNCERTAIN` or `TIMEOUT`, so check the session before acting again. Actions are never repeated.
+
+### Which call works where
+
+| Call | Web | iOS | Android | Mac computer |
+| --- | --- | --- | --- | --- |
+| `tap`, `type`, `swipe`, `press_key`, `locate`, `screen_size` | Yes | Yes | Yes | No, use `exec()` and files |
+| `back()` | Yes, browser history | No, tap the on-screen back control | Yes, the system back button | No |
+| `open_url(url)` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No |
+| `launch_app(bundle_id)` | No, use `open_url` or `navigate` | Yes | Yes | No |
+| `navigate(url)` | Yes | No, use `open_url` | No, use `open_url` | No |
+| `instruction`, `validation`, your own model | Yes | Yes | Yes | No, use `exec()` |
+| `screenshot()` | Yes | Yes | Yes | Yes |
+| `exec`, files, processes | No, open a Mac computer | No, open a Mac computer | No, open a Mac computer | Yes |
+
+Coordinates are in iOS points, Android pixels and Web CSS pixels, from the top-left corner. A call a platform doesn't support raises `NOT_AVAILABLE_ON_PLATFORM`, and its message names the alternative.
+
+## Your own model
+
+**Since 0.2.0. Early access.** Verify normally runs `instruction()` and `validation()` on Revyl's agent. Pass a `model` and the agent loop runs in your process instead, on a model you choose, with your own key. Revyl still provides the browser or device and, by default, finds the elements your model names on screen. Leave `model` out and nothing changes.
+
+```python
+from revyl_verify import Target, open
+
+with open(
+    Target(platform="ios", bundle_id="com.apple.Preferences"),
+    model="anthropic/claude-sonnet-5-5",
+) as session:
+    step = session.instruction("Open General, then About")
+    print(step.model)  # ModelRun(id, grounding, turns, input_tokens, output_tokens)
+    session.validation("The screen shows the iOS version")
+    session.instruction("Open Privacy", model="openai/gpt-5.5")  # one step on another model
+```
+
+The string is `"provider/model"`, and the key comes from the provider's usual environment variable. A missing key raises `MODEL_KEY_MISSING` before any Revyl request. Everything after the first slash is the provider's own model name, so `"openrouter/anthropic/claude-sonnet-5-5"` works.
+
+| Prefix | Key variable | Endpoint |
+| --- | --- | --- |
+| `anthropic/` | `ANTHROPIC_API_KEY` | Anthropic Messages API |
+| `openai/` | `OPENAI_API_KEY` | `https://api.openai.com/v1` |
+| `google/` | `GOOGLE_API_KEY`, or `GEMINI_API_KEY` when it is unset | `https://generativelanguage.googleapis.com/v1beta/openai/` |
+| `openrouter/` | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` |
+| `groq/` | `GROQ_API_KEY` | `https://api.groq.com/openai/v1` |
+| `cerebras/` | `CEREBRAS_API_KEY` | `https://api.cerebras.ai/v1` |
+| `xai/` | `XAI_API_KEY` | `https://api.x.ai/v1` |
+| `ollama/` | none | `http://localhost:11434/v1` |
+
+Any server that speaks OpenAI's chat completions with tools and image input works through `CustomModel`. Its key comes only from `api_key`; Verify never reads an environment variable for it.
+
+```python
+from revyl_verify import CustomModel
+
+model = CustomModel(
+    id="qwen-3.8-27b",  # the model name the server expects
+    base_url="https://my-gateway.example/v1",  # the root that serves /chat/completions
+    api_key=os.environ["MY_GATEWAY_KEY"],  # optional, sent as a bearer token
+    headers={"x-team": "mobile"},  # optional, extra headers
+    provider="qwen",  # optional, reported as "qwen/qwen-3.8-27b"
+    grounding="revyl",  # optional, "revyl" (default) or "model"
+)
+```
+
+By default (`grounding="revyl"`) your model names the element it wants and Revyl's grounding model finds it, so a small, fast vision model is usually enough. With `grounding="model"` the model gives screenshot coordinates itself, which keeps element descriptions away from Revyl but needs a model that points accurately. The model must accept images and support tool calls.
+
+**Custom agents.** For control beyond a model name, build the agent with `local_agent()` and pass it as `agent`, on `open()` or on one step. The `model` forms build exactly this agent. Passing both `model` and `agent` raises `INVALID_ARGUMENT`.
+
+```python
+from revyl_verify import local_agent, open, openai_compatible
+
+agent = local_agent(
+    openai_compatible("qwen3-vl:8b", base_url="http://localhost:11434/v1"),
+    grounding="model",  # default "revyl"
+    max_turns=10,  # default 20, at most 100
+    model_timeout=120,  # seconds per model call, retries included; default 60
+    max_image_side=1280,  # longest screenshot side sent to the model
+)
+session = open(target, agent=agent)  # or session.instruction(text, agent=agent)
+```
+
+- `anthropic(model, api_key=None, base_url=None, max_tokens=4096, max_retries=2)` and `openai_compatible(model, base_url=None, api_key=None, headers=None, provider=None, max_tokens=None, max_retries=2)` are the built-in adapters. When `base_url` is left out, `anthropic()` reads `ANTHROPIC_BASE_URL` and `openai_compatible()` reads `OPENAI_BASE_URL` and `OPENAI_API_KEY`; with a `base_url`, `openai_compatible()` sends only the `api_key` you pass.
+- To use another SDK or runtime, implement `ModelAdapter`: a `name` and `complete(request, timeout)`, which gets a `ModelRequest` (system prompt, text, screenshot and tools) and the seconds the call may take, and returns a `ModelReply` with the chosen `ModelToolCall`, any text, `ModelUsage` and whether the reply was cut off at its output cap.
+
+**What goes where.** Your model sees the system prompt, the step text, a short log of the actions it took so far and whether they worked, and the current screenshot, downscaled so its longest side is at most `max_image_side`. Revyl receives each device action, the element descriptions your model writes (not with `grounding="model"`), and the model's name for the session report, never the step text, the prompts, the model's output or your key. Keys go only to the model's endpoint, are never logged, and are replaced with `[redacted]` in error messages, as are custom header values.
+
+| Limit | Default | Change it with |
+| --- | --- | --- |
+| Turns per instruction | 20 (at most 100) | `local_agent(max_turns=...)` |
+| Verdict attempts per validation | 3 | |
+| Whole step | 180 s | the step's `timeout`, or `step_timeout` on `open()` |
+| One model call, retries included | 60 s | `local_agent(model_timeout=...)` |
+| Retries per model call | 2, on rate limits, 5xx and network errors; `Retry-After` is honored up to 10 s | the adapter's `max_retries` (0 to 5) |
+| Output tokens per turn, thinking included | 4096 on Anthropic, OpenAI and Google, 2048 elsewhere; a reply cut off at the cap raises `MODEL_ERROR`, and a tool call in it is never run | the adapter's `max_tokens` |
+| Turns in a row without a tool call | 3, then `MODEL_ERROR` | |
+
+The step deadline covers every model call and device request. A device action still in flight when it passes raises `ACTION_UNCERTAIN` and is never repeated. `StepResult.model` is a `ModelRun` with each turn's action, whether it ran, model and action seconds, and token counts; input tokens include cached input. Progress lines name each turn's tool and timings and the step's turns and tokens, never typed text, element descriptions or URLs.
+
+### Behind a proxy or gateway
+
+Keep the string form and point the provider's base-URL variable at the proxy, the same variables Anthropic's and OpenAI's SDKs read:
+
+```bash
+export ANTHROPIC_BASE_URL=https://llm-proxy.example.com/anthropic   # with or without a trailing /v1
+export ANTHROPIC_API_KEY=<the proxy's key>
+# or OPENAI_BASE_URL=https://llm-proxy.example.com/openai/v1 with OPENAI_API_KEY
+```
+
+Or name the proxy in code when it speaks OpenAI's chat completions: `model=CustomModel(id="claude-sonnet-5-5", base_url="https://llm-proxy.example.com/v1", api_key=os.environ["PROXY_KEY"])`.
+
+A base address works with or without a trailing `/v1`. For Anthropic, Verify calls `<base>/v1/messages`, or `<base>/messages` when the base already ends in a version such as `/v1`. For OpenAI-compatible addresses, Verify adds `/v1` only to a bare host, so `https://gw.example.com` and `https://gw.example.com/v1` both call `https://gw.example.com/v1/chat/completions`, and a path such as `/openai/v1` is used as given. Verify doesn't check a key's prefix or shape. If the proxy rejects the key, the error names the host and the variable the key and address came from, never the key; if it answers 404, the error names the path Verify added to the base address.
+
+### Example
+
+[`examples/byo_model.py`](examples/byo_model.py) runs the string form and exact actions on iOS Settings, and [`examples/custom_agent.py`](examples/custom_agent.py) a custom local agent. From a checkout, with a Revyl sign-in and `ANTHROPIC_API_KEY` set (or `MODEL` naming another provider, with its key):
+
+```bash
+cd python && uv run python examples/byo_model.py
+```
+
 ## Platforms and cleanup
 
 ### Targets and methods
@@ -172,7 +323,7 @@ else:
 
 Cleanup status is `acknowledged` for a validated device stop response, `confirmed` for terminal computer state plus physical release, `unconfirmed` when cleanup failed or no usable mobile identity was returned, and `not_required` after a definite create refusal. `not_attempted` applies before startup ownership exists. An unknown mobile ID is `None`, never invented. Web/computer caller-generated IDs remain available after an uncertain create; a mismatched web acknowledgment never authorizes stopping the other ID. Startup cleanup uses a fresh bounded deadline, preserves the original failure, and attaches a separate cleanup error. Do not retry creation to recover an uncertain outcome; inspect the known session privately. A device stop acknowledgment does not prove physical release.
 
-Session properties include `id`, `platform`, `viewer_url`, `expires_at` and `closed`. Steps return `StepResult` with `passed`, `reason` and `duration_seconds`; commands return `ExecResult` with `exit_code`, `stdout` and `stderr`. Computer methods also include `stat(path)`, `processes()` and `terminate(handle_id)`, with bounded seconds-based timeouts. Errors raise `VerifyError` with a stable `code`. Async session methods have the same arguments/results and are awaited.
+Session properties include `id`, `platform`, `viewer_url`, `expires_at` and `closed`. Steps return `StepResult` with `passed`, `reason`, `duration_seconds` and, for a step run on your own model, `model`; commands return `ExecResult` with `exit_code`, `stdout` and `stderr`. Computer methods also include `stat(path)`, `processes()` and `terminate(handle_id)`, with bounded seconds-based timeouts. Errors raise `VerifyError` with a stable `code`. Async session methods have the same arguments/results and are awaited.
 
 `EDGE_BLOCKED` identifies HTTP 403 with a `text/html` content type and nonempty `cf-ray`, unless the body is syntactically valid JSON. HTML branding is not required; `cf-ray` alone is not enough. Other responses retain their existing mapping, including JSON 401/403 authentication errors. Edge-block errors expose `http_status` but no body or ray ID. Check network access or contact support; Verify does not retry blocked requests.
 
@@ -210,13 +361,16 @@ Use an empty `dist/` before building; the package checker rejects stale or extra
 ## Documentation
 
 - [TypeScript API and platform contracts](https://github.com/RevylAI/verify/tree/main/packages/verify/docs)
+- [Use your own model](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/own-model.md): providers, live results and troubleshooting, which apply to Python too
 - [Go SDK](https://github.com/RevylAI/verify/tree/main/go)
 - [Live results from other SDKs and limitations](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/end-to-end.md)
 - [Python release procedure](https://github.com/RevylAI/verify/blob/main/RELEASING.md#python)
 
 ## Troubleshooting
 
-- **`NOT_AVAILABLE_ON_PLATFORM`:** computers do not support instruction/validation; devices do not support commands, files, processes or recording metadata.
+- **`NOT_AVAILABLE_ON_PLATFORM`:** computers do not support instruction/validation, your own model or exact actions; devices do not support commands, files, processes or recording metadata; iOS has no `back()` and Web no `launch_app()`.
+- **`MODEL_KEY_MISSING`:** the provider's key variable named in the message is not set. Set it, or pass `CustomModel(id, base_url, api_key=...)`.
+- **`MODEL_ERROR`:** the model's endpoint refused the request or the model misbehaved. The message names the host, the HTTP status and the next step: a rejected key and the variable it came from, an unknown model, the path Verify added on a 404, a rate limit after retries, a text-only model, no tool support, a reply cut off at its output cap, or three turns without a tool call.
 - **Blank initial screen:** first-frame observation is best effort. Start with an instruction; a transport-level connection does not prove rendered readiness.
 - **Validation failed with successful HTTP:** use the validation verdict, not transport counters, to decide success. `soft=True` changes throwing behavior, not the verdict.
 - **`ACTION_UNCERTAIN`:** an operation or cleanup outcome was not confirmed. Do not blindly retry mutations or assume a computer has been released.
