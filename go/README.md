@@ -9,10 +9,10 @@ Use Go 1.26.9 or later and a Revyl account. Set `REVYL_API_KEY` through your she
 The module lives in the repository's `go/` subdirectory. Install the tagged release with:
 
 ```sh
-go get github.com/RevylAI/verify/go@v0.2.1
+go get github.com/RevylAI/verify/go@v0.3.0
 ```
 
-Go releases use independent repository tags such as `go/v0.2.0`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
+Go releases use independent repository tags such as `go/v0.3.0`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
 
 ## Quick start: iOS Settings
 
@@ -21,7 +21,7 @@ This program opens the iOS Settings app on a cloud simulator, which every accoun
 ```sh
 mkdir verify-go && cd verify-go
 go mod init example.com/verify-go
-go get github.com/RevylAI/verify/go@v0.2.1
+go get github.com/RevylAI/verify/go@v0.3.0
 ```
 
 Save this as `main.go`:
@@ -152,13 +152,151 @@ Run with `go test -v -timeout 6m`. `t.Fatal` runs deferred cleanup. The URL and 
 - **iOS and Android:** set `Platform` to `verify.IOS` or `verify.Android` and exactly one of `AppID`, `BuildID`, `ArtifactURL` (HTTPS), or `BundleID` (an app already installed). `DeviceModel` and `OSVersion` are optional. `URL`, `Branch`, `Viewport`, and `SignIn` are web-only.
 - **Mac computers:** `Target{Platform: verify.Mac}` creates a workspace; only `StartTimeout` is accepted alongside the platform. Mac computers are early access; ask support@revyl.ai about access. A 429 `ErrComputerLimit` means queued work or a concurrency limit; Verify does not guess which cause applies or retry creation. See [computer availability](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#availability-and-errors).
 - `Target.StartTimeout` bounds startup (default 10 minutes); on web/mobile, `IdleTimeoutSeconds` sets the session's idle timeout (default 600 seconds). All methods also honor the caller's context.
-- `OpenOptions{StepTimeout: 3*time.Minute}` changes the default step timeout. Per-call `StepOptions{Timeout: time.Minute}` and `ValidationOptions{Timeout: time.Minute, Soft: true}` override it. Run one step at a time per session.
+- `Open` takes at most one `OpenOptions` value, plus `WithModel`, `WithCustomModel` or `WithAgent` to run steps on your own model; `Instruction` and `Validation` take the same options for one step. `OpenOptions{StepTimeout: 3*time.Minute}` changes the default step timeout. Per-call `StepOptions{Timeout: time.Minute}` and `ValidationOptions{Timeout: time.Minute, Soft: true}` override it. Run one step at a time per session.
 - Redirects are rejected, not followed with credentials.
-- `OpenOptions{Log: func(line string) { ... }}` opts into computer lifecycle, evidence-gap messages, and mobile best-effort first-screen debug notes; the default is quiet for all targets. Keep that callback concurrency-safe if operations run concurrently. A confirmed execution result remains usable when its report evidence is pending or failed; the callback identifies that gap without logging private output or recording URLs.
+- `OpenOptions{Log: func(line string) { ... }}` opts into computer lifecycle, evidence-gap messages, mobile best-effort first-screen debug notes, and the turns of steps run on your own model; the default is quiet for all targets. Keep that callback concurrency-safe if operations run concurrently. A confirmed execution result remains usable when its report evidence is pending or failed; the callback identifies that gap without logging private output or recording URLs.
 
 Requests have bounded deadlines even when passed `context.Background()`: ordinary HTTP requests use 30 seconds, device session creation up to 2 minutes, and accepted-step cancellation up to 5 seconds on a fresh context. Ordinary responses are limited to 16 MiB; computer screenshots allow up to 128 MiB of decoded image data. Safe reads and idempotent device build-registration/stop requests retry at most twice on transient failures; session creation, launch, and step/operation submission are never replayed. Caller cancellation remains detectable with `errors.Is(err, context.Canceled)` or `context.DeadlineExceeded`, alongside `verify.ErrTimeout` for device operations; interrupted computer mutation observation returns `verify.ErrActionUncertain`.
 
 The Go SDK does not read `verify.config.ts`, resolve named targets, or provide an init CLI. Every step runs on the live session; there is no cached replay. Instruction and validation methods on computers return `ErrNotAvailableOnPlatform` locally; computer-only methods on web/mobile do the same.
+
+## Which call works where
+
+| Call | Web | iOS | Android | Mac computer |
+| --- | --- | --- | --- | --- |
+| `Tap`, `Type`, `Swipe`, `PressKey`, `Locate`, `ScreenSize` | Yes | Yes | Yes | No, use `Exec` and files |
+| `Back` | Yes, browser history | No, tap the on-screen back control | Yes, the system back button | No |
+| `OpenURL` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No |
+| `LaunchApp` | No, use `OpenURL` or `Navigate` | Yes | Yes | No |
+| `Navigate` | Yes | No, use `OpenURL` | No, use `OpenURL` | No |
+| `Instruction`, `Validation`, your own model | Yes | Yes | Yes | No, use `Exec` |
+| `Screenshot` | Yes | Yes | Yes | Yes |
+| `Exec`, files, processes | No, open a Mac computer | No, open a Mac computer | No, open a Mac computer | Yes |
+
+Coordinates are in iOS points, Android pixels and Web CSS pixels, from the top-left corner. A call a platform doesn't support returns `ErrNotAvailableOnPlatform`, and its message names the alternative.
+
+## Exact actions
+
+**Since Go `v0.3.0`. Early access.** Web, iOS and Android sessions take device actions that need no agent. A location is a `verify.Point{X, Y}` in whole, non-negative device units (`ScreenSize` gives the bounds), or a `verify.Element("Login button")` that Revyl's grounding model finds on the current screen.
+
+```go
+if _, err := s.Tap(ctx, verify.Element("General")); err != nil {
+	return err
+}
+if _, err := s.Type(ctx, verify.Element("Search field"), "Bluetooth"); err != nil {
+	return err
+}
+if err := s.Swipe(ctx, verify.SwipeUp); err != nil {
+	return err
+}
+point, err := s.Locate(ctx, "Wi-Fi row")
+```
+
+| Method | What it does |
+| --- | --- |
+| `Tap(ctx, at)` | Taps and returns the `Point` tapped |
+| `Type(ctx, at, text, TypeOptions{Clear})` | Taps a text field and types into it, clearing it first unless `Clear` points to `false` |
+| `Swipe(ctx, direction, SwipeOptions{From})` | Swipes from a location or the screen's center; `SwipeUp` moves the finger up, which scrolls content down |
+| `PressKey(ctx, verify.KeyEnter)` | Presses `KeyEnter` or `KeyBackspace` on the focused field |
+| `Back(ctx)` | Browser history on Web, the back button on Android; iOS returns `ErrNotAvailableOnPlatform` |
+| `OpenURL(ctx, url)` | Opens a URL or deep link on a device, or loads an http(s) URL in a browser |
+| `LaunchApp(ctx, bundleID)` | Launches an installed app on a device |
+| `Locate(ctx, description)` | Returns where Revyl finds an element, without acting |
+| `ScreenSize(ctx)` | Returns the `Size{Width, Height}` in device units |
+
+A failed action returns `ErrActionFailed`, including when Revyl cannot find an element or nothing at a point can take the action. Actions are sent once and never repeated: one cut off by the context's deadline, or whose outcome Revyl can't confirm, returns `ErrActionUncertain`, so check the session before acting again. Each request is bounded at 30 seconds even on `context.Background()`.
+
+## Your own model
+
+**Since Go `v0.3.0`. Early access.** `Instruction` and `Validation` normally run on Revyl's agent. Pass a model and the agent loop runs in your process instead, on a model you choose, with your own key. Revyl still provides the browser or device and, by default, finds the elements your model names on screen. Leave the model out and nothing changes.
+
+```go
+s, err := verify.Open(ctx, verify.Target{Platform: verify.IOS, BundleID: "com.apple.Preferences"},
+	verify.WithModel("anthropic/claude-sonnet-5-5")) // every step on your model
+if err != nil {
+	return err
+}
+step, err := s.Instruction(ctx, "Open General, then About")
+if err != nil {
+	return err
+}
+log.Println(step.Model.ID, len(step.Model.Turns), step.Model.InputTokens, step.Model.OutputTokens)
+_, err = s.Validation(ctx, "The screen shows the iOS version", verify.WithModel("openai/gpt-5.5")) // or one step
+```
+
+`WithModel("provider/model")` reads the provider's key from its usual environment variable. Everything after the first slash is the provider's own model name, so `"openrouter/anthropic/claude-sonnet-5-5"` works.
+
+| Prefix | Key variable | Endpoint |
+| --- | --- | --- |
+| `anthropic/` | `ANTHROPIC_API_KEY` | Anthropic Messages API |
+| `openai/` | `OPENAI_API_KEY` | `https://api.openai.com/v1` |
+| `google/` | `GOOGLE_API_KEY`, or `GEMINI_API_KEY` when it is unset | `https://generativelanguage.googleapis.com/v1beta/openai/` |
+| `openrouter/` | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` |
+| `groq/` | `GROQ_API_KEY` | `https://api.groq.com/openai/v1` |
+| `cerebras/` | `CEREBRAS_API_KEY` | `https://api.cerebras.ai/v1` |
+| `xai/` | `XAI_API_KEY` | `https://api.x.ai/v1` |
+| `ollama/` | none | `http://localhost:11434/v1` |
+
+A missing key returns `ErrModelKeyMissing` naming the variable, before `Open` reads your Revyl credentials or makes any request. An unknown prefix returns `ErrInvalidArgument`. A model on a Mac computer returns `ErrNotAvailableOnPlatform`. Verify doesn't check a key's prefix or shape. The model must accept images and support tool calls.
+
+For any other server that speaks OpenAI's chat completions with tools and image input (vLLM, LiteLLM, LM Studio, a gateway), pass `WithCustomModel`:
+
+```go
+verify.WithCustomModel(verify.CustomModel{
+	ID:       "qwen-3.8-27b",                      // the model name the server expects
+	BaseURL:  "https://my-gateway.example/v1",     // the root that serves /chat/completions
+	APIKey:   os.Getenv("MY_GATEWAY_KEY"),         // optional, sent as a bearer token
+	Headers:  map[string]string{"x-team": "mobile"}, // optional
+	Provider: "qwen",                              // optional, reported as "qwen/qwen-3.8-27b"
+})
+```
+
+The key comes only from `APIKey`: Verify never reads an environment variable for a custom endpoint, so a key meant for one provider can't reach another server.
+
+By default your model names the element it wants ("General row") and Revyl's grounding model finds it (`GroundingRevyl`), so a small, fast vision model is usually enough. `GroundingModel` has the model give screenshot coordinates instead; it keeps element descriptions away from Revyl but needs a model that points accurately.
+
+**What goes where.** Your model sees the system prompt, the step text, a short log of the actions it took so far and whether they worked, and the current screenshot, downscaled so its longest side is at most 1280 pixels. Revyl receives each device action, the element descriptions your model writes (not with `GroundingModel`), and the model's name for the session report. Revyl does not receive the step text, the prompts, your model's output or your key. Keys go only to the provider's endpoint and are replaced with `[redacted]` in error messages, as are custom header values.
+
+**Results and limits.** `StepResult.Model` is a `*ModelRun{ID, Grounding, Turns, InputTokens, OutputTokens}`, with each turn's action, `OK`, model and action durations and tokens. Input tokens include cached input. With `OpenOptions.Log` set, each turn logs its action, which includes up to 40 characters of typed text, and the step logs its turns and tokens, not the step text. An instruction stops after 20 turns, and a validation after 3 attempts without a verdict (`ErrStepFailed`). The step's timeout bounds the whole step and reaches every device request; a mutating action cut off by it returns `ErrActionUncertain` and is never repeated. One model call has 60 seconds, retries included, and is retried twice on 408, 409, 429 and 5xx, honoring `Retry-After` up to 10 seconds. Output is capped at 4096 tokens on Anthropic, OpenAI and Google and 2048 elsewhere; a reply cut off at the cap returns `ErrModelError` and a tool call in it is never run. Three turns in a row without a tool call return `ErrModelError`. Provider failures return `ErrModelError` with the provider's reason and the next step: a 401 or 403 names the host and the variables the key and address came from, a 404 names the path Verify added, and text-only or tool-less models are named as such.
+
+### Behind a proxy or gateway
+
+Two ways work:
+
+1. Keep `WithModel` and point the provider's base-URL variable at the proxy, the same variables Anthropic's and OpenAI's SDKs read:
+
+   ```sh
+   export ANTHROPIC_BASE_URL=https://llm-proxy.example.com/anthropic   # with or without a trailing /v1
+   export ANTHROPIC_API_KEY=<the proxy's key>
+   # or OPENAI_BASE_URL=https://llm-proxy.example.com/openai/v1 with OPENAI_API_KEY
+   ```
+
+2. Or name the proxy in code, when it speaks OpenAI's chat completions: `verify.WithCustomModel(verify.CustomModel{ID: "claude-sonnet-5-5", BaseURL: "https://llm-proxy.example.com/v1", APIKey: os.Getenv("PROXY_KEY")})`.
+
+A base address works with or without a trailing `/v1`. For Anthropic, Verify calls `<base>/v1/messages`, or `<base>/messages` when the base already ends in a version such as `/v1`. For OpenAI-compatible addresses, Verify adds `/v1` only to a bare host, so `https://gw.example.com` and `https://gw.example.com/v1` both call `https://gw.example.com/v1/chat/completions`, and a path such as `/openai/v1` is used as given. If the proxy rejects the key, the error names the host and the variable the key and address came from, never the key. If it answers 404, the error names the path Verify added to the base address.
+
+### Custom agents
+
+For control beyond a model name, configure a `LocalAgent` and pass it with `WithAgent` on `Open` or one step. `WithModel` and `WithCustomModel` build exactly this agent. Passing both a model and an agent returns `ErrInvalidArgument`.
+
+```go
+model, err := verify.OpenAICompatible(verify.OpenAICompatibleOptions{BaseURL: "http://localhost:11434/v1", Model: "qwen3-vl:8b"})
+if err != nil {
+	return err
+}
+s, err := verify.Open(ctx, target, verify.WithAgent(verify.LocalAgent{
+	Model:        model,
+	Grounding:    verify.GroundingModel, // default GroundingRevyl
+	MaxTurns:     10,                    // default 20, at most 100
+	ModelTimeout: 2 * time.Minute,       // default 1 minute
+}))
+```
+
+- `verify.Anthropic(AnthropicOptions{Model, APIKey, BaseURL, MaxTokens, MaxRetries})` uses `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` for what you leave empty. `verify.OpenAICompatible(OpenAICompatibleOptions{Model, BaseURL, APIKey, Headers, Provider, MaxTokens, MaxRetries})` uses `OPENAI_BASE_URL` and `OPENAI_API_KEY` only when `BaseURL` is empty, and then sends OpenAI's `max_completion_tokens`. Both return `ErrModelKeyMissing` or `ErrInvalidArgument` when they can't be built.
+- To use another SDK or runtime, implement `verify.ModelAdapter`: `Name() string` and `Complete(ctx, ModelRequest) (ModelReply, error)`. The request has the system prompt, the text, the screenshot and the tools; the reply has the chosen tool call, text, token usage and whether it was truncated.
+- `MaxImageSide` (default 1280, from 256 to 4096) sets the longest screenshot side sent to the model.
+
+[examples/byomodel](examples/byomodel/main.go) runs both forms on iOS Settings and adds exact actions: `cd go && go run ./examples/byomodel` with `REVYL_API_KEY` and `ANTHROPIC_API_KEY` set (or `MODEL=cerebras/qwen-3.8-27b` with `CEREBRAS_API_KEY`). [examples/customagent](examples/customagent/main.go) runs a custom agent on Ollama. Both start real, billable sessions.
 
 ## Attach and hosted app sessions
 
@@ -304,9 +442,9 @@ An unclaimed start may fail with `no_host` after 120 seconds from creation. Veri
 
 ## Results and errors
 
-`Instruction` and `Validation` return `StepResult{Type, Text, Reason, Passed, Duration}`. Failed instructions return `ErrInstructionFailed`; failed validation verdicts return `ErrValidationFailed`. `Soft: true` returns a false verdict without an error, but a missing verdict, failed execution, or cancellation still returns an error such as `ErrStepFailed`. `Screenshot` returns PNG bytes and optionally writes a path, creating parent directories.
+`Instruction` and `Validation` return `StepResult{Type, Text, Reason, Passed, Duration, Model}`; `Model` is set only when the step ran on your own model. Failed instructions return `ErrInstructionFailed`; failed validation verdicts return `ErrValidationFailed`. `Soft: true` returns a false verdict without an error, but a missing verdict, failed execution, or cancellation still returns an error such as `ErrStepFailed`. `Screenshot` returns PNG bytes and optionally writes a path, creating parent directories.
 
-Errors support `errors.Is(err, verify.ErrTimeout)` and `errors.As(err, &sdkError)` where `var sdkError *verify.Error`. Stable codes distinguish invalid arguments/configuration, missing/rejected credentials, startup failure, ended/busy sessions, unavailable operations, action failure/uncertainty, step failure, and timeout. `Error.Cause` is available through `errors.Unwrap` when present. Do not replay mutations after `ErrActionUncertain`: the action may already have happened. Inspect the session in Revyl instead.
+Errors support `errors.Is(err, verify.ErrTimeout)` and `errors.As(err, &sdkError)` where `var sdkError *verify.Error`. Stable codes distinguish invalid arguments/configuration, missing/rejected credentials, startup failure, ended/busy sessions, unavailable operations, action failure/uncertainty, step failure, model failure (`ErrModelError`) and a missing model key (`ErrModelKeyMissing`), and timeout. `Error.Cause` is available through `errors.Unwrap` when present. Do not replay mutations after `ErrActionUncertain`: the action may already have happened. Inspect the session in Revyl instead.
 
 `ErrEdgeBlocked` (`EDGE_BLOCKED`) identifies HTTP 403 with a `text/html` content type and nonempty `cf-ray`, unless the body is syntactically valid JSON. HTML branding is not required; `cf-ray` alone is not enough. Other responses retain their existing mapping, including JSON 401/403 authentication errors. Edge-block errors expose `HTTPStatus` but no body or ray ID. Check network access or contact support; Verify does not retry blocked requests.
 
@@ -314,7 +452,7 @@ Errors support `errors.Is(err, verify.ErrTimeout)` and `errors.As(err, &sdkError
 
 Credentials resolve from `REVYL_API_KEY`, then `~/.revyl/credentials.json`. A usable CLI login marked `local_auth_override` takes precedence over the environment key, matching the TypeScript SDK and Revyl CLI. Expired access tokens fall back to a stored API key. Never put keys, tokens, or private session content in source, fixtures, or logs.
 
-Instruction and validation text is sent to Revyl for remote processing. The Go SDK does not log that text locally; do not include credentials or sensitive content in step descriptions.
+Instruction and validation text is sent to Revyl for remote processing, unless the step runs on your own model. The Go SDK does not log that text locally; do not include credentials or sensitive content in step descriptions.
 
 ## Develop
 
