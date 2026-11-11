@@ -155,7 +155,7 @@ export interface OpenedSession extends Session {
   report(): Promise<Record<string, unknown>>;
   navigate(url: string): Promise<void>;
   open(target: HostedTargetConfig): Promise<OpenedSession>;
-  /** Taps a point in device units, or an element Revyl locates from a description. Returns the point tapped. Browsers and devices only. */
+  /** Taps a point in screenshot pixels, or an element Revyl locates from a description. Returns the point tapped, in screenshot pixels. Browsers and devices only. */
   tap(at: Location): Promise<Point>;
   /** Taps a text field and types into it, clearing it first unless clear is false. Returns the point tapped. Browsers and devices only. */
   type(at: Location, text: string, options?: { clear?: boolean }): Promise<Point>;
@@ -169,9 +169,9 @@ export interface OpenedSession extends Session {
   openUrl(url: string): Promise<void>;
   /** Launches an installed app by bundle ID or package name. Devices only. */
   launchApp(bundleId: string): Promise<void>;
-  /** Asks Revyl's grounding model where an element is on the current screen, in device units. Browsers and devices only. */
+  /** Asks Revyl's grounding model where an element is on the current screen, in screenshot pixels. Browsers and devices only. */
   locate(target: string): Promise<Point>;
-  /** The screen size in device units: iOS points, Android and Web pixels. Browsers and devices only. */
+  /** The screenshot's size in pixels, the space every coordinate uses. Browsers and devices only. */
   screenSize(): Promise<{ width: number; height: number }>;
 }
 
@@ -206,6 +206,8 @@ export class DeviceSession implements Session {
   private parent?: HostingParent;
   private readySignal?: AbortSignal;
   private size?: { width: number; height: number };
+  private sizeSource?: 'health';
+  private screenshotSize?: { width: number; height: number; device: { width: number; height: number } };
   private attribution?: Record<string, string>;
 
   get expiresAt(): Date | undefined {
@@ -595,21 +597,21 @@ export class DeviceSession implements Session {
     };
   }
 
-  /** Taps a point in device units, or an element Revyl locates from a description. Returns the point tapped. */
+  /** Taps a point in screenshot pixels, or an element Revyl locates from a description. Returns the point tapped, in screenshot pixels. */
   async tap(at: Location): Promise<Point> {
-    return (await this.perform({ kind: 'tap', at: checkLocation(at) }))!;
+    return this.toScreenshot((await this.perform({ kind: 'tap', at: await this.toDevice(checkLocation(at)) }))!);
   }
 
   /** Taps a text field and types into it, clearing it first unless clear is false. Returns the point tapped. */
   async type(at: Location, text: string, options: { clear?: boolean } = {}): Promise<Point> {
     if (typeof text !== 'string' || text.length > 16_384) throw new VerifyError('INVALID_ARGUMENT', 'type() takes text of at most 16384 characters.');
-    return (await this.perform({ kind: 'type', at: checkLocation(at), text, clear: options.clear !== false }))!;
+    return this.toScreenshot((await this.perform({ kind: 'type', at: await this.toDevice(checkLocation(at)), text, clear: options.clear !== false }))!);
   }
 
   /** Swipes from a point or the screen's center. 'up' moves the finger up, which scrolls content down. */
   async swipe(direction: SwipeDirection, options: { from?: Location } = {}): Promise<void> {
     if (!['up', 'down', 'left', 'right'].includes(direction)) throw new VerifyError('INVALID_ARGUMENT', "swipe() takes 'up', 'down', 'left' or 'right'.");
-    await this.perform({ kind: 'swipe', direction, ...(options.from ? { from: checkLocation(options.from) } : {}) });
+    await this.perform({ kind: 'swipe', direction, ...(options.from ? { from: await this.toDevice(checkLocation(options.from)) } : {}) });
   }
 
   /** Presses Enter or Backspace on the focused field. */
@@ -637,15 +639,44 @@ export class DeviceSession implements Session {
     await this.act('launch', { bundle_id: bundleId });
   }
 
-  /** Asks Revyl's grounding model where an element is on the current screen, in device units. */
+  /** Asks Revyl's grounding model where an element is on the current screen, in screenshot pixels. */
   async locate(target: string): Promise<Point> {
     const { x, y } = await this.resolve(checkLocation({ target }));
-    return { x, y };
+    return this.toScreenshot({ x, y });
   }
 
-  /** The screen size in device units: iOS points, Android and Web pixels. */
-  screenSize(): Promise<{ width: number; height: number }> {
-    return this.readScreenSize();
+  /** The screenshot's size in pixels, the space every coordinate uses. */
+  async screenSize(): Promise<{ width: number; height: number }> {
+    const { width, height } = await this.readScreenshotSize();
+    return { width, height };
+  }
+
+  /** The screenshot's size and the device size Revyl acts in. They differ on iOS, where Revyl acts in points and a screenshot has more pixels. */
+  private async readScreenshotSize(): Promise<{ width: number; height: number; device: { width: number; height: number } }> {
+    if (this.screenshotSize) return this.screenshotSize;
+    const device = await this.readScreenSize();
+    let size = device;
+    if (this.platform === 'ios') {
+      if (this.sizeSource !== 'health') throw new VerifyError('ACTION_FAILED', `Revyl did not report this iOS screen's size in points, so Verify cannot map screenshot pixels to it and sent no action. See ${this.viewerUrl}`);
+      size = pngSize((await this.capture()).png)!;
+    }
+    this.screenshotSize = { width: size.width, height: size.height, device };
+    return this.screenshotSize;
+  }
+
+  private async toDevice(at: Location): Promise<Location> {
+    if ('target' in at) return at;
+    const size = await this.readScreenshotSize();
+    if (at.x >= size.width || at.y >= size.height) {
+      throw new VerifyError('INVALID_ARGUMENT', `(${at.x}, ${at.y}) is outside the screenshot: x must be 0 to ${size.width - 1} and y 0 to ${size.height - 1}, in screenshot pixels.`);
+    }
+    return { x: Math.min(size.device.width - 1, Math.round((at.x * size.device.width) / size.width)), y: Math.min(size.device.height - 1, Math.round((at.y * size.device.height) / size.height)) };
+  }
+
+  private async toScreenshot(point: Point): Promise<Point> {
+    if (this.platform !== 'ios') return point;
+    const size = await this.readScreenshotSize();
+    return { x: Math.min(size.width - 1, Math.round((point.x * size.width) / size.device.width)), y: Math.min(size.height - 1, Math.round((point.y * size.height) / size.device.height)) };
   }
 
   private async readScreenSize(signal?: AbortSignal): Promise<{ width: number; height: number }> {
@@ -654,6 +685,7 @@ export class DeviceSession implements Session {
       const health = parseJson<WorkerHealth>(await this.worker('GET', 'health', { retry: true, ...(signal ? { signal } : {}) }), 'health');
       if (Number.isInteger(health.screen_width) && Number.isInteger(health.screen_height) && health.screen_width! > 0 && health.screen_height! > 0) {
         this.size = { width: health.screen_width!, height: health.screen_height! };
+        this.sizeSource = 'health';
         return this.size;
       }
     }
@@ -958,7 +990,7 @@ function checkLocation(at: Location): Location {
     return { target: at.target.trim() };
   }
   if (!at || typeof at !== 'object' || !Number.isInteger(at.x) || !Number.isInteger(at.y) || at.x < 0 || at.y < 0) {
-    throw new VerifyError('INVALID_ARGUMENT', 'A location is { x, y } in non-negative whole device units, or { target: "description" }.');
+    throw new VerifyError('INVALID_ARGUMENT', 'A location is { x, y } in non-negative whole screenshot pixels, or { target: "description" }.');
   }
   return { x: at.x, y: at.y };
 }

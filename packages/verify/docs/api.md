@@ -84,7 +84,7 @@ Web only, hosted or normal. Sends one deterministic `open_url` action and checks
 
 ## Exact actions
 
-**Since 0.4.0. Early access.** In TypeScript (`@revyl/verify` 0.4.0), Python (`revyl-verify` 0.2.0) and Go (v0.3.0); the [Python](https://github.com/RevylAI/verify/blob/v0.4.0/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.4.0/go/README.md#exact-actions) READMEs show them with each language's names. Web, iOS and Android sessions take device actions that need no agent.
+**Since 0.4.0. Early access.** In TypeScript (`@revyl/verify` 0.4.0), Python (`revyl-verify` 0.2.0) and Go (v0.3.0); the [Python](https://github.com/RevylAI/verify/blob/v0.4.1/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.4.1/go/README.md#exact-actions) READMEs show them with each language's names. Web, iOS and Android sessions take device actions that need no agent.
 
 | Call | Web | iOS | Android | Mac computer |
 | --- | --- | --- | --- | --- |
@@ -97,9 +97,9 @@ Web only, hosted or normal. Sends one deterministic `open_url` action and checks
 | `screenshot()` | Yes | Yes | Yes | Yes |
 | `exec`, files, processes | No, open a Mac computer | No, open a Mac computer | No, open a Mac computer | Yes |
 
-Coordinates are in iOS points, Android pixels and Web CSS pixels, from the top-left corner. A call a platform doesn't support throws `NOT_AVAILABLE_ON_PLATFORM`, and its message names the alternative.
+A call a platform doesn't support throws `NOT_AVAILABLE_ON_PLATFORM`, and its message names the alternative.
 
-A location is `{ x, y }` in device units (iOS points, Android and Web pixels, from the top-left corner; `screenSize()` gives the bounds) or `{ target: 'Login button' }`, which Revyl's grounding model finds on the current screen.
+A location is `{ x, y }` in screenshot pixels (see [Coordinates](#coordinates)) or `{ target: 'Login button' }`, which Revyl's grounding model finds on the current screen.
 
 | Call | What it does |
 | --- | --- |
@@ -111,11 +111,21 @@ A location is `{ x, y }` in device units (iOS points, Android and Web pixels, fr
 | `openUrl(url)` | Opens a URL or deep link on a device, or loads a URL in a browser |
 | `launchApp(bundleId)` | Launches an installed app on a device |
 | `locate(target)` | Resolves with Revyl's best match on the current screen, without acting |
-| `screenSize()` | Resolves with `{ width, height }` in device units |
+| `screenSize()` | Resolves with the screenshot's `{ width, height }` in pixels |
 
 A failed action throws `ACTION_FAILED`, including when Revyl cannot find a target or nothing at a point can take the action. One whose outcome Revyl can't confirm throws `ACTION_UNCERTAIN` or `TIMEOUT`, so check the session before acting again. Actions are never repeated. If Verify can't reach Revyl, the action fails with `API_ERROR` and isn't resent either, so check the session before trying it again.
 
 Exact actions return when Revyl has accepted them, not when the screen has finished changing. After `swipe`, `openUrl` or `launchApp`, let the screen settle or check it before you `locate` or tap coordinates. `locate` returns Revyl's best match on the current screen and can return a point for an element that is off screen, so bring the element on screen first and check the point before you use it.
+
+### Coordinates
+
+Prefer a description, such as `tap({ target: 'Sign in button' })`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `{ x, y }` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `screenshot()` returns. So a position you read off a screenshot goes to `tap()`, `type()` and `swipe()` unchanged. `screenSize()` returns the screenshot's width and height, and `locate()` and the points `tap()` and `type()` return use the same pixels. A point outside the screenshot is refused with `INVALID_ARGUMENT` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they are CSS pixels at the default device scale factor of 1. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points.
+
+```ts
+await session.screenshot({ path: '.verify/screen.png' });  // open it and find the element
+await session.tap({ x: 660, y: 1500 });                    // the position as you read it, on every platform
+const { width, height } = await session.screenSize();      // the screenshot's size: x is 0 to width - 1
+```
 
 ## session.report()
 
@@ -162,7 +172,7 @@ When inspecting `revyl device report --session-id <id>`, read validation verdict
 
 ## Your own model
 
-**Since 0.4.0. Early access.** In TypeScript (`@revyl/verify` 0.4.0), Python (`revyl-verify` 0.2.0) and Go (v0.3.0); the [Python](https://github.com/RevylAI/verify/blob/v0.4.0/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.4.0/go/README.md#your-own-model) READMEs show them with each language's names. Runs instructions and validations on a model you choose, in your process, instead of Revyl's agent. Revyl still provides the browser or device. Leave `model` out and Revyl's agent runs the step, as before.
+**Since 0.4.0. Early access.** In TypeScript (`@revyl/verify` 0.4.0), Python (`revyl-verify` 0.2.0) and Go (v0.3.0); the [Python](https://github.com/RevylAI/verify/blob/v0.4.1/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.4.1/go/README.md#your-own-model) READMEs show them with each language's names. Runs instructions and validations on a model you choose, in your process, instead of Revyl's agent. Revyl still provides the browser or device. Leave `model` out and Revyl's agent runs the step, as before.
 
 ```ts
 const session = await open('ios', { model: 'anthropic/claude-sonnet-5-5' });  // every step on your model

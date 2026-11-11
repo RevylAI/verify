@@ -53,7 +53,7 @@ Revyl runs one step at a time on a session. A step sent while another is still r
 
 ## Exact actions
 
-**Since 0.4.0. Early access.** In TypeScript (`@revyl/verify` 0.4.0), Python (`revyl-verify` 0.2.0) and Go (v0.3.0); the [Python](https://github.com/RevylAI/verify/blob/v0.4.0/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.4.0/go/README.md#exact-actions) READMEs show them with each language's names. When you know exactly what to click, skip the agent. Exact actions run in the browser as given, with no model, and mix freely with `instruction()` and `validation()`:
+**Since 0.4.0. Early access.** In TypeScript (`@revyl/verify` 0.4.0), Python (`revyl-verify` 0.2.0) and Go (v0.3.0); the [Python](https://github.com/RevylAI/verify/blob/v0.4.1/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.4.1/go/README.md#exact-actions) READMEs show them with each language's names. When you know exactly what to click, skip the agent. Exact actions run in the browser as given, with no model, and mix freely with `instruction()` and `validation()`:
 
 ```ts
 import { open } from '@revyl/verify';
@@ -66,7 +66,7 @@ try {
   await session.validation('A list of products is shown');
   await session.swipe('up');                                     // the finger moves up, so the page scrolls down
   await session.instruction('Add the Sauce Labs Onesie to the cart');  // hand the fuzzy part to the agent
-  const cart = await session.locate('Shopping cart icon');      // where Revyl finds it, in CSS pixels
+  const cart = await session.locate('Shopping cart icon');      // a point in screenshot pixels
   await session.tap(cart);                                       // a tap by coordinates
   await session.validation('The cart lists the Sauce Labs Onesie');
   await session.back();                                          // browser history
@@ -76,7 +76,7 @@ try {
 }
 ```
 
-A location is `{ target: 'a description' }`, which Revyl's grounding model finds on the current page, or `{ x, y }` from the top-left corner of the viewport; `screenSize()` gives the bounds and `locate(target)` gives an element's point without acting. `type()` clicks the field and clears it first unless you pass `{ clear: false }`. `pressKey()` takes `'enter'` or `'backspace'`, and `openUrl(url)` loads a page like `navigate(url)`. A failed action throws `ACTION_FAILED`. One whose outcome Revyl can't confirm throws `ACTION_UNCERTAIN` or `TIMEOUT`, so check the session before acting again. Actions are never repeated. If Verify can't reach Revyl, the action fails with `API_ERROR` and isn't resent either, so check the session before trying it again. [api.md](api.md#exact-actions) lists every call.
+A location is `{ target: 'a description' }`, which Revyl's grounding model finds on the current page, or `{ x, y }` in screenshot pixels from the top-left corner; `screenSize()` gives the bounds and `locate(target)` gives an element's point without acting. `type()` clicks the field and clears it first unless you pass `{ clear: false }`. `pressKey()` takes `'enter'` or `'backspace'`, and `openUrl(url)` loads a page like `navigate(url)`. A failed action throws `ACTION_FAILED`. One whose outcome Revyl can't confirm throws `ACTION_UNCERTAIN` or `TIMEOUT`, so check the session before acting again. Actions are never repeated. If Verify can't reach Revyl, the action fails with `API_ERROR` and isn't resent either, so check the session before trying it again. [api.md](api.md#exact-actions) lists every call.
 
 | Call | Web | iOS | Android | Mac computer |
 | --- | --- | --- | --- | --- |
@@ -89,6 +89,8 @@ A location is `{ target: 'a description' }`, which Revyl's grounding model finds
 | `screenshot()` | Yes | Yes | Yes | Yes |
 | `exec`, files, processes | No, open a Mac computer | No, open a Mac computer | No, open a Mac computer | Yes |
 
-Coordinates are in iOS points, Android pixels and Web CSS pixels, from the top-left corner. A call a platform doesn't support throws `NOT_AVAILABLE_ON_PLATFORM`, and its message names the alternative.
+**Coordinates.** Prefer a description, such as `tap({ target: 'Sign in button' })`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `{ x, y }` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `screenshot()` returns. So a position you read off a screenshot goes to `tap()`, `type()` and `swipe()` unchanged. `screenSize()` returns the screenshot's width and height, and `locate()` and the points `tap()` and `type()` return use the same pixels. A point outside the screenshot is refused with `INVALID_ARGUMENT` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they are CSS pixels at the default device scale factor of 1. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points.
+
+A call a platform doesn't support throws `NOT_AVAILABLE_ON_PLATFORM`, and its message names the alternative.
 
 When you pass a [`model`](own-model.md), your model uses `tap`, `type`, `swipe`, `pressKey`, `openUrl` and, where the platform has it, `back` inside `instruction()`.

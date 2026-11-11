@@ -9,10 +9,10 @@ Use Go 1.26.9 or later and a Revyl account. Set `REVYL_API_KEY` through your she
 The module lives in the repository's `go/` subdirectory. Install the tagged release with:
 
 ```sh
-go get github.com/RevylAI/verify/go@v0.3.0
+go get github.com/RevylAI/verify/go@v0.3.1
 ```
 
-Go releases use independent repository tags such as `go/v0.3.0`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
+Go releases use independent repository tags such as `go/v0.3.1`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
 
 ## Quick start: iOS Settings
 
@@ -21,7 +21,7 @@ This program opens the iOS Settings app on a cloud simulator, which every accoun
 ```sh
 mkdir verify-go && cd verify-go
 go mod init example.com/verify-go
-go get github.com/RevylAI/verify/go@v0.3.0
+go get github.com/RevylAI/verify/go@v0.3.1
 ```
 
 Save this as `main.go`:
@@ -173,11 +173,11 @@ The Go SDK does not read `verify.config.ts`, resolve named targets, or provide a
 | `Screenshot` | Yes | Yes | Yes | Yes |
 | `Exec`, files, processes | No, open a Mac computer | No, open a Mac computer | No, open a Mac computer | Yes |
 
-Coordinates are in iOS points, Android pixels and Web CSS pixels, from the top-left corner. A call a platform doesn't support returns `ErrNotAvailableOnPlatform`, and its message names the alternative.
+Coordinates follow the rule in [Exact actions](#exact-actions). A call a platform doesn't support returns `ErrNotAvailableOnPlatform`, and its message names the alternative.
 
 ## Exact actions
 
-**Since Go `v0.3.0`. Early access.** Web, iOS and Android sessions take device actions that need no agent. A location is a `verify.Point{X, Y}` in whole, non-negative device units (`ScreenSize` gives the bounds), or a `verify.Element("Login button")` that Revyl's grounding model finds on the current screen.
+**Since Go `v0.3.0`. Early access.** Web, iOS and Android sessions take device actions that need no agent. A location is a `verify.Point{X, Y}` in whole, non-negative screenshot pixels from the top-left corner, or a `verify.Element("Login button")` that Revyl's grounding model finds on the current screen.
 
 ```go
 if _, err := s.Tap(ctx, verify.Element("General")); err != nil {
@@ -202,11 +202,23 @@ point, err := s.Locate(ctx, "Wi-Fi row")
 | `OpenURL(ctx, url)` | Opens a URL or deep link on a device, or loads an http(s) URL in a browser |
 | `LaunchApp(ctx, bundleID)` | Launches an installed app on a device |
 | `Locate(ctx, description)` | Returns Revyl's best match on the current screen, without acting |
-| `ScreenSize(ctx)` | Returns the `Size{Width, Height}` in device units |
+| `ScreenSize(ctx)` | Returns the screenshot's `Size{Width, Height}` in pixels |
 
 A failed action returns `ErrActionFailed`, including when Revyl cannot find an element or nothing at a point can take the action. Actions are sent once and never repeated: one cut off by the context's deadline, or whose outcome Revyl can't confirm, returns `ErrActionUncertain`, so check the session before acting again. If Verify can't reach Revyl, the action returns `ErrAPI` and isn't resent either, so check the session before trying it again. Each request is bounded at 30 seconds even on `context.Background()`.
 
 Exact actions return when Revyl has accepted them, not when the screen has finished changing. After `Swipe`, `OpenURL` or `LaunchApp`, let the screen settle or check it before you `Locate` or tap coordinates. `Locate` returns Revyl's best match on the current screen and can return a point for an element that is off screen, so bring the element on screen first and check the point before you use it.
+
+**Coordinates.** Prefer a description, such as `Tap(ctx, verify.Element("Sign in button"))`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `verify.Point{X, Y}` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `Screenshot` returns. So a position you read off a screenshot goes to `Tap`, `Type` and `Swipe` unchanged. `ScreenSize` returns the screenshot's width and height, and `Locate` and the points `Tap` and `Type` return use the same pixels. A point outside the screenshot is refused with `ErrInvalidArgument` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they are CSS pixels at the default device scale factor of 1. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points.
+
+```go
+if _, err := s.Screenshot(ctx, ".verify/screen.png"); err != nil { // open it and find the element
+	return err
+}
+if _, err := s.Tap(ctx, verify.Point{X: 660, Y: 1500}); err != nil { // the position as you read it, on every platform
+	return err
+}
+size, err := s.ScreenSize(ctx) // the screenshot's size: X is 0 to size.Width - 1
+```
 
 ## Your own model
 

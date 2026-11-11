@@ -12,11 +12,11 @@ import (
 	"time"
 )
 
-// Location is where an exact action acts: a Point in device units, or an Element that Revyl's grounding
+// Location is where an exact action acts: a Point in screenshot pixels, or an Element that Revyl's grounding
 // model finds on the current screen.
 type Location interface{ location() }
 
-// Point is a position in device units: iOS points, Android and Web pixels, from the top-left corner.
+// Point is a position in screenshot pixels, from the top-left corner.
 type Point struct{ X, Y int }
 
 // Element describes an element by its visible text or look, such as "Login button".
@@ -25,7 +25,7 @@ type Element string
 func (Point) location()   {}
 func (Element) location() {}
 
-// Size is a screen size in device units.
+// Size is a screen size in pixels.
 type Size struct{ Width, Height int }
 
 // SwipeDirection is the way the finger moves: SwipeUp scrolls content down.
@@ -75,10 +75,11 @@ func checkLocation(at Location) (Location, error) {
 			return at, nil
 		}
 	}
-	return nil, failure(ErrInvalidArgument, "A location is a Point in non-negative whole device units, or an Element description.")
+	return nil, failure(ErrInvalidArgument, "A location is a Point in non-negative whole screenshot pixels, or an Element description.")
 }
 
-// Tap taps a point, or an element Revyl locates from a description, and returns the point tapped.
+// Tap taps a point in screenshot pixels, or an element Revyl locates from a description, and returns the point
+// tapped in screenshot pixels.
 func (s *Session) Tap(ctx context.Context, at Location) (Point, error) {
 	if s.platform.computer() {
 		return Point{}, s.computerAgentUnavailable("Tap")
@@ -87,11 +88,14 @@ func (s *Session) Tap(ctx context.Context, at Location) (Point, error) {
 	if err != nil {
 		return Point{}, err
 	}
+	if at, err = s.toDevice(ctx, at); err != nil {
+		return Point{}, err
+	}
 	point, err := s.perform(ctx, deviceAction{kind: "tap", at: at}, "")
 	if err != nil {
 		return Point{}, err
 	}
-	return *point, nil
+	return s.toScreenshot(ctx, *point)
 }
 
 // Type taps a text field and types into it, clearing it first unless TypeOptions.Clear is false. It returns the point tapped.
@@ -109,12 +113,15 @@ func (s *Session) Type(ctx context.Context, at Location, text string, options ..
 	if err != nil {
 		return Point{}, err
 	}
+	if at, err = s.toDevice(ctx, at); err != nil {
+		return Point{}, err
+	}
 	clearFirst := len(options) == 0 || options[0].Clear == nil || *options[0].Clear
 	point, err := s.perform(ctx, deviceAction{kind: "type", at: at, text: text, clear: clearFirst}, "")
 	if err != nil {
 		return Point{}, err
 	}
-	return *point, nil
+	return s.toScreenshot(ctx, *point)
 }
 
 // Swipe swipes from a location or the screen's center. SwipeUp moves the finger up, which scrolls content down.
@@ -132,6 +139,9 @@ func (s *Session) Swipe(ctx context.Context, direction SwipeDirection, options .
 	if len(options) == 1 && options[0].From != nil {
 		from, err := checkLocation(options[0].From)
 		if err != nil {
+			return err
+		}
+		if from, err = s.toDevice(ctx, from); err != nil {
 			return err
 		}
 		action.at = from
@@ -192,7 +202,7 @@ func (s *Session) LaunchApp(ctx context.Context, bundleID string) error {
 	return s.act(ctx, "launch", map[string]any{"bundle_id": bundleID})
 }
 
-// Locate asks Revyl's grounding model where an element is on the current screen, in device units, without acting.
+// Locate asks Revyl's grounding model where an element is on the current screen, in screenshot pixels, without acting.
 func (s *Session) Locate(ctx context.Context, target string) (Point, error) {
 	if s.platform.computer() {
 		return Point{}, s.computerAgentUnavailable("Locate")
@@ -202,15 +212,86 @@ func (s *Session) Locate(ctx context.Context, target string) (Point, error) {
 		return Point{}, err
 	}
 	point, _, err := s.resolve(ctx, at, "")
-	return point, err
+	if err != nil {
+		return Point{}, err
+	}
+	return s.toScreenshot(ctx, point)
 }
 
-// ScreenSize returns the screen size in device units: iOS points, Android and Web pixels.
+// ScreenSize returns the screenshot's size in pixels, the space every coordinate uses.
 func (s *Session) ScreenSize(ctx context.Context) (Size, error) {
 	if s.platform.computer() {
 		return Size{}, s.computerAgentUnavailable("ScreenSize")
 	}
-	return s.readScreenSize(ctx)
+	scale, err := s.readScreenshotSize(ctx)
+	return scale.size, err
+}
+
+type screenshotScale struct{ size, device Size }
+
+// readScreenshotSize returns the screenshot's size and the device size Revyl acts in. They differ on iOS, where
+// Revyl acts in points and a screenshot has more pixels.
+func (s *Session) readScreenshotSize(ctx context.Context) (screenshotScale, error) {
+	s.mu.Lock()
+	cached := s.screenshotScale
+	s.mu.Unlock()
+	if cached != nil {
+		return *cached, nil
+	}
+	device, err := s.readScreenSize(ctx)
+	if err != nil {
+		return screenshotScale{}, err
+	}
+	scale := screenshotScale{size: device, device: device}
+	if s.platform == IOS {
+		s.mu.Lock()
+		fromHealth := s.sizeFromHealth
+		s.mu.Unlock()
+		if !fromHealth {
+			return screenshotScale{}, failure(ErrActionFailed, "Revyl did not report this iOS screen's size in points, so Verify cannot map screenshot pixels to it and sent no action. See "+s.viewer)
+		}
+		shot, err := s.capture(ctx)
+		if err != nil {
+			return screenshotScale{}, err
+		}
+		scale.size = Size{Width: int(binary.BigEndian.Uint32(shot.png[16:20])), Height: int(binary.BigEndian.Uint32(shot.png[20:24]))}
+	}
+	s.mu.Lock()
+	s.screenshotScale = &scale
+	s.mu.Unlock()
+	return scale, nil
+}
+
+func (s *Session) toDevice(ctx context.Context, at Location) (Location, error) {
+	point, ok := at.(Point)
+	if !ok {
+		return at, nil
+	}
+	scale, err := s.readScreenshotSize(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if point.X >= scale.size.Width || point.Y >= scale.size.Height {
+		return nil, failure(ErrInvalidArgument, fmt.Sprintf("(%d, %d) is outside the screenshot: X must be 0 to %d and Y 0 to %d, in screenshot pixels.", point.X, point.Y, scale.size.Width-1, scale.size.Height-1))
+	}
+	return Point{
+		X: min(scale.device.Width-1, round(float64(point.X*scale.device.Width)/float64(scale.size.Width))),
+		Y: min(scale.device.Height-1, round(float64(point.Y*scale.device.Height)/float64(scale.size.Height))),
+	}, nil
+}
+
+func (s *Session) toScreenshot(ctx context.Context, point Point) (Point, error) {
+	if s.platform != IOS {
+		return point, nil
+	}
+	scale, err := s.readScreenshotSize(ctx)
+	if err != nil {
+		return Point{}, err
+	}
+	return Point{
+		X: min(scale.size.Width-1, round(float64(point.X*scale.size.Width)/float64(scale.device.Width))),
+		Y: min(scale.size.Height-1, round(float64(point.Y*scale.size.Height)/float64(scale.device.Height))),
+	}, nil
 }
 
 func (s *Session) readScreenSize(ctx context.Context) (Size, error) {
@@ -220,7 +301,7 @@ func (s *Session) readScreenSize(ctx context.Context) (Size, error) {
 	if size != nil {
 		return *size, nil
 	}
-	found := Size{}
+	found, fromHealth := Size{}, false
 	if s.platform != Web {
 		r, err := s.worker(ctx, http.MethodGet, "health", nil, true, 30*time.Second)
 		if err != nil {
@@ -234,7 +315,7 @@ func (s *Session) readScreenSize(ctx context.Context) (Size, error) {
 			return Size{}, err
 		}
 		if health.Width > 0 && health.Height > 0 && health.Width == math.Trunc(health.Width) && health.Height == math.Trunc(health.Height) {
-			found = Size{Width: int(health.Width), Height: int(health.Height)}
+			found, fromHealth = Size{Width: int(health.Width), Height: int(health.Height)}, true
 		}
 	}
 	if found.Width == 0 {
@@ -245,7 +326,7 @@ func (s *Session) readScreenSize(ctx context.Context) (Size, error) {
 		found = Size{Width: int(binary.BigEndian.Uint32(shot.png[16:20])), Height: int(binary.BigEndian.Uint32(shot.png[20:24]))}
 	}
 	s.mu.Lock()
-	s.size = &found
+	s.size, s.sizeFromHealth = &found, fromHealth
 	s.mu.Unlock()
 	return found, nil
 }

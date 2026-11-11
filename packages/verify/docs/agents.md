@@ -22,6 +22,35 @@ This page is for AI coding agents (Claude Code, Cursor, Codex, and others) that 
 4. Run it with `node path/to/script.ts`. Share the session link from the first `[verify]` line with the user, so they can watch.
 5. Read the outcome from the exit code and stderr. Each step prints `✓` or `✗` with its text; a failure prints `CODE: message`, ending with the session link. Look at any screenshot you saved before changing the script or the app.
 
+## Exact actions and coordinates
+
+Use `instruction()` when the step needs judgement, and exact actions (`tap`, `type`, `swipe`, `pressKey`, `locate`, `screenSize`) when you know exactly what to press. They work on Web, iOS and Android, not on computers.
+
+Prefer a description, such as `tap({ target: 'Sign in button' })`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `{ x, y }` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `screenshot()` returns. So a position you read off a screenshot goes to `tap()`, `type()` and `swipe()` unchanged. `screenSize()` returns the screenshot's width and height, and `locate()` and the points `tap()` and `type()` return use the same pixels. A point outside the screenshot is refused with `INVALID_ARGUMENT` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they are CSS pixels at the default device scale factor of 1. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points.
+
+`swipe('up')` moves the finger up, so content scrolls down, on every platform. Actions return once Revyl accepts them, so after a swipe, `openUrl` or `launchApp`, wait for the screen to settle before you `locate` or tap by coordinates.
+
+```ts
+import { open } from '@revyl/verify';
+
+const session = await open('ios');
+try {
+  await session.tap({ target: 'General' });                 // first choice: describe the element
+  const about = await session.locate('About');              // a point in screenshot pixels
+  await session.tap(about);                                 // so it goes straight to tap()
+
+  await session.screenshot({ path: '.verify/screen.png' }); // open it and find what to press
+  await session.tap({ x: 660, y: 1500 });                   // a position read off the screenshot, unchanged
+  await session.swipe('up', { from: { x: 660, y: 2000 } }); // swipe from a screenshot position too
+  const { width, height } = await session.screenSize();     // the screenshot's size
+  console.log(`x is 0 to ${width - 1}, y is 0 to ${height - 1}`);
+} finally {
+  await session.close();
+}
+```
+
+The [Python](https://github.com/RevylAI/verify/blob/v0.4.1/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.4.1/go/README.md#exact-actions) READMEs state the same rule with each language's names. [api.md](api.md#exact-actions) lists every call and its errors.
+
 ## Rules
 
 Mac computers are early access. Ask support@revyl.ai about access before starting a computer; do not repeat an uncertain start/stop to probe availability.
