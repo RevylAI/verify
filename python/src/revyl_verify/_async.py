@@ -7,7 +7,7 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from types import TracebackType
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 from ._cleanup import _close, install_signal_cleanup
 from ._models import (
@@ -144,7 +144,7 @@ async def async_open(
     backend_url: str | None = None,
     app_url: str | None = None,
     step_timeout: float = 180,
-    log: Callable[[str], None] | None = None,
+    log: Callable[[str], None] | Literal[False] | None = None,
 ) -> AsyncSession:
     from . import open
 
@@ -166,7 +166,7 @@ async def async_attach(
     backend_url: str | None = None,
     app_url: str | None = None,
     step_timeout: float = 180,
-    log: Callable[[str], None] | None = None,
+    log: Callable[[str], None] | Literal[False] | None = None,
     stop_on_close: bool = True,
 ) -> AsyncSession:
     from . import attach

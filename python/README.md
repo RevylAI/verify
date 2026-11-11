@@ -152,7 +152,7 @@ Construct a frozen `Target(platform=...)`:
 
 `start_timeout` defaults to 600 seconds (allowed range 10–1800). Web/mobile also accept `idle_timeout_seconds` (60–3600). `open`, `async_open`, `attach` and `async_attach` accept default `step_timeout` in seconds.
 
-Pass `log=callback` to either opening API for sanitized lifecycle progress, including the viewer link as soon as the session identity is known. The default is quiet. Async callbacks run on a worker thread, so make them thread-safe; callback exceptions do not interrupt resource cleanup. Progress never includes app URLs, command or step content, credentials, recording URLs, or raw server errors. Viewer links and session IDs are still private operational context.
+Verify prints sanitized progress to stderr as `[verify] <platform>: …` lines, like the TypeScript SDK: the viewer link as soon as the session identity is known, `ready`, and each step's outcome and duration. Pass `log=callback` to receive the lines yourself, or `log=False` to turn them off. Async callbacks run on a worker thread, so make them thread-safe; callback exceptions do not interrupt resource cleanup. Progress never includes app URLs, command or step content, credentials, recording URLs, or raw server errors. Viewer links and session IDs are still private operational context.
 
 Startup `VerifyError` instances retain optional typed `platform`, `session_id`, `workflow_run_id`, and `viewer_url`, plus `cleanup_status` and `cleanup_error`. These fields remain available even though opening did not return a session:
 

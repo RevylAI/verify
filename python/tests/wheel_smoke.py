@@ -125,7 +125,7 @@ def main() -> None:
             try:
                 import revyl_verify
 
-                assert revyl_verify.__version__ == "0.1.0"
+                assert revyl_verify.__version__ == "0.1.1"
                 assert callable(revyl_verify.attach) and callable(revyl_verify.async_attach)
                 assert callable(revyl_verify.ComputerSession.open)
                 assert callable(revyl_verify.Session.navigate)

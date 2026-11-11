@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import Callable
+from typing import Literal
 
 from ._async import AsyncSession, async_attach, async_open
 from ._cleanup import install_signal_cleanup
@@ -20,7 +22,7 @@ from ._models import (
 from ._session import Session
 from ._transport import Cancellation, CleanupStatus, RefusalReason, VerifyError, origin, seconds
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __all__ = [
     "AsyncSession",
     "ComputerProcess",
@@ -46,6 +48,20 @@ __all__ = [
 ]
 
 
+def _print_progress(line: str) -> None:
+    print("[verify] " + line, file=sys.stderr, flush=True)
+
+
+def _progress(log: Callable[[str], None] | Literal[False] | None) -> Callable[[str], None] | None:
+    if log is False:
+        return None
+    if log is None:
+        return _print_progress
+    if not callable(log):
+        raise VerifyError("INVALID_ARGUMENT", "log must be a callable, False, or None.")
+    return log
+
+
 def _current_computer_id() -> str:
     computer_id = os.environ.get("REVYL_COMPUTER_ID", "").strip()
     if not computer_id:
@@ -62,7 +78,7 @@ def open(
     backend_url: str | None = None,
     app_url: str | None = None,
     step_timeout: float = 180,
-    log: Callable[[str], None] | None = None,
+    log: Callable[[str], None] | Literal[False] | None = None,
     _cancellation: Cancellation | None = None,
 ) -> Session:
     from ._transport import Client
@@ -72,12 +88,11 @@ def open(
     target.validate()
     install_signal_cleanup()
     seconds(step_timeout, 1, 3600, "step_timeout")
-    if log is not None and not callable(log):
-        raise VerifyError("INVALID_ARGUMENT", "log must be a callable or None.")
+    progress = _progress(log)
     viewer = origin(app_url or "https://app.revyl.ai", app=True)
     client = Client(backend_url, app_url, _cancellation)
     session = (ComputerSession if target.platform in ("mac", "linux") else Session).start(
-        client, viewer, target, step_timeout, log, _cancellation
+        client, viewer, target, step_timeout, progress, _cancellation
     )
     return session
 
@@ -88,7 +103,7 @@ def attach(
     backend_url: str | None = None,
     app_url: str | None = None,
     step_timeout: float = 180,
-    log: Callable[[str], None] | None = None,
+    log: Callable[[str], None] | Literal[False] | None = None,
     stop_on_close: bool = True,
     _cancellation: Cancellation | None = None,
 ) -> ComputerSession:
@@ -100,13 +115,18 @@ def attach(
     if not isinstance(stop_on_close, bool):
         raise VerifyError("INVALID_ARGUMENT", "stop_on_close must be a boolean.")
     seconds(step_timeout, 1, 3600, "step_timeout")
-    if log is not None and not callable(log):
-        raise VerifyError("INVALID_ARGUMENT", "log must be a callable or None.")
+    progress = _progress(log)
     install_signal_cleanup()
     viewer = origin(app_url or "https://app.revyl.ai", app=True)
     client = Client(backend_url, app_url, _cancellation)
     return ComputerSession.attach(
-        client, viewer, computer_id, step_timeout, log, _cancellation, stop_on_close=stop_on_close
+        client,
+        viewer,
+        computer_id,
+        step_timeout,
+        progress,
+        _cancellation,
+        stop_on_close=stop_on_close,
     )
 
 
@@ -115,7 +135,7 @@ def current_computer(
     backend_url: str | None = None,
     app_url: str | None = None,
     step_timeout: float = 180,
-    log: Callable[[str], None] | None = None,
+    log: Callable[[str], None] | Literal[False] | None = None,
     stop_on_close: bool = False,
 ) -> ComputerSession:
     return attach(
@@ -133,7 +153,7 @@ async def async_current_computer(
     backend_url: str | None = None,
     app_url: str | None = None,
     step_timeout: float = 180,
-    log: Callable[[str], None] | None = None,
+    log: Callable[[str], None] | Literal[False] | None = None,
     stop_on_close: bool = False,
 ) -> AsyncSession:
     return await async_attach(

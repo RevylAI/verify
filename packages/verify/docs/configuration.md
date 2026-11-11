@@ -79,15 +79,20 @@ Hosted children use `computer.open(target)` rather than named config targets. Un
 Use the explicitly scoped package command below. Installing `@revyl/verify` provides the `verify` and `revyl-verify` bins. The separate `revyl-verify` npm alias also provides `npx revyl-verify` with the same behavior; bare `npx verify` can fetch an unrelated package. Scripts run with `node`, not through the CLI.
 
 ```text
-npx @revyl/verify init [--platform web|ios|android|mac] [--app-id <id>] [--url <https-url>] [--force] [--yes] [--no-install]
+npx @revyl/verify init [--platform ios|android|web|mac] [--app-id <id>] [--url <https-url>] [--force] [--yes] [--no-install]
+npx @revyl/verify login
+npx @revyl/verify logout
 npx @revyl/verify whoami
 npx @revyl/verify --help
 npx @revyl/verify --version
 ```
 
-- `init` writes `verify.config.ts` and `verify/example.ts`, and adds `.verify/` to `.gitignore`. Without `--platform` it asks its questions interactively. It never overwrites files unless you pass `--force`.
+- `init` writes `verify.config.ts` and `verify/example.ts`, and adds `.verify/` to `.gitignore`. Without `--platform` it asks its questions interactively, defaulting to iOS. It never overwrites files unless you pass `--force`. `init --help` lists its options.
+- iOS and Android without `--app-id` target the device's built-in Settings app by bundle id (`com.apple.Preferences`, `com.android.settings`), so the example runs before you upload a build. Web requires `--app-id`; without it, `init` writes no files and explains how to create the Web app ([web.md](web.md#create-the-web-app)).
 - `npx @revyl/verify init --platform mac` needs no app id and generates a command/file script. `--app-id` is rejected for Mac, `--url` applies only to web, and Linux init is intentionally unavailable. Use `open({ platform: 'linux' })` or a Linux config target instead.
-- `init` installs Verify from the project's lockfile when needed and signs in through the Revyl CLI's browser approval flow when no credentials are available. Use `--yes` or `--no-install` to control installation. Non-interactive runs do not prompt or open a browser and require `REVYL_API_KEY`.
+- `init` installs Verify from the project's lockfile when needed and signs in through Revyl's browser approval flow when no credentials are available. Use `--yes` or `--no-install` to control installation. Non-interactive runs do not prompt or open a browser and require `REVYL_API_KEY`.
+- `login` signs in through Revyl's browser approval flow and saves the login to `~/.revyl/credentials.json`, which the Revyl CLI shares. It needs a terminal; in CI, set `REVYL_API_KEY`.
+- `logout` deletes `~/.revyl/credentials.json`. The API key it held keeps working until you delete it in Revyl under Settings → API keys, and a `REVYL_API_KEY` in the environment still applies.
 - `whoami` prints the Revyl account and organization your credentials belong to.
 
 Exit codes: `0` success, `1` a Revyl or file error, `2` a usage or authentication problem.

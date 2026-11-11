@@ -41,7 +41,7 @@ Or set it up yourself:
 npx @revyl/verify init
 ```
 
-`init` adds Verify to your project, asks what to open, writes `verify.config.ts` and an example script, signs you in through the browser on the first interactive run, and prints the command that runs the example. To skip the config, run `npm install @revyl/verify` and save the example above as `verify/check.mts`, then run `node verify/check.mts`. [Getting started](packages/verify/docs/getting-started.md) covers sign-in, your own app, and [CI](packages/verify/docs/ci.md).
+`init` adds Verify to your project, asks what to open, writes `verify.config.ts` and an example script, signs you in through the browser on the first interactive run, and prints the command that runs the example. With no app id, the iOS and Android examples open the built-in Settings app, so they run on a new account before you upload anything. To skip the config, run `npm install @revyl/verify` and save the example above as `verify/check.mts`, then run `node verify/check.mts`. [Getting started](packages/verify/docs/getting-started.md) covers sign-in, your own app, and [CI](packages/verify/docs/ci.md).
 
 For finished projects, see [`examples/`](examples/): a [web store](examples/web-store/), [mobile Settings](examples/mobile-settings/), a [Mac workspace](examples/mac-workspace/), and a small [agent platform](examples/agent-platform/) that runs web and iOS side by side.
 
@@ -49,9 +49,9 @@ For finished projects, see [`examples/`](examples/): a [web store](examples/web-
 
 | Package | Install | Status |
 | --- | --- | --- |
-| [`@revyl/verify`](https://www.npmjs.com/package/@revyl/verify) | `npm install @revyl/verify` | TypeScript SDK and the `verify` CLI (`init`, `whoami`). Published on npm, Node.js 22.18 or later. |
+| [`@revyl/verify`](https://www.npmjs.com/package/@revyl/verify) | `npm install @revyl/verify` | TypeScript SDK and the `verify` CLI (`init`, `login`, `logout`, `whoami`). Published on npm, Node.js 22.18 or later. |
 | [`revyl-verify`](https://www.npmjs.com/package/revyl-verify) (npm) | `npm install revyl-verify` | Alias of `@revyl/verify` at the same version. |
-| [Go module](https://github.com/RevylAI/verify/tree/go/v0.2.0/go) | `go get github.com/RevylAI/verify/go@v0.2.0` | Published as the `go/v0.2.0` tag, Go 1.26.9 or later. Calls return errors instead of throwing. |
+| [Go module](https://github.com/RevylAI/verify/tree/go/v0.2.1/go) | `go get github.com/RevylAI/verify/go@v0.2.1` | Published as the `go/v0.2.1` tag, Go 1.26.9 or later. Calls return errors instead of throwing. |
 | [`revyl-verify`](https://pypi.org/project/revyl-verify/) (PyPI) | `pip install revyl-verify` or `uv add revyl-verify` | Python SDK, published on PyPI. Python 3.10 or later, sync and asyncio APIs, no CLI; see the [Python guide](python/README.md). |
 
 ## Platforms

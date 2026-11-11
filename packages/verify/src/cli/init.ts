@@ -19,6 +19,15 @@ export interface InitResult {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CONFIG_FILE = 'verify.config.ts';
 const EXAMPLE_SCRIPT = join('verify', 'example.ts');
+const SETTINGS_BUNDLE_ID = { ios: 'com.apple.Preferences', android: 'com.android.settings' } as const;
+
+export function webAppIdMissingMessage(url: string | undefined): string {
+  return [
+    'A Web target needs the id of a Web app in Revyl, so init wrote no files.',
+    'Create one at https://app.revyl.ai: click Create app, keep Web selected, and enter your site\'s public HTTPS URL. Then copy the app id from the app\'s page.',
+    `Then run: npx ${PACKAGE_NAME} init --platform web --app-id <app-id> --url ${url ?? 'https://example.com'}`,
+  ].join('\n');
+}
 
 export function validateInitAnswers(answers: InitAnswers): InitAnswers {
   if (!['web', 'ios', 'android', 'mac'].includes(answers.platform)) {
@@ -36,6 +45,9 @@ export function validateInitAnswers(answers: InitAnswers): InitAnswers {
       throw new VerifyError('INVALID_ARGUMENT', '--url must be a public HTTPS URL without credentials, query, or fragment.');
     }
   }
+  if (answers.platform === 'web' && answers.appId === undefined) {
+    throw new VerifyError('INVALID_ARGUMENT', webAppIdMissingMessage(answers.url));
+  }
   return answers;
 }
 
@@ -43,7 +55,7 @@ export async function initProject(cwd: string, answers: InitAnswers, options: { 
   validateInitAnswers(answers);
   const files: Array<[string, string]> = [
     [CONFIG_FILE, configTemplate(answers)],
-    [EXAMPLE_SCRIPT, scriptTemplate(answers.platform)],
+    [EXAMPLE_SCRIPT, scriptTemplate(answers)],
   ];
   const existing = files.map(([path]) => path).filter((path) => existsSync(join(cwd, path)));
   if (existing.length > 0 && !options.force) {
@@ -65,7 +77,6 @@ async function ignoreOutput(cwd: string): Promise<boolean> {
 }
 
 function configTemplate({ platform, appId, url }: InitAnswers): string {
-  const app = appId ? `'${appId}'` : `process.env.REVYL_APP_ID ?? 'REPLACE_WITH_YOUR_REVYL_APP_ID'`;
   const target =
     platform === 'mac'
       ? `    mac: { platform: 'mac' },`
@@ -73,18 +84,27 @@ function configTemplate({ platform, appId, url }: InitAnswers): string {
       ? `    web: {
       platform: 'web',
       app: {
-        // The Revyl web app to open: copy its id from the app's page in Revyl.
-        appId: ${app},
+        // The Revyl Web app to open.
+        appId: '${appId}',
         // A public HTTPS URL, such as a preview deployment. Remove it to open the app's newest Revyl build.
         url: '${url ?? 'https://example.com'}',
       },
       viewport: { width: 1280, height: 800 },
     },`
-      : `    ${platform}: {
+      : appId
+      ? `    ${platform}: {
       platform: '${platform}',
       app: {
         // The Revyl app to install: each session installs its newest build. Use buildId to pin one build.
-        appId: ${app},
+        appId: '${appId}',
+      },
+    },`
+      : `    ${platform}: {
+      platform: '${platform}',
+      app: {
+        // The device's built-in Settings app, so the example runs before you upload anything.
+        // To test your own app, replace this line with appId: '<your Revyl app id>'.
+        bundleId: '${SETTINGS_BUNDLE_ID[platform as 'ios' | 'android']}',
       },
     },`;
   return `import { defineConfig } from '${PACKAGE_NAME}';
@@ -97,7 +117,7 @@ ${target}
 `;
 }
 
-function scriptTemplate(platform: Platform): string {
+function scriptTemplate({ platform, appId }: InitAnswers): string {
   if (platform === 'mac') {
     return `// Mac computers are in early access; ask support@revyl.ai to enable your organization.
 import assert from 'node:assert/strict';
@@ -119,6 +139,12 @@ try {
     platform === 'web'
       ? `await session.instruction('Follow the link on the page');
 await session.validation('A page about domains reserved for documentation is shown');`
+      : !appId && platform === 'ios'
+      ? `await session.instruction('Open General, then About');
+await session.validation('The screen shows the operating system version');`
+      : !appId && platform === 'android'
+      ? `await session.instruction('Open the screen that shows information about this device, such as About or About phone, then scroll or navigate until the operating system version is visible');
+await session.validation('The screen shows the version of the operating system');`
       : `await session.instruction('Wait for the app to finish opening and show its first screen');
 await session.validation('The app has opened and shows its first screen without an error');`;
   return `import { open } from '${PACKAGE_NAME}';

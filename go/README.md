@@ -4,15 +4,69 @@ Open a Revyl cloud browser or mobile device for instruction and validation steps
 
 ## Install
 
-Use Go 1.26.9 or later and a Revyl account. Set `REVYL_API_KEY` through your shell or CI secret manager, or sign in with `revyl auth login`. A usable stored login marked `local_auth_override` takes precedence over the environment key; otherwise the environment key wins.
+Use Go 1.26.9 or later and a Revyl account. Set `REVYL_API_KEY` through your shell or CI secret manager, or use a login saved in `~/.revyl/credentials.json`: run `npx @revyl/verify login` or `revyl auth login` once, or let the TypeScript or Python SDK sign you in. The Go SDK never opens a browser itself. A usable stored login marked `local_auth_override` takes precedence over the environment key; otherwise the environment key wins.
 
 The module lives in the repository's `go/` subdirectory. Install the tagged release with:
 
 ```sh
-go get github.com/RevylAI/verify/go@v0.2.0
+go get github.com/RevylAI/verify/go@v0.2.1
 ```
 
 Go releases use independent repository tags such as `go/v0.2.0`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
+
+## Quick start: iOS Settings
+
+This program opens the iOS Settings app on a cloud simulator, which every account can run before uploading a build. It starts a real, billable session.
+
+```sh
+mkdir verify-go && cd verify-go
+go mod init example.com/verify-go
+go get github.com/RevylAI/verify/go@v0.2.1
+```
+
+Save this as `main.go`:
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+	"time"
+
+	verify "github.com/RevylAI/verify/go"
+)
+
+func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
+	ctx := context.Background()
+	s, err := verify.Open(ctx, verify.Target{Platform: verify.IOS, BundleID: "com.apple.Preferences"})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = s.Close(cleanup)
+	}()
+	log.Println("Watch:", s.ViewerURL())
+	if _, err := s.Instruction(ctx, "Open General, then About"); err != nil {
+		return err
+	}
+	if _, err := s.Validation(ctx, "The screen shows the operating system version"); err != nil {
+		return err
+	}
+	_, err = s.Screenshot(ctx, "about.png")
+	return err
+}
+```
+
+Run it with `go run .`. It prints the session link, exits 0 when the validation passes, and saves `about.png`. Use `verify.Android` with `BundleID: "com.android.settings"` for Android, or `AppID` for your own uploaded app.
 
 ## Core API
 

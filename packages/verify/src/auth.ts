@@ -49,8 +49,8 @@ export async function resolveCredentials(
 export function missingCredentialsMessage(): string {
   return [
     'No Revyl credentials found.',
-    'Set REVYL_API_KEY to an API key from https://app.revyl.ai (Settings → API keys),',
-    "or sign in once with the Revyl CLI: 'revyl auth login'.",
+    "Sign in through your browser with 'npx @revyl/verify login' in a terminal,",
+    'or set REVYL_API_KEY to an API key from https://app.revyl.ai (Settings → API keys).',
   ].join(' ');
 }
 

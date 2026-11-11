@@ -6,7 +6,7 @@ One task fans out to a cloud browser and an iOS simulator through `@revyl/verify
 
 You need Node.js **22.18+**, the [Revyl CLI](https://docs.revyl.com/cli), and a Revyl account with web and mobile session access. No Xcode, Android SDK, extra app IDs, or mobile builds are needed.
 
-This checkout uses the local workspace SDK (**0.3.2**). From the repository root, install and build once, before loading any API credentials:
+This checkout uses the local workspace SDK (**0.3.3**). From the repository root, install and build once, before loading any API credentials:
 
 ```sh
 npm ci
@@ -37,7 +37,7 @@ node quick-check.ts                  # one separate iOS session, the minimal SDK
 
 The default plan adds a task to Playwright's public TodoMVC app on web and checks the operating-system version in mobile Settings. Neither fixture requires credentials. These are **different smoke checks**, not the same flow across three apps. Edit `plans()` and the inline targets in `demo.ts` to use your own apps. An optional positional string changes the task's display label, not its plan; this example is an orchestrator, not a task-planning LLM.
 
-Web is available to every organization. If `revyl app create --platform web` reports `Web is not enabled for this organization`, Revyl has turned Web off for your organization; email support@revyl.ai.
+Web is available to every organization. Create the Web app first; see [Create the Web app](../../packages/verify/docs/web.md#create-the-web-app).
 
 ## What to inspect
 

@@ -24,7 +24,7 @@ try {
 
 Use `appId` when you want to target your own uploaded app.
 
-Run it with `node verify/check.mts`. Web is available to every organization. If `revyl app create --platform web` reports `Web is not enabled for this organization`, Revyl has turned Web off for your organization; email support@revyl.ai. For a Web target, use `open({ platform: 'web', app: { appId, url } })`; for a computer, use `open({ platform: 'mac' })`.
+Run it with `node verify/check.mts`. For a Web target, create a Web app in Revyl first (see [web.md](web.md#create-the-web-app)), then use `open({ platform: 'web', app: { appId, url } })`; for a computer, use `open({ platform: 'mac' })`.
 
 On the first interactive run, Verify opens the Revyl browser approval flow once and saves the login in `~/.revyl/credentials.json` for the CLI and SDK to share. It prints a live session link, then ordered step results:
 
@@ -42,11 +42,11 @@ The URL is live during the run and keeps the report and available recording afte
 
 ![The Revyl session report for the run, showing the device recording, the Launch, Instruction, and Validation steps, and the validation's reasoning](https://raw.githubusercontent.com/RevylAI/verify/9fd547fcef928cca990c1009f9e4284d6675437b/docs/images/verify-session-report.webp)
 
-In CI, Verify never prompts or opens a browser; set `REVYL_API_KEY` as a secret. Python and Go use an existing CLI login or API key; their SDKs do not open the browser themselves.
+In CI, Verify never prompts or opens a browser; set `REVYL_API_KEY` as a secret. The Python SDK signs in the same way: its first interactive `open()`, `attach()` or `current_computer()` call without credentials opens the browser approval flow, unless stdin or stderr is not a terminal or `CI` is set. The Go SDK never opens a browser; it uses `REVYL_API_KEY` or a login saved by TypeScript, Python, `npx @revyl/verify login` or the Revyl CLI.
 
 ## Scaffold a config (optional)
 
-Use `init` when you want named targets in `verify.config.ts` and a generated example script. It is optional; installing the package is enough to use inline targets. It detects your package manager from the lockfile, asks before adding `@revyl/verify` as a dev dependency, asks what you want to open, adds `.verify/` to `.gitignore`, and prints the command that runs the example:
+Use `init` when you want named targets in `verify.config.ts` and a generated example script. It is optional; installing the package is enough to use inline targets. It detects your package manager from the lockfile, asks before adding `@revyl/verify` as a dev dependency, asks what you want to open (iOS by default), adds `.verify/` to `.gitignore`, signs you in through the browser when no credentials are saved, and prints the command that runs the example:
 
 - `verify.config.ts`: the targets `open()` can start, by name
 - `verify/example.ts`: a script that opens the target, runs steps and takes a screenshot (web/mobile) or checks commands and files (Mac), and closes
@@ -54,12 +54,13 @@ Use `init` when you want named targets in `verify.config.ts` and a generated exa
 In scripts and CI, pass the answers as flags. Non-interactive runs never prompt or open a browser; provide `REVYL_API_KEY` as a secret:
 
 ```bash
-npx @revyl/verify init --platform web --app-id <revyl-app-id> --url https://example.com
-npx @revyl/verify init --platform ios --app-id <revyl-app-id>
+npx @revyl/verify init --platform ios
+npx @revyl/verify init --platform android --app-id <revyl-app-id>
+npx @revyl/verify init --platform web --app-id <revyl-web-app-id> --url https://example.com
 npx @revyl/verify init --platform mac
 ```
 
-Use `--yes` to accept installation without a prompt, or `--no-install` when Verify is already installed. Web and mobile targets need a Revyl app id; a Mac target does not. The generated config is ordinary TypeScript, so edit it when the example needs a pinned build, a public Web URL, or a different target.
+Use `--yes` to accept installation without a prompt, or `--no-install` when Verify is already installed. Without an app id, an iOS or Android target opens the device's built-in Settings app (`com.apple.Preferences` or `com.android.settings`) by bundle id, so the generated example runs on a brand-new account before you upload anything. A Web target needs a Web app id; without one, `init` writes no files and tells you how to create the app. A Mac target needs no app id. The generated config is ordinary TypeScript, so edit it when the example needs your own app, a pinned build, a public Web URL, or a different target.
 
 ## Manual setup
 
@@ -67,20 +68,23 @@ Use manual setup when you need to control the package manager or keep the genera
 
 1. A usable login in `~/.revyl/credentials.json` marked `local_auth_override` takes precedence, even when `REVYL_API_KEY` is set.
 2. Otherwise, `REVYL_API_KEY`, an API key you create in Revyl's settings.
-3. Otherwise, a usable login stored by the Revyl CLI (`revyl auth login`). Expired access tokens fall back to a stored API key when present.
+3. Otherwise, a usable login in `~/.revyl/credentials.json`, saved by Verify's browser sign-in or the Revyl CLI. Expired access tokens fall back to a stored API key when present.
 
 ```bash
-export REVYL_API_KEY=...        # or: revyl auth login
+npx @revyl/verify login          # signs in through your browser; or: export REVYL_API_KEY=...
 npx @revyl/verify whoami         # checks the credentials without starting a session
+npx @revyl/verify logout         # removes the saved login from this computer
 ```
+
+`logout` deletes `~/.revyl/credentials.json`, which the Revyl CLI shares. The API key that login held keeps working until you delete it in Revyl under Settings → API keys.
 
 In CI, keep the key in a secret manager rather than in source, command arguments, or logs.
 
 ## Point the config at your app
 
-Web and mobile targets need an app. Open the app in Revyl and copy its id into `app.appId`, or set `REVYL_APP_ID`, which the generated config reads. Mac and Linux targets need no app id. Linux init is intentionally unavailable; use `open({ platform: 'linux' })` or add a Linux config target.
+The generated iOS and Android targets open Settings. To test your own app, replace `bundleId` in `verify.config.ts` with `appId: '<your Revyl app id>'`, copied from the app's page in Revyl, or with the `bundleId` of an app already on the device. Mac and Linux targets need no app id. Linux init is intentionally unavailable; use `open({ platform: 'linux' })` or add a Linux config target.
 
-- **Web:** set `app.url` to a public HTTPS URL. Revyl's cloud browser cannot reach `localhost`. See [web.md](web.md).
+- **Web:** create a Web app in Revyl (see [web.md](web.md#create-the-web-app)) and set `app.url` to a public HTTPS URL. Revyl's cloud browser cannot reach `localhost`.
 - **iOS and Android:** upload a build to the app in Revyl, for example with `revyl build upload`; each session installs the newest one. See [mobile.md](mobile.md).
 - **Mac and Linux:** computers are early access; ask support@revyl.ai about access. Agent instruction/validation are unavailable. See [computers.md](computers.md#availability-and-errors).
 
@@ -97,8 +101,8 @@ Illustrative output (durations vary):
 ```text
 [verify] ios: starting ios session https://app.revyl.ai/sessions/…
 [verify] ios: ready
-[verify] ios: ✓ instruction "Wait for the app to finish opening and show its first screen" (12.0s)
-[verify] ios: ✓ validation "The app has opened and shows its first screen without an error" (9.8s)
+[verify] ios: ✓ instruction "Open General, then About" (12.0s)
+[verify] ios: ✓ validation "The screen shows the operating system version" (9.8s)
 [verify] ios: closed
 ```
 

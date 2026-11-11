@@ -2,7 +2,7 @@
 
 A web target opens your app in a Revyl cloud browser.
 
-Web is available to every organization. If `revyl app create --platform web` reports `Web is not enabled for this organization`, Revyl has turned Web off for your organization; email support@revyl.ai.
+Web is available to every organization, including the Free plan.
 
 ```ts
 {
@@ -10,6 +10,19 @@ Web is available to every organization. If `revyl app create --platform web` rep
   app: { appId: '…', url: 'https://pr-123.preview.example.com' },
   viewport: { width: 1440, height: 900 },
 }
+```
+
+## Create the Web app
+
+A web target opens a Web app in Revyl, so create one first and copy its id:
+
+1. **In the dashboard:** open [app.revyl.ai](https://app.revyl.ai), click **Create app**, keep **Web** selected, and enter your site's public HTTPS URL. Copy the app id from the app's page.
+2. **Or with the [Revyl CLI](https://github.com/RevylAI/revyl-cli#install):** `revyl app create --name "My Web App" --platform web` prints the app id.
+
+Then scaffold a config with it, or put it in `app.appId` yourself:
+
+```bash
+npx @revyl/verify init --platform web --app-id <app-id> --url https://example.com
 ```
 
 ## What it opens

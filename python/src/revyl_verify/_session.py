@@ -40,6 +40,21 @@ from ._transport import (
     seconds,
 )
 
+# Revyl can briefly answer a just-accepted step's status with 404 "Live step not found"
+# before its run is listed.
+_LIVE_STEP_GRACE_SECONDS = 10.0
+_LIVE_STEP_NOT_FOUND = re.compile(r"live step not found", re.I)
+
+
+def _live_step_not_found(response: Response) -> bool:
+    if response.status != 404:
+        return False
+    try:
+        detail = obj(response.json()).get("detail")
+    except VerifyError:
+        return False
+    return isinstance(detail, str) and _LIVE_STEP_NOT_FOUND.match(detail) is not None
+
 
 def png_size(data: bytes) -> tuple[int, int]:
     if len(data) < 24 or data[:8] != b"\x89PNG\r\n\x1a\n":
@@ -457,6 +472,7 @@ class Session:
         deadline: Deadline,
         timeout: float = 30,
         retry: bool = False,
+        allow: Callable[[Response], bool] | None = None,
     ) -> Response:
         if self.closed:
             raise VerifyError("SESSION_ENDED", "The session was closed.")
@@ -474,7 +490,7 @@ class Session:
             retry=retry,
             worker=True,
         )
-        if not 200 <= response.status < 300:
+        if not 200 <= response.status < 300 and not (allow and allow(response)):
             raise self._worker_error(method, response)
         return response
 
@@ -600,18 +616,30 @@ class Session:
                         "API_ERROR", "Revyl returned neither a step result nor an accepted step ID."
                     )
                 step_id = accepted_id
+                accepted_at = time.monotonic()
                 backoff = 0.5
                 while True:
                     deadline.pause(backoff)
                     backoff = min(backoff * 2, 5)
-                    status = obj(
-                        self._worker(
-                            "GET",
-                            "step_status/" + quote(step_id, safe=""),
-                            deadline=deadline,
-                            retry=True,
-                        ).json()
+                    response = self._worker(
+                        "GET",
+                        "step_status/" + quote(step_id, safe=""),
+                        deadline=deadline,
+                        retry=True,
+                        allow=_live_step_not_found,
                     )
+                    if _live_step_not_found(response):
+                        if time.monotonic() - accepted_at < _LIVE_STEP_GRACE_SECONDS:
+                            continue
+                        raise VerifyError(
+                            "STEP_FAILED",
+                            f"Revyl accepted the {kind} but could not find it for "
+                            f"{_LIVE_STEP_GRACE_SECONDS:.0f} s. The session is still open and the "
+                            "step may still be running, so wait for it to finish before sending "
+                            "another. See " + self.viewer_url,
+                            http_status=404,
+                        )
+                    status = obj(response.json())
                     state = status.get("status")
                     if state == "running":
                         continue
@@ -652,8 +680,10 @@ class Session:
                 time.monotonic() - started,
             )
             self.steps.append(result)
+            self._log(f"{'✓' if result.passed else '✗'} {kind} ({result.duration_seconds:.1f}s)")
             return result
         except VerifyError as error:
+            self._log(f"✗ {kind}: {error.code}")
             if error.code == "TIMEOUT" and step_id:
                 try:
                     self._client.request(

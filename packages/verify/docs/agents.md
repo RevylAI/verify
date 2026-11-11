@@ -4,7 +4,7 @@ This page is for AI coding agents (Claude Code, Cursor, Codex, and others) that 
 
 ## Workflow
 
-1. Read `verify.config.ts` to learn the target names and their platforms. If there is none, run `npx @revyl/verify init --platform <web|ios|android> --app-id <id>`, or `npx @revyl/verify init --platform mac` without an app id. You can also pass a target object to `open()`.
+1. Read `verify.config.ts` to learn the target names and their platforms. If there is none, run `npx @revyl/verify init --platform ios` or `--platform android` (without `--app-id` they open the built-in Settings app), `npx @revyl/verify init --platform web --app-id <id> --url <https-url>`, or `npx @revyl/verify init --platform mac`. You can also pass a target object to `open()`.
 2. Check the credentials once with `npx @revyl/verify whoami`. It starts no session.
 3. Write a short script, or extend an existing one, that opens one target, runs the steps you need, and closes:
    ```ts

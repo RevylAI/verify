@@ -44,7 +44,7 @@ export async function signIn(options: { force?: boolean; backendUrl?: string; ap
         intervalMs = Math.min(intervalMs * 1.5, 15_000);
         continue;
       }
-      if (credential.state === 'denied') throw new VerifyError('AUTH_REJECTED', 'The Revyl login request was denied. Run your script again to sign in, or use revyl auth login.');
+      if (credential.state === 'denied') throw new VerifyError('AUTH_REJECTED', 'The Revyl login request was denied. Run your script again to sign in, or run npx @revyl/verify login.');
       if (credential.state !== 'approved') throw invalidResponse();
       const token = requiredString(credential, 'api_key_token');
       const who = await new RevylClient({ token, backendUrl }).whoAmI();
@@ -68,9 +68,9 @@ export async function signIn(options: { force?: boolean; backendUrl?: string; ap
       await writePrivateState('credentials.json', stored);
       return { token, source: 'revyl-cli-login' };
     }
-    throw new VerifyError('AUTH_MISSING', 'The Revyl login request expired. Run your script again to sign in, or use revyl auth login.');
+    throw new VerifyError('AUTH_MISSING', 'The Revyl login request expired. Run your script again to sign in, or run npx @revyl/verify login.');
   } catch (error) {
-    if (signal.aborted) throw new VerifyError('AUTH_MISSING', 'Revyl sign-in was cancelled or timed out. Run your script again to sign in, or use revyl auth login.');
+    if (signal.aborted) throw new VerifyError('AUTH_MISSING', 'Revyl sign-in was cancelled or timed out. Run your script again to sign in, or run npx @revyl/verify login.');
     throw error;
   } finally {
     process.removeListener('SIGINT', cancel);
@@ -83,10 +83,10 @@ async function post(backendUrl: string, path: string, body: Record<string, strin
   try {
     response = await fetch(new URL(path, backendUrl), { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body), redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]) });
   } catch {
-    throw new VerifyError('AUTH_MISSING', 'Could not reach Revyl to sign in. Run your script again, use revyl auth login, or set REVYL_API_KEY.');
+    throw new VerifyError('AUTH_MISSING', 'Could not reach Revyl to sign in. Run your script again, run npx @revyl/verify login, or set REVYL_API_KEY.');
   }
-  if (response.status === 404) throw new VerifyError('AUTH_MISSING', 'The Revyl login request is unavailable or expired. Run your script again, or use revyl auth login.');
-  if (!response.ok) throw new VerifyError('AUTH_REJECTED', `Revyl sign-in failed (HTTP ${response.status}). Run your script again, use revyl auth login, or set REVYL_API_KEY.`);
+  if (response.status === 404) throw new VerifyError('AUTH_MISSING', 'The Revyl login request is unavailable or expired. Run your script again, or run npx @revyl/verify login.');
+  if (!response.ok) throw new VerifyError('AUTH_REJECTED', `Revyl sign-in failed (HTTP ${response.status}). Run your script again, run npx @revyl/verify login, or set REVYL_API_KEY.`);
   let value: unknown;
   try { value = await response.json(); } catch { throw invalidResponse(); }
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalidResponse();
@@ -107,7 +107,7 @@ function optionalString(value: Record<string, unknown>, key: string): string | u
 }
 
 function invalidResponse(): VerifyError {
-  return new VerifyError('AUTH_REJECTED', 'Revyl returned an invalid sign-in response. Run your script again, use revyl auth login, or set REVYL_API_KEY.');
+  return new VerifyError('AUTH_REJECTED', 'Revyl returned an invalid sign-in response. Run your script again, run npx @revyl/verify login, or set REVYL_API_KEY.');
 }
 
 function tokenExpiry(token: string): string {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -154,11 +155,18 @@ func (s *Session) runStep(ctx context.Context, kind, text string, timeout time.D
 		return out, failure(ErrAPI, "Revyl returned neither a step result nor an accepted step ID.")
 	}
 	stepID = accepted.ID
+	acceptedAt := time.Now()
 	for wait := 500 * time.Millisecond; ; wait = min(wait*2, 5*time.Second) {
 		if err := pause(ctx, wait); err != nil {
 			return out, err
 		}
 		r, err := s.worker(ctx, "GET", "step_status/"+url.PathEscape(stepID), nil, true, 30*time.Second)
+		if err != nil && liveStepNotFound(r) {
+			if time.Since(acceptedAt) < liveStepGrace {
+				continue
+			}
+			return out, responseFailure(r, ErrStepFailed, "Revyl accepted the step but could not find it for 10 s. The session is still open and the step may still be running, so wait for it to finish before sending another. See "+s.viewer)
+		}
 		if err != nil {
 			return out, err
 		}
@@ -183,4 +191,19 @@ func (s *Session) runStep(ctx context.Context, kind, text string, timeout time.D
 		}
 		return out, nil
 	}
+}
+
+// Revyl can briefly answer a just-accepted step's status with 404 "Live step not found" before its run is listed.
+const liveStepGrace = 10 * time.Second
+
+var liveStepNotFoundDetail = regexp.MustCompile(`(?i)^live step not found`)
+
+func liveStepNotFound(r response) bool {
+	if r.status != 404 {
+		return false
+	}
+	var body struct {
+		Detail string `json:"detail"`
+	}
+	return json.Unmarshal(r.body, &body) == nil && liveStepNotFoundDetail.MatchString(body.Detail)
 }

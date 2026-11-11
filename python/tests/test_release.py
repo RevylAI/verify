@@ -31,7 +31,7 @@ class Opener:
         self.content = content
 
     def open(self, request: Request, *, timeout: int) -> Response:
-        assert request.full_url == "https://pypi.org/pypi/revyl-verify/0.1.0/json"
+        assert request.full_url == "https://pypi.org/pypi/revyl-verify/0.1.1/json"
         assert timeout == 30
         if isinstance(self.content, Exception):
             raise self.content
@@ -65,19 +65,19 @@ def test_registry_only_skips_exact_published_distribution(monkeypatch: pytest.Mo
         module,
         json.dumps(
             {
-                "info": {"name": "revyl-verify", "version": "0.1.0"},
+                "info": {"name": "revyl-verify", "version": "0.1.1"},
                 "urls": [
                     {
-                        "filename": "revyl_verify-0.1.0-py3-none-any.whl",
+                        "filename": "revyl_verify-0.1.1-py3-none-any.whl",
                         "digests": {"sha256": "a" * 64},
                     }
                 ],
             }
         ).encode(),
     )
-    assert module.published_version_exists("revyl-verify", "0.1.0") is True
+    assert module.published_version_exists("revyl-verify", "0.1.1") is True
     patch_registry(monkeypatch, module, HTTPError("", 404, "missing", Message(), None))
-    assert module.published_version_exists("revyl-verify", "0.1.0") is False
+    assert module.published_version_exists("revyl-verify", "0.1.1") is False
 
 
 @pytest.mark.parametrize("status", [301, 302, 401, 403, 429, 500, 503])
@@ -85,7 +85,7 @@ def test_registry_http_errors_fail_closed(monkeypatch: pytest.MonkeyPatch, statu
     module = release_module()
     patch_registry(monkeypatch, module, HTTPError("", status, "failure", Message(), None))
     with pytest.raises(RuntimeError, match=f"HTTP {status}"):
-        module.published_version_exists("revyl-verify", "0.1.0")
+        module.published_version_exists("revyl-verify", "0.1.1")
 
 
 @pytest.mark.parametrize(
@@ -94,11 +94,11 @@ def test_registry_http_errors_fail_closed(monkeypatch: pytest.MonkeyPatch, statu
         b"not json",
         b"[]",
         b"{}",
-        b'{"info":{"name":"other","version":"0.1.0"},"urls":[{}]}',
+        b'{"info":{"name":"other","version":"0.1.1"},"urls":[{}]}',
         b'{"info":{"name":"revyl-verify","version":"0.0.1"},"urls":[{}]}',
-        b'{"info":{"name":"revyl-verify","version":"0.1.0"},"urls":[]}',
-        b'{"info":{"name":"revyl-verify","version":"0.1.0"},"urls":[{}]}',
-        b'{"info":{"name":"revyl-verify","version":"0.1.0"},"urls":["invalid"]}',
+        b'{"info":{"name":"revyl-verify","version":"0.1.1"},"urls":[]}',
+        b'{"info":{"name":"revyl-verify","version":"0.1.1"},"urls":[{}]}',
+        b'{"info":{"name":"revyl-verify","version":"0.1.1"},"urls":["invalid"]}',
     ],
 )
 def test_registry_malformed_metadata_fails_closed(
@@ -107,14 +107,14 @@ def test_registry_malformed_metadata_fails_closed(
     module = release_module()
     patch_registry(monkeypatch, module, content)
     with pytest.raises(ValueError):
-        module.published_version_exists("revyl-verify", "0.1.0")
+        module.published_version_exists("revyl-verify", "0.1.1")
 
 
 def test_registry_transport_errors_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     module = release_module()
     patch_registry(monkeypatch, module, URLError("network unavailable"))
     with pytest.raises(URLError):
-        module.published_version_exists("revyl-verify", "0.1.0")
+        module.published_version_exists("revyl-verify", "0.1.1")
 
 
 @pytest.mark.parametrize("enabled", [None, "", "false", "TRUE", "1"])
