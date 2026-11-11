@@ -20,7 +20,7 @@ Unknown keys are rejected, so a typo fails loudly instead of being ignored.
 
 ## Top-level options
 
-Mac and Linux targets are early access. Ask support@revyl.ai about access. See [computer availability](computers.md#availability-and-errors).
+Mac targets are early access. Ask support@revyl.ai about access. See [computer availability](computers.md#availability-and-errors).
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -61,7 +61,6 @@ Give exactly one of `appId`, `buildId`, `artifactUrl`, or `bundleId`.
 | Option | Meaning |
 | --- | --- |
 | `platform: 'mac'` | A cloud macOS computer, without `app` or `device` configuration |
-| `platform: 'linux'` | A cloud Linux computer with the same SDK methods as Mac, without `app` or `device` configuration |
 | `startTimeout` | Milliseconds to wait for the computer to become active; default 600000, range 10000..1800000 |
 
 Computers do not accept `idleTimeoutSeconds`, image, provider, cwd, or lifetime selectors. The server bounds a run to its lifetime from create (two hours today); per-operation timeout defaults to 30000 ms and accepts 1..300000 ms. See [computers.md](computers.md).
@@ -89,7 +88,7 @@ npx @revyl/verify --version
 
 - `init` writes `verify.config.ts` and `verify/example.ts`, and adds `.verify/` to `.gitignore`. Without `--platform` it asks its questions interactively, defaulting to iOS. It never overwrites files unless you pass `--force`. `init --help` lists its options.
 - iOS and Android without `--app-id` target the device's built-in Settings app by bundle id (`com.apple.Preferences`, `com.android.settings`), so the example runs before you upload a build. Web requires `--app-id`; without it, `init` writes no files and explains how to create the Web app ([web.md](web.md#create-the-web-app)).
-- `npx @revyl/verify init --platform mac` needs no app id and generates a command/file script. `--app-id` is rejected for Mac, `--url` applies only to web, and Linux init is intentionally unavailable. Use `open({ platform: 'linux' })` or a Linux config target instead.
+- `npx @revyl/verify init --platform mac` needs no app id and generates a command/file script. `--app-id` is rejected for Mac, and `--url` applies only to web.
 - `init` installs Verify from the project's lockfile when needed and signs in through Revyl's browser approval flow when no credentials are available. Use `--yes` or `--no-install` to control installation. Non-interactive runs do not prompt or open a browser and require `REVYL_API_KEY`.
 - `login` signs in through Revyl's browser approval flow and saves the login to `~/.revyl/credentials.json`, which the Revyl CLI shares. It needs a terminal; in CI, set `REVYL_API_KEY`.
 - `logout` deletes `~/.revyl/credentials.json`. The API key it held keeps working until you delete it in Revyl under Settings → API keys, and a `REVYL_API_KEY` in the environment still applies.

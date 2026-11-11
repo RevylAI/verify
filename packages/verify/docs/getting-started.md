@@ -82,11 +82,11 @@ In CI, keep the key in a secret manager rather than in source, command arguments
 
 ## Point the config at your app
 
-The generated iOS and Android targets open Settings. To test your own app, replace `bundleId` in `verify.config.ts` with `appId: '<your Revyl app id>'`, copied from the app's page in Revyl, or with the `bundleId` of an app already on the device. Mac and Linux targets need no app id. Linux init is intentionally unavailable; use `open({ platform: 'linux' })` or add a Linux config target.
+The generated iOS and Android targets open Settings. To test your own app, replace `bundleId` in `verify.config.ts` with `appId: '<your Revyl app id>'`, copied from the app's page in Revyl, or with the `bundleId` of an app already on the device. Mac targets need no app id.
 
 - **Web:** create a Web app in Revyl (see [web.md](web.md#create-the-web-app)) and set `app.url` to a public HTTPS URL. Revyl's cloud browser cannot reach `localhost`.
 - **iOS and Android:** upload a build to the app in Revyl, for example with `revyl build upload`; each session installs the newest one. See [mobile.md](mobile.md).
-- **Mac and Linux:** computers are early access; ask support@revyl.ai about access. Agent instruction/validation are unavailable. See [computers.md](computers.md#availability-and-errors).
+- **Mac:** computers are early access; ask support@revyl.ai about access. Agent instruction/validation are unavailable. See [computers.md](computers.md#availability-and-errors).
 
 ## Run the script
 

@@ -10,4 +10,4 @@ npm install
 node verify/workspace.ts
 ```
 
-Running the script starts a paid cloud computer. `npm run typecheck` only compiles it and makes no live requests. See [computers.md](../../packages/verify/docs/computers.md) for bounds, process handles, screenshots, and failure semantics. Instruction and validation steps are not available on computers. Linux supports the same SDK surface with `open({ platform: 'linux' })` or a config target; this Mac-specific example still checks macOS output.
+Running the script starts a paid cloud computer. `npm run typecheck` only compiles it and makes no live requests. See [computers.md](../../packages/verify/docs/computers.md) for bounds, process handles, screenshots, and failure semantics. Instruction and validation steps are not available on computers.

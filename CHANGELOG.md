@@ -13,6 +13,7 @@
 - Classify the hosted refusal `computer_platform_at_capacity` (the computer already runs as many children of that platform as it can, such as a second Web child on a Mac) as `COMPUTER_LIMIT` with that `reason`. Earlier versions report it as `SESSION_BUSY`.
 - Docs: a computer's lifetime is two hours from create, not 60 minutes; `expiresAt` / `expires_at` is the authoritative deadline.
 - Docs: the Web page explains how to create the Web app, starting with the dashboard, and drops the note about Revyl turning Web off. Getting started describes the new `init` and how the Python and Go SDKs sign in. The Go README has a runnable iOS Settings example.
+- Docs: Linux computers are no longer offered in the README, the package docs or the examples, and the README drops its Security and Telemetry sections (SECURITY.md is unchanged). `platform: 'linux'` still works; nothing is deprecated.
 
 ## Go 0.2.1 (2026-11-11)
 
@@ -20,13 +21,14 @@ Published as the `go/v0.2.1` tag.
 
 - Same fix as 0.3.3: a `step_status` 404 "Live step not found" right after a step was accepted is retried for about 10 seconds and then returns `ErrStepFailed`, instead of `ErrSessionEnded`. The session stays open.
 - Classify the hosted refusal `computer_platform_at_capacity` as `ErrComputerLimit` with that reason, like 0.3.3.
-- README: a runnable iOS Settings quick start, and how the Go SDK uses a login saved by the other SDKs.
+- README: a runnable iOS Settings quick start, how the Go SDK uses a login saved by the other SDKs, a computer's two-hour lifetime, and Linux computers are no longer offered (`verify.Linux` still works).
 
 ## Python 0.1.1 (2026-11-11)
 
 - Same fix as 0.3.3: a `step_status` 404 "Live step not found" right after a step was accepted is retried for about 10 seconds and then raises `STEP_FAILED`, instead of `SESSION_ENDED`. The session stays open.
 - Classify the hosted refusal `computer_platform_at_capacity` as `COMPUTER_LIMIT` with that `reason`, like 0.3.3.
 - Print progress to stderr by default, like TypeScript: `[verify] <platform>: …` lines with the session link as soon as it is known, `ready`, and each instruction or validation's outcome and duration. Step text is not printed. Pass `log=False` to turn the lines off, or `log=callback` to receive them. An explicit `log=None` now means the default.
+- README: a computer's two-hour lifetime, and Linux computers are no longer offered (`Target(platform="linux")` still works).
 
 ## 0.3.2 (2026-11-11)
 

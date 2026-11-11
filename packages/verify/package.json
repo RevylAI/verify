@@ -1,7 +1,7 @@
 {
   "name": "@revyl/verify",
   "version": "0.3.3",
-  "description": "Open Revyl cloud browsers and mobile devices for agent steps, or Mac and Linux computers for commands and files, from TypeScript.",
+  "description": "Open Revyl cloud browsers and mobile devices for agent steps, or Mac computers for commands and files, from TypeScript.",
   "keywords": [
     "e2e",
     "end-to-end",
@@ -10,7 +10,6 @@
     "android",
     "web",
     "macos",
-    "linux",
     "ai",
     "agent",
     "revyl"
