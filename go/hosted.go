@@ -193,7 +193,7 @@ func hostedStartError(r response) error {
 		code = ErrSessionEnded
 	case reason == ReasonComputerCannotHostPlatform || reason == ReasonWebRuntimeUnavailable || reason == ReasonWebRuntimeNotConfigured || reason == ReasonRuntimeUnavailable || reason == ReasonComputerRuntimeUnavailable || reason == ReasonNotAvailableOnPlatform:
 		code = ErrNotAvailableOnPlatform
-	case reason == ReasonComputerLimit || reason == ReasonComputerAtCapacity:
+	case reason == ReasonComputerLimit || reason == ReasonComputerAtCapacity || reason == ReasonComputerPlatformAtCapacity:
 		code = ErrComputerLimit
 	case strings.Contains(string(reason), "_build_"):
 		code = ErrInvalidArgument

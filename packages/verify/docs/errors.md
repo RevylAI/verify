@@ -9,7 +9,7 @@
 | Web HTTP 409 capacity/availability | `API_ERROR` | `web_runtime_unavailable` |
 | Computer HTTP 429 admission | `COMPUTER_LIMIT` | `computer_limit` |
 | Computer HTTP 503 runtime availability | `NOT_AVAILABLE_ON_PLATFORM` | `runtime_unavailable` |
-| Hosted child capacity | `COMPUTER_LIMIT` | `computer_at_capacity` |
+| Hosted child capacity | `COMPUTER_LIMIT` | `computer_at_capacity` (all children) or `computer_platform_at_capacity` (that platform) |
 | Hosted runtime/capability | `NOT_AVAILABLE_ON_PLATFORM` | `computer_runtime_unavailable` / `computer_cannot_host_platform` / `web_runtime_not_configured` |
 | Hosted parent no longer running | `SESSION_ENDED` | `computer_not_running` |
 | Hosted parent inaccessible | `NOT_FOUND` | `computer_not_found` |

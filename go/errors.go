@@ -19,6 +19,7 @@ const (
 	ReasonRuntimeUnavailable         RefusalReason = "runtime_unavailable"
 	ReasonComputerRuntimeUnavailable RefusalReason = "computer_runtime_unavailable"
 	ReasonComputerAtCapacity         RefusalReason = "computer_at_capacity"
+	ReasonComputerPlatformAtCapacity RefusalReason = "computer_platform_at_capacity"
 	ReasonComputerNotRunning         RefusalReason = "computer_not_running"
 	ReasonComputerCannotHostPlatform RefusalReason = "computer_cannot_host_platform"
 	ReasonComputerNotFound           RefusalReason = "computer_not_found"
@@ -109,7 +110,7 @@ func refusalReason(r response) RefusalReason {
 	for _, reason := range []RefusalReason{RefusalReason(detail), RefusalReason(topLevel)} {
 		switch reason {
 		case ReasonWebRuntimeUnavailable, ReasonWebRuntimeNotConfigured, ReasonComputerLimit, ReasonRuntimeUnavailable, ReasonComputerRuntimeUnavailable,
-			ReasonComputerAtCapacity, ReasonComputerNotRunning, ReasonComputerCannotHostPlatform, ReasonComputerNotFound,
+			ReasonComputerAtCapacity, ReasonComputerPlatformAtCapacity, ReasonComputerNotRunning, ReasonComputerCannotHostPlatform, ReasonComputerNotFound,
 			ReasonWebBuildRequired, ReasonWebBuildNotSupported, ReasonIOSBuildRequired, ReasonIOSBuildNotSupported,
 			ReasonAndroidBuildRequired, ReasonAndroidBuildNotSupported, ReasonWebSessionConflict, ReasonIOSSessionConflict,
 			ReasonAndroidSessionConflict, ReasonNotAvailableOnPlatform, ReasonRequestTimeout, ReasonProtocolError:

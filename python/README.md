@@ -184,7 +184,7 @@ Session properties include `id`, `platform`, `viewer_url`, `expires_at` and `clo
 | iOS simulator / Android emulator | Yes | — | Yes |
 | Mac / Linux computer | — | Yes | Yes |
 
-Mac and Linux are early access; ask support@revyl.ai about access. Computer admission may return `COMPUTER_LIMIT`; the SDK does not retry creation. Computer sessions have a hard 60-minute lifetime from creation. Screenshot observation retries structured startup screen-not-ready errors within a bounded window; other errors are not silently replayed.
+Mac and Linux are early access; ask support@revyl.ai about access. Computer admission may return `COMPUTER_LIMIT`; the SDK does not retry creation. Computer sessions have a hard lifetime from creation (two hours today); `expires_at` is the authoritative deadline. Screenshot observation retries structured startup screen-not-ready errors within a bounded window; other errors are not silently replayed.
 
 Context-manager exit calls `close()`. Device close acknowledges a stop request; computer close requires terminal state **and confirmed resource release**. Close submits its stop mutation once; repeated calls share the first outcome, including an unconfirmed failure. Interpreter-exit cleanup is best effort and cannot replace explicit close, especially with asyncio. A failed close is not proof the resource was released; investigate it rather than starting replacement sessions blindly.
 

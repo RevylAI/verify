@@ -64,7 +64,7 @@ Give exactly one of `appId`, `buildId`, `artifactUrl`, or `bundleId`.
 | `platform: 'linux'` | A cloud Linux computer with the same SDK methods as Mac, without `app` or `device` configuration |
 | `startTimeout` | Milliseconds to wait for the computer to become active; default 600000, range 10000..1800000 |
 
-Computers do not accept `idleTimeoutSeconds`, image, provider, cwd, or lifetime selectors. The server bounds a run to one hour; per-operation timeout defaults to 30000 ms and accepts 1..300000 ms. See [computers.md](computers.md).
+Computers do not accept `idleTimeoutSeconds`, image, provider, cwd, or lifetime selectors. The server bounds a run to its lifetime from create (two hours today); per-operation timeout defaults to 30000 ms and accepts 1..300000 ms. See [computers.md](computers.md).
 
 ## Environment variables
 

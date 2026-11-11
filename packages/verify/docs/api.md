@@ -152,7 +152,7 @@ Computers only. First reads the report and requires terminal state plus confirme
 | `viewerUrl` | The session in Revyl: a live view while it runs, its recording/report after. Use `revyl device report --session-id <id>` for web/mobile, or `revyl computer report <id>` for computers. |
 | `id` | Revyl's session id |
 | `platform` | `'web'`, `'ios'`, `'android'`, `'mac'`, or `'linux'` |
-| `expiresAt` | **Since 0.2.0.** Validated API expiry as a `Date`, or undefined for devices and older APIs. Computers have a hard 60-minute lifetime from create. Operations/screenshot observation are bounded by expiry; close and recording remain possible. |
+| `expiresAt` | **Since 0.2.0.** Validated API expiry as a `Date`, or undefined for devices and older APIs. Computers have a hard lifetime from create (two hours today); this value is the authoritative deadline. Operations/screenshot observation are bounded by expiry; close and recording remain possible. |
 | `target` | The target name, or the platform for a target object |
 | `closed` | Whether `close()` was called |
 
