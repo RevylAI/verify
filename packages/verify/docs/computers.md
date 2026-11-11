@@ -45,7 +45,7 @@ try {
 
 Paths are relative to the computer's workspace: no leading slash, empty components, `.` or `..`, backslashes, colons, or control characters. A path is at most 1,024 UTF-8 bytes. To make a directory, run a command such as `['mkdir', '-p', 'output']` before writing into it. There is no recursive sync or snapshot API.
 
-Operation `timeout` is milliseconds, defaults to 30,000, and must be an integer from 1 to 300,000. It is also bounded by the run's remaining lifetime. A computer has a hard 60-minute lifetime **from create**, not from readiness or last activity; `idleTimeoutSeconds` and the agent `stepTimeout` do not configure computer lifetime or commands. `expiresAt` is a `Date` when the API returns `expires_at`, and otherwise undefined (including on devices and older APIs). Verify refuses new operations after that deadline and bounds operation/screenshot observation by it; expiry does not prevent explicit close or recording retrieval. Revyl allows at most 256 operations per run.
+Operation `timeout` is milliseconds, defaults to 30,000, and must be an integer from 1 to 300,000. It is also bounded by the run's remaining lifetime. A computer has a hard lifetime **from create** (two hours today; `expiresAt` is authoritative), not from readiness or last activity; `idleTimeoutSeconds` and the agent `stepTimeout` do not configure computer lifetime or commands. `expiresAt` is a `Date` when the API returns `expires_at`, and otherwise undefined (including on devices and older APIs). Verify refuses new operations after that deadline and bounds operation/screenshot observation by it; expiry does not prevent explicit close or recording retrieval. Revyl allows at most 256 operations per run.
 
 ## Recording metadata
 

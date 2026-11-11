@@ -291,7 +291,7 @@ export class DeviceSession implements Session {
           : reason === 'computer_not_found' || response.status === 404 ? 'NOT_FOUND'
           : reason === 'computer_not_running' ? 'SESSION_ENDED'
           : reason === 'computer_cannot_host_platform' || reason === 'computer_runtime_unavailable' || reason === 'web_runtime_unavailable' || reason === 'web_runtime_not_configured' || reason === 'runtime_unavailable' || reason === 'not_available_on_platform' ? 'NOT_AVAILABLE_ON_PLATFORM'
-          : reason === 'computer_at_capacity' || reason === 'computer_limit' ? 'COMPUTER_LIMIT'
+          : reason === 'computer_at_capacity' || reason === 'computer_platform_at_capacity' || reason === 'computer_limit' ? 'COMPUTER_LIMIT'
           : response.status === 422 || response.status === 400 ? 'INVALID_ARGUMENT'
           : response.status === 409 ? 'SESSION_BUSY'
           : response.status === 408 || response.status >= 500 ? 'ACTION_UNCERTAIN' : 'API_ERROR';

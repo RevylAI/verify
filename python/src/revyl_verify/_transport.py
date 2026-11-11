@@ -32,6 +32,7 @@ RefusalReason = Literal[
     "runtime_unavailable",
     "computer_runtime_unavailable",
     "computer_at_capacity",
+    "computer_platform_at_capacity",
     "computer_not_running",
     "computer_cannot_host_platform",
     "computer_not_found",
@@ -389,7 +390,7 @@ def http_error(response: Response, *, hosted: bool = False) -> VerifyError:
             "not_available_on_platform",
         }:
             code = "NOT_AVAILABLE_ON_PLATFORM"
-        elif reason in {"computer_at_capacity", "computer_limit"}:
+        elif reason in {"computer_at_capacity", "computer_platform_at_capacity", "computer_limit"}:
             code = "COMPUTER_LIMIT"
         elif reason == "computer_not_running":
             code = "SESSION_ENDED"

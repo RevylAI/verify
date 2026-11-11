@@ -291,7 +291,11 @@ def test_hosted_refusals_are_typed_safe_and_do_not_stop(
         parent.open(Target("web", app_id=APP_ID, build_id=BUILD_ID))
     error = caught.value
     assert error.reason == reason and error.http_status == 503
-    if reason in {"computer_at_capacity", "computer_limit"}:
+    if reason in {
+        "computer_at_capacity",
+        "computer_platform_at_capacity",
+        "computer_limit",
+    }:
         assert error.code == "COMPUTER_LIMIT"
     elif reason == "computer_not_found":
         assert error.code == "NOT_FOUND"
