@@ -21,16 +21,27 @@
 - Docs: the Web page explains how to create the Web app, starting with the dashboard, and drops the note about Revyl turning Web off. Getting started describes the new `init` and how the Python and Go SDKs sign in. The Go README has a runnable iOS Settings example.
 - Docs: Linux computers are no longer offered in the README, the package docs or the examples, and the README drops its Security and Telemetry sections (SECURITY.md is unchanged). `platform: 'linux'` still works; nothing is deprecated.
 
-## Go 0.2.1 (2026-11-11)
+## Go 0.3.0 (2026-11-11)
 
-Published as the `go/v0.2.1` tag.
+Published as the `go/v0.3.0` tag.
 
+- Early access: run `Instruction` and `Validation` on your own model, as in TypeScript 0.4.0. `verify.WithModel("anthropic/claude-sonnet-5-5")` on `Open` or on one step reads the provider's usual key variable. The eight providers, `ANTHROPIC_BASE_URL` and `OPENAI_BASE_URL` with or without `/v1`, and `verify.WithCustomModel(verify.CustomModel{...})` for any OpenAI-compatible endpoint. `StepResult.Model` reports turns and tokens, cached input included.
+- Custom agents: `verify.WithAgent(verify.LocalAgent{...})` with `verify.Anthropic` and `verify.OpenAICompatible`, or your own `ModelAdapter`.
+- New errors `ErrModelKeyMissing` (returned before any Revyl request) and `ErrModelError`, with the same next-step hints as TypeScript.
+- Early access: exact device actions on Web, iOS and Android: `Tap`, `Type`, `Swipe`, `PressKey`, `Back` (Web and Android), `OpenURL`, `LaunchApp` (iOS and Android), `Locate` and `ScreenSize`, by `verify.Point` or `verify.Element("...")`. They take a `context.Context`, and one cut off by its deadline returns `ErrActionUncertain`.
+- `Open`, `Instruction` and `Validation` now take option values (`OpenOption`, `StepOption`, `ValidationOption`). Existing `OpenOptions{...}`, `StepOptions{...}` and `ValidationOptions{...}` literals still compile; a call that spread a `[]OpenOptions` slice with `...` must pass the options one by one.
+- Map Web runtime target errors on HTTP 409 (`target_not_found`, `stale_target` and similar) to `ErrActionFailed` instead of `ErrSessionBusy`.
 - Same fix as 0.4.0: a `step_status` 404 "Live step not found" right after a step was accepted is retried for about 10 seconds and then returns `ErrStepFailed`, instead of `ErrSessionEnded`. The session stays open.
 - Classify the hosted refusal `computer_platform_at_capacity` as `ErrComputerLimit` with that reason, like 0.4.0.
 - README: a runnable iOS Settings quick start, how the Go SDK uses a login saved by the other SDKs, a computer's two-hour lifetime, and Linux computers are no longer offered (`verify.Linux` still works).
 
-## Python 0.1.1 (2026-11-11)
+## Python 0.2.0 (2026-11-11)
 
+- Early access: run `instruction()` and `validation()` on your own model, as in TypeScript 0.4.0. `open(target, model="anthropic/claude-sonnet-5-5")` runs every step on it with the key from the provider's usual variable, and a step's `model=` overrides it. The eight providers, `ANTHROPIC_BASE_URL` and `OPENAI_BASE_URL` with or without `/v1`, and `CustomModel(id, base_url, api_key, headers, provider, grounding)` for any OpenAI-compatible endpoint. Works on the sync and asyncio APIs. `StepResult.model` reports turns and tokens, cached input included.
+- Custom agents: `local_agent(model, grounding=, max_turns=, model_timeout=, max_image_side=)` with `anthropic()` and `openai_compatible()`, or your own `ModelAdapter`, passed as `agent=`.
+- New error codes `MODEL_KEY_MISSING` (raised before any Revyl request) and `MODEL_ERROR`, with the same next-step hints as TypeScript.
+- Early access: exact device actions on Web, iOS and Android, on `Session` and `AsyncSession`: `tap`, `type`, `swipe`, `press_key`, `back` (Web and Android), `open_url`, `launch_app` (iOS and Android), `locate` and `screen_size`, by `Point(x, y)` or a described target.
+- Map Web runtime target errors on HTTP 409 (`target_not_found`, `stale_target` and similar) to `ACTION_FAILED` instead of `SESSION_BUSY`.
 - Same fix as 0.4.0: a `step_status` 404 "Live step not found" right after a step was accepted is retried for about 10 seconds and then raises `STEP_FAILED`, instead of `SESSION_ENDED`. The session stays open.
 - Classify the hosted refusal `computer_platform_at_capacity` as `COMPUTER_LIMIT` with that `reason`, like 0.4.0.
 - Print progress to stderr by default, like TypeScript: `[verify] <platform>: …` lines with the session link as soon as it is known, `ready`, and each instruction or validation's outcome and duration. Step text is not printed. Pass `log=False` to turn the lines off, or `log=callback` to receive them. An explicit `log=None` now means the default.

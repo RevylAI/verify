@@ -1,6 +1,6 @@
 # Use your own model
 
-**Since 0.4.0. Early access.** In the TypeScript SDK (`@revyl/verify`) since 0.4.0; not yet in Python or Go. Verify normally runs `instruction()` and `validation()` on Revyl's agent. Pass a `model` and the agent loop runs in your process instead, on a model you choose, with your own key. Revyl still provides the cloud browser or device and, by default, finds the elements your model names on screen.
+**Since 0.4.0. Early access.** In TypeScript (`@revyl/verify` 0.4.0), Python (`revyl-verify` 0.2.0) and Go (v0.3.0); the [Python](https://github.com/RevylAI/verify/blob/v0.4.0/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.4.0/go/README.md#your-own-model) READMEs show them with each language's names. Verify normally runs `instruction()` and `validation()` on Revyl's agent. Pass a `model` and the agent loop runs in your process instead, on a model you choose, with your own key. Revyl still provides the cloud browser or device and, by default, finds the elements your model names on screen.
 
 Use it when you want a specific model, your own prompts and key, or faster steps on a cheap model. Leave `model` out and nothing changes.
 
@@ -22,6 +22,37 @@ try {
 ```
 
 That needs only your Revyl sign-in, as for any Verify script, and the provider's key in its usual environment variable, here `ANTHROPIC_API_KEY`. The key is read when the step's agent is built, and a missing key fails before any session starts.
+
+The same works in Python and Go. Python uses snake_case (`model=`, `CustomModel(id, base_url, api_key, headers, provider)`, `local_agent()`, `anthropic()`, `openai_compatible()`) on both the sync and the asyncio API, with timeouts in seconds. Go uses options (`verify.WithModel`, `verify.WithCustomModel`, `verify.WithAgent(verify.LocalAgent{...})`) with `verify.Anthropic` and `verify.OpenAICompatible`. Providers, key variables, base-URL handling, limits and error codes are the same in all three.
+
+```python
+from revyl_verify import Target, open
+
+with open(
+    Target(platform="ios", bundle_id="com.apple.Preferences"),
+    model="anthropic/claude-sonnet-5-5",
+) as session:
+    step = session.instruction("Open General, then About")
+    print(step.model)  # ModelRun(id, grounding, turns, input_tokens, output_tokens)
+    session.validation("The screen shows the iOS version")
+```
+
+```go
+s, err := verify.Open(ctx, verify.Target{Platform: verify.IOS, BundleID: "com.apple.Preferences"},
+	verify.WithModel("anthropic/claude-sonnet-5-5"))
+if err != nil {
+	return err
+}
+defer s.Close(context.Background())
+step, err := s.Instruction(ctx, "Open General, then About")
+if err != nil {
+	return err
+}
+log.Println(step.Model.ID, len(step.Model.Turns), step.Model.InputTokens, step.Model.OutputTokens)
+_, err = s.Validation(ctx, "The screen shows the iOS version")
+```
+
+The [Python](https://github.com/RevylAI/verify/blob/v0.4.0/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.4.0/go/README.md#your-own-model) READMEs have the full reference for each.
 
 Set `model` on `open()` to run every step on it, or on one step to override it:
 
@@ -182,5 +213,4 @@ The session link works as usual and shows the recording. On iOS and Android, you
 ## Not supported yet
 
 - Mac computers: `model` and `agent` work on Web, iOS and Android sessions only.
-- Python and Go: TypeScript only for now.
 - Agent runtimes that run their own loop, such as Claude Code over ACP. Wrap a single-call model in a `ModelAdapter` instead.
