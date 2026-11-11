@@ -657,7 +657,16 @@ export class DeviceSession implements Session {
 
   /** The screenshot's size and the device size Revyl acts in. They differ on iOS, where Revyl acts in points and a screenshot has more pixels. */
   private async readScreenshotSize(fresh = false): Promise<{ width: number; height: number; device: { width: number; height: number } }> {
-    if (fresh) [this.size, this.sizeSource, this.screenshotSize] = [undefined, undefined, undefined];
+    if (fresh) {
+      const cached = [this.size, this.sizeSource, this.screenshotSize] as const;
+      [this.size, this.sizeSource, this.screenshotSize] = [undefined, undefined, undefined];
+      try {
+        return await this.readScreenshotSize();
+      } catch (error) {
+        [this.size, this.sizeSource, this.screenshotSize] = cached;
+        throw error;
+      }
+    }
     if (this.screenshotSize) return this.screenshotSize;
     const device = await this.readScreenSize();
     let size = device;

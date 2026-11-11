@@ -702,7 +702,13 @@ class Session:
         # The screenshot's size, then the device size Revyl acts in. They differ on iOS, where
         # Revyl acts in points and a screenshot has more pixels.
         if fresh:
+            cached = (self._size, self._size_from_health, self._screenshot_size)
             self._size, self._size_from_health, self._screenshot_size = None, False, None
+            try:
+                return self._read_screenshot_size()
+            except Exception:
+                self._size, self._size_from_health, self._screenshot_size = cached
+                raise
         if self._screenshot_size is not None:
             return self._screenshot_size
         deadline = Deadline(self._step_timeout, self._cancellation)

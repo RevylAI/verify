@@ -242,10 +242,20 @@ type screenshotScale struct{ size, device Size }
 // readScreenshotSize returns the screenshot's size and the device size Revyl acts in. They differ on iOS, where
 // Revyl acts in points and a screenshot has more pixels.
 func (s *Session) readScreenshotSize(ctx context.Context, fresh bool) (screenshotScale, error) {
-	s.mu.Lock()
 	if fresh {
+		s.mu.Lock()
+		size, fromHealth, scale := s.size, s.sizeFromHealth, s.screenshotScale
 		s.size, s.sizeFromHealth, s.screenshotScale = nil, false, nil
+		s.mu.Unlock()
+		found, err := s.readScreenshotSize(ctx, false)
+		if err != nil {
+			s.mu.Lock()
+			s.size, s.sizeFromHealth, s.screenshotScale = size, fromHealth, scale
+			s.mu.Unlock()
+		}
+		return found, err
 	}
+	s.mu.Lock()
 	cached := s.screenshotScale
 	s.mu.Unlock()
 	if cached != nil {
