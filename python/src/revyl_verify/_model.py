@@ -425,7 +425,7 @@ def _post_json(
             attempt += 1
             continue
         message = re.sub(
-            r"[.\s]*\Z", ".", _scrub(_provider_message(text), endpoint.secrets), count=1
+            r"[.\s]*\Z", ".", _scrub(_provider_message(text), endpoint.secrets)[:300], count=1
         )
         step = _next_step(response.status, message, endpoint)
         raise VerifyError(
@@ -498,13 +498,13 @@ def _provider_message(text: str) -> str:
         body = json.loads(text, parse_constant=_reject)
     except (ValueError, RecursionError):
         plain = " ".join(text.split())
-        return plain[:300] if plain and not plain.startswith("<") else "no error message"
+        return plain if plain and not plain.startswith("<") else "no error message"
     record = _record(body)
     error = record.get("error")
     message = error if isinstance(error, str) else _record(error).get("message")
     if message is None:
         message = record.get("message")
-    return message[:300] if isinstance(message, str) else "no error message"
+    return message if isinstance(message, str) else "no error message"
 
 
 def _scrub(text: str, secrets: tuple[str, ...]) -> str:

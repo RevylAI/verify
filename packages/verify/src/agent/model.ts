@@ -211,34 +211,39 @@ async function postJson(call: ModelCall, payload: unknown, headers: Record<strin
   const retries = call.maxRetries ?? 2;
   if (!Number.isInteger(retries) || retries < 0 || retries > 5) throw new VerifyError('INVALID_ARGUMENT', 'maxRetries must be an integer from 0 to 5.');
   const where = `${call.name} at ${call.endpoint.host}`;
-  for (let attempt = 0; ; attempt += 1) {
-    let response: Response;
-    try {
-      response = await fetch(call.endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(payload), redirect: 'error', signal });
-    } catch (error) {
-      if (signal.aborted) throw new VerifyError('TIMEOUT', `${where} did not answer in time. Raise localAgent() modelTimeout for slow or local models.`, { cause: error });
-      if (attempt < retries) {
-        await delay(1_000 * 3 ** attempt, undefined, { signal });
+  try {
+    for (let attempt = 0; ; attempt += 1) {
+      let response: Response;
+      try {
+        response = await fetch(call.endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(payload), redirect: 'error', signal });
+      } catch (error) {
+        if (signal.aborted) throw error;
+        if (attempt < retries) {
+          await delay(1_000 * 3 ** attempt, undefined, { signal });
+          continue;
+        }
+        throw new VerifyError('MODEL_ERROR', `Could not reach ${where}: ${scrub(errorMessage(error), call.secrets)}. Check the baseURL and that the server is running.`);
+      }
+      const text = await response.text();
+      if (response.ok) {
+        try {
+          return asRecord(JSON.parse(text));
+        } catch {
+          throw new VerifyError('MODEL_ERROR', `${where} returned a response that is not JSON. Check that the baseURL serves OpenAI-style chat completions.`);
+        }
+      }
+      if (RETRYABLE.has(response.status) && attempt < retries) {
+        const retryAfter = Number(response.headers.get('retry-after'));
+        await delay(Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter * 1_000, MAX_RETRY_DELAY_MS) : 1_000 * 3 ** attempt, undefined, { signal });
         continue;
       }
-      throw new VerifyError('MODEL_ERROR', `Could not reach ${where}: ${scrub(errorMessage(error), call.secrets)}. Check the baseURL and that the server is running.`);
+      const message = scrub(providerMessage(text), call.secrets).slice(0, 300).replace(/[.\s]*$/, '.');
+      const step = nextStep(response.status, message, call, retries);
+      throw new VerifyError('MODEL_ERROR', `${where} refused the request (HTTP ${response.status}): ${message}${step ? ` ${step}` : ''}`, { httpStatus: response.status });
     }
-    const text = await response.text();
-    if (response.ok) {
-      try {
-        return asRecord(JSON.parse(text));
-      } catch {
-        throw new VerifyError('MODEL_ERROR', `${where} returned a response that is not JSON. Check that the baseURL serves OpenAI-style chat completions.`);
-      }
-    }
-    if (RETRYABLE.has(response.status) && attempt < retries) {
-      const retryAfter = Number(response.headers.get('retry-after'));
-      await delay(Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter * 1_000, MAX_RETRY_DELAY_MS) : 1_000 * 3 ** attempt, undefined, { signal });
-      continue;
-    }
-    const message = scrub(providerMessage(text), call.secrets).replace(/[.\s]*$/, '.');
-    const step = nextStep(response.status, message, call, retries);
-    throw new VerifyError('MODEL_ERROR', `${where} refused the request (HTTP ${response.status}): ${message}${step ? ` ${step}` : ''}`, { httpStatus: response.status });
+  } catch (error) {
+    if (error instanceof VerifyError || !signal.aborted) throw error;
+    throw new VerifyError('TIMEOUT', `${where} did not answer in time. Raise localAgent() modelTimeout for slow or local models.`, { cause: error });
   }
 }
 
@@ -267,11 +272,11 @@ function providerMessage(text: string): string {
     const body = asRecord(JSON.parse(text));
     const error = body.error;
     const message = typeof error === 'string' ? error : asRecord(error).message ?? body.message;
-    if (typeof message === 'string') return message.slice(0, 300);
+    if (typeof message === 'string') return message;
     return 'no error message';
   } catch {}
   const plain = text.replace(/\s+/g, ' ').trim();
-  return plain && !plain.startsWith('<') ? plain.slice(0, 300) : 'no error message';
+  return plain && !plain.startsWith('<') ? plain : 'no error message';
 }
 
 function scrub(text: string, secrets: string[]): string {
