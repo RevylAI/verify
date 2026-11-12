@@ -189,9 +189,6 @@ func (s *Session) OpenURL(ctx context.Context, rawURL string) error {
 	if length := textLength(rawURL); length == 0 || length > 8192 {
 		return failure(ErrInvalidArgument, "OpenURL takes a URL of 1 to 8192 characters.")
 	}
-	if lower := strings.ToLower(rawURL); s.platform == Web && !strings.HasPrefix(lower, "http:") && !strings.HasPrefix(lower, "https:") {
-		return failure(ErrInvalidArgument, "On web, OpenURL takes an http(s) URL; deep links such as myapp://orders/42 open only on iOS and Android.")
-	}
 	_, err := s.perform(ctx, deviceAction{kind: "open_url", url: rawURL}, "")
 	return err
 }
@@ -461,6 +458,9 @@ func (s *Session) perform(ctx context.Context, action deviceAction, screenToken 
 	if ctx.Err() != nil {
 		return nil, contextError(ctx)
 	}
+	if lower := strings.ToLower(action.url); s.platform == Web && !strings.HasPrefix(lower, "http:") && !strings.HasPrefix(lower, "https:") {
+		return nil, failure(ErrInvalidArgument, "On web, OpenURL takes an http(s) URL; deep links such as myapp://orders/42 open only on iOS and Android.")
+	}
 	if s.platform == Web {
 		return nil, s.uncertain(ctx, "open_url", s.Navigate(ctx, action.url))
 	}
@@ -537,7 +537,7 @@ func (s *Session) post(ctx context.Context, action string, body map[string]any) 
 
 func (s *Session) uncertain(ctx context.Context, action string, err error) error {
 	if err != nil && ctx.Err() != nil && errors.Is(err, ErrTimeout) {
-		return &Error{Code: ErrActionUncertain, Message: "The deadline passed while " + action + " was in flight, so it may have been applied. Verify did not repeat it. See " + s.viewer, Cause: err}
+		return &Error{Code: ErrActionUncertain, Message: "The step deadline passed while " + action + " was in flight, so it may have been applied. Verify did not repeat it. See " + s.viewer, Cause: err}
 	}
 	return err
 }

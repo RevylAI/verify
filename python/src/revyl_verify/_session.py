@@ -561,8 +561,13 @@ class Session:
     ) -> StepResult:
         result = self._step("instruction", text, timeout, model, agent)
         if not result.passed:
+            reason = (result.reason or "").strip() or "Revyl gave no reason."
+            if reason[-1] not in ".!?":
+                reason += "."
             raise VerifyError(
-                "INSTRUCTION_FAILED", "Instruction failed. See " + self.viewer_url, result=result
+                "INSTRUCTION_FAILED",
+                f'Instruction failed: "{result.text}". {reason} See {self.viewer_url}',
+                result=result,
             )
         return result
 
@@ -661,12 +666,6 @@ class Session:
     def open_url(self, url: str) -> None:
         if not isinstance(url, str) or not url or text_length(url) > 8192:
             raise VerifyError("INVALID_ARGUMENT", "open_url() takes a URL of 1 to 8192 characters.")
-        if self.platform == "web" and not re.match(r"https?:", url, re.I):
-            raise VerifyError(
-                "INVALID_ARGUMENT",
-                "On web, open_url() takes an http(s) URL; "
-                "deep links such as myapp://orders/42 open only on iOS and Android.",
-            )
         self._perform(OpenUrl(url))
 
     def launch_app(self, bundle_id: str) -> None:
@@ -885,6 +884,12 @@ class Session:
             self._act("back", {}, deadline, uncertain)
             return None
         deadline.remaining()
+        if self.platform == "web" and not re.match(r"https?:", action.url, re.I):
+            raise VerifyError(
+                "INVALID_ARGUMENT",
+                "On web, open_url() takes an http(s) URL; "
+                "deep links such as myapp://orders/42 open only on iOS and Android.",
+            )
         if self.platform == "web":
             self._navigate(action.url, deadline, uncertain)
         else:
@@ -1001,6 +1006,7 @@ class Session:
                     f"{'✓' if passed else '✗'} {kind} ({result.duration_seconds:.1f}s, "
                     f"{len(run.turns)} turn{'' if len(run.turns) == 1 else 's'} on {run.id}, "
                     f"{run.input_tokens + run.output_tokens} tokens)"
+                    + (f": {explanation}" if not passed and explanation else "")
                 )
                 return result
             body: dict[str, Json] = {
