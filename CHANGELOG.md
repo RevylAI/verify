@@ -9,6 +9,7 @@
 - `tap({ target })` on a Mac computer: Revyl finds the described element on a fresh screenshot, clicks it, and `tap` resolves with the point it clicked. It takes several seconds and can click a look-alike, or something else when the target isn't on the screen, so the docs say to check the point or a screenshot afterwards. `screen_target_not_found` throws `ACTION_FAILED` and `screen_target_unavailable` throws `API_ERROR`, both with nothing clicked; a backend without described clicks (422 `invalid_request`) throws `NOT_AVAILABLE_ON_PLATFORM` saying to pass a point.
 - `locate()` and the other exact actions aren't available on computers. They throw `NOT_AVAILABLE_ON_PLATFORM` before anything is sent, naming `tap({ x, y })`, `tap({ target })`, `typeFocused`, `pressKey` and `exec()`.
 - Every other call sends the same requests as 0.5.0.
+- Error messages on a computer say what happened and what to do next. `screen_control_lost` on a screen action throws `SESSION_BUSY` saying nothing was sent and to try again. `owner_unavailable`, a 5xx or no answer on a screen action throws `ACTION_UNCERTAIN` saying to take a screenshot before repeating it. `invalid_request` on `tap({ x, y })` says nothing was clicked and to pick the point from a new screenshot, and `screen_key_unsupported` says nothing was pressed. Partial typing counts characters as Unicode code points, the same in TypeScript, Python and Go, and a failure in the first piece says nothing was certainly typed. Every other computer refusal adds a next step, and the `screen_starting` message says "1 second" rather than "1 seconds".
 - Docs: a Screen section in `computers.md`, the platform table, `api.md`, `errors.md`, `agents.md` and `llms.txt`. The Web docs say `'meta'` is not the shortcut key there; use `'ctrl'`.
 
 ## Go 0.5.0 (unreleased)
@@ -17,11 +18,13 @@ Published as the `go/v0.5.0` tag.
 
 - Early access: a Mac computer's screen, as in TypeScript 0.6.0. `Tap(ctx, verify.Point{X, Y})`, `Tap(ctx, verify.Element("description"))` returning the point it clicked, `ScreenSize(ctx)`, `TypeFocused(ctx, text, TypeOptions{Clear})` with `Clear` pointing to `false`, and `PressKey(ctx, key, KeyOptions{Modifiers})`, where `ModifierMeta` is Command. Leaving `Clear` unset returns `ErrInvalidArgument` naming the fix.
 - The same limits, errors and refusals as TypeScript 0.6.0: `ErrSessionBusy` for `screen_control_held`, `ErrActionUncertain` for an action Revyl can't confirm, `ErrAuthRejected` for a 403, `ErrActionFailed` for `screen_target_not_found`, a wait of up to 30 seconds on `screen_starting`, and `ErrNotAvailableOnPlatform` before any request for `Locate` and the other exact actions. Every other call sends the same requests as v0.4.0.
+- The same error messages as TypeScript 0.6.0, each with a next step, with partial typing counted in Unicode code points.
 
 ## Python 0.4.0 (unreleased)
 
 - Early access: a Mac computer's screen, as in TypeScript 0.6.0. `tap(Point(x, y))`, `tap("description")` returning the point it clicked, `screen_size()`, `type_focused(text, clear=False)` and `press_key(key, modifiers=[...])`, where `"meta"` is Command. Leaving `clear` out raises `INVALID_ARGUMENT` naming the fix. `AsyncSession` has the same methods.
 - The same limits, errors and refusals as TypeScript 0.6.0, and every other call sends the same requests as 0.3.0.
+- The same error messages as TypeScript 0.6.0, each with a next step, with partial typing counted in Unicode code points.
 
 ## 0.5.0 (2026-11-12)
 

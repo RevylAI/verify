@@ -23,6 +23,18 @@ import (
 )
 
 const computerAvailability = "Mac and Linux computers are early access. Ask support@revyl.ai about access."
+
+var computerRefusalNextSteps = map[Code]string{
+	ErrAuthRejected:       "Check that REVYL_API_KEY is a current key and that its owner has the Member role or above in this computer's organization.",
+	ErrSessionEnded:       "This computer has stopped; start a new computer to continue.",
+	ErrNotFound:           "Check that the id is right and that REVYL_API_KEY belongs to the organization that started this computer.",
+	ErrActionUncertain:    "The request may have taken effect. Verify will not repeat it; check the computer's state before you do.",
+	ErrInvalidArgument:    "Check the call's arguments against the docs; if they match, update Verify to the latest version.",
+	ErrSessionStartFailed: "Start a new computer.",
+	ErrSessionBusy:        "The computer is busy with other work; try again once it finishes.",
+	ErrAPI:                "Try again; if it keeps failing, send this message to support@revyl.ai.",
+}
+
 const maxComputerOutput = 1048576
 const computerObservationTimeout = 310 * time.Second
 
@@ -198,7 +210,11 @@ func (s *Session) computerAction(ctx context.Context, action map[string]any, tim
 		if seconds, err := strconv.ParseFloat(strings.TrimSpace(r.retryAfter), 64); err == nil && seconds > 0 && !math.IsInf(seconds, 0) {
 			wait = time.Duration(min(seconds, 60) * float64(time.Second))
 		}
-		starting := responseFailure(r, ErrSessionBusy, fmt.Sprintf("Nothing happened: the computer's screen is still starting (screen_starting). Try again in %d seconds. See %s", int(math.Ceil(wait.Seconds())), s.viewer))
+		seconds, plural := int(math.Ceil(wait.Seconds())), "s"
+		if seconds == 1 {
+			plural = ""
+		}
+		starting := responseFailure(r, ErrSessionBusy, fmt.Sprintf("Nothing happened: the computer's screen is still starting (screen_starting). Try again in %d second%s. See %s", seconds, plural, s.viewer))
 		if !time.Now().Add(wait).Before(deadline) {
 			return response{}, starting
 		}
@@ -225,6 +241,10 @@ func (s *Session) computerTap(ctx context.Context, at Location) (Point, error) {
 	}
 	r, err := s.computerAction(ctx, map[string]any{"action": "click", "x": point.X, "y": point.Y}, 30*time.Second)
 	if err != nil {
+		var typed *Error
+		if errors.As(err, &typed) && typed.Code == ErrInvalidArgument && typed.HTTPStatus == 422 {
+			return Point{}, &Error{Code: ErrInvalidArgument, Reason: typed.Reason, HTTPStatus: 422, Message: fmt.Sprintf("Nothing was clicked: the computer refused a click at (%d, %d). That happens when the point is no longer on its screen, for example after its display size changed. Take a new Screenshot and pick the point from it. See %s", point.X, point.Y, s.viewer), Cause: err}
+		}
 		return Point{}, err
 	}
 	if r.status == 422 {
@@ -285,20 +305,27 @@ func (s *Session) computerTypeFocused(ctx context.Context, text string, options 
 	if start < len(text) {
 		chunks = append(chunks, text[start:])
 	}
-	typed := 0
+	total, typed := utf8.RuneCountInString(text), 0
 	for _, part := range chunks {
 		if _, err := s.computerAction(ctx, map[string]any{"action": "type", "text": part}, 30*time.Second); err != nil {
 			var typedErr *Error
 			if len(chunks) == 1 || !errors.As(err, &typedErr) {
 				return err
 			}
+			done := fmt.Sprintf("typed the first %d of %d characters; the next %d", typed, total, utf8.RuneCountInString(part))
 			sent := "were not typed"
+			if typed == 0 {
+				done = fmt.Sprintf("typed nothing: the first %d of %d", utf8.RuneCountInString(part), total)
+			}
 			if typedErr.Code == ErrActionUncertain {
 				sent = "may have been typed"
+				if typed == 0 {
+					done = fmt.Sprintf("typed nothing for certain: the first %d of %d", utf8.RuneCountInString(part), total)
+				}
 			}
-			return &Error{Code: typedErr.Code, Reason: typedErr.Reason, HTTPStatus: typedErr.HTTPStatus, Message: fmt.Sprintf("TypeFocused typed the first %d of %d characters; the next %d %s, and nothing after them was. %s", typed, textLength(text), textLength(part), sent, typedErr.Message), Cause: err}
+			return &Error{Code: typedErr.Code, Reason: typedErr.Reason, HTTPStatus: typedErr.HTTPStatus, Message: fmt.Sprintf("TypeFocused %s characters %s, and nothing after them was. %s", done, sent, typedErr.Message), Cause: err}
 		}
-		typed += textLength(part)
+		typed += utf8.RuneCountInString(part)
 	}
 	return nil
 }
@@ -388,6 +415,9 @@ func (s *Session) computerRequestTimeout(ctx context.Context, method, suffix str
 		if errors.As(err, &typed) {
 			cause = typed.Cause
 		}
+		if suffix == "/screen/actions" {
+			return r, &Error{Code: ErrActionUncertain, Message: "The screen action may have happened: Revyl's answer never arrived. Verify will not repeat it; take a Screenshot to check before you do. See " + s.viewer, Cause: cause}
+		}
 		if method == "POST" || strings.HasPrefix(suffix, "/operations/") {
 			return r, &Error{Code: ErrActionUncertain, Message: "Computer request outcome is unconfirmed. Verify will not repeat it. See " + s.viewer, Cause: cause}
 		}
@@ -444,6 +474,10 @@ func (s *Session) computerRequestTimeout(ctx context.Context, method, suffix str
 			return r, responseFailure(r, ErrAPI, "Nothing happened: Revyl could not confirm your access just now (authentication_unavailable). It is safe to try again. See "+s.viewer)
 		case detail == "screen_text_unsupported":
 			return r, responseFailure(r, ErrInvalidArgument, "Nothing was typed: this computer can't type some of these characters (screen_text_unsupported). See "+s.viewer)
+		case detail == "screen_control_lost":
+			return r, responseFailure(r, ErrSessionBusy, "Nothing happened: control of this computer's screen changed hands before the action was sent (screen_control_lost). Try again; if someone is controlling the screen in the viewer, wait until they release it, which happens on its own after 2 minutes without input. See "+s.viewer)
+		case detail == "screen_key_unsupported":
+			return r, responseFailure(r, ErrInvalidArgument, "Nothing was pressed: this computer can't press that key (screen_key_unsupported). Use a key PressKey lists in the docs, or TypeFocused for a printable character. See "+s.viewer)
 		}
 	}
 	code := ErrAPI
@@ -472,7 +506,16 @@ func (s *Session) computerRequestTimeout(ctx context.Context, method, suffix str
 	case "computer_not_enabled", "run_closed", "inaccessible", "invalid_handle", "operation_not_found", "owner_unavailable", "invalid_request", "unauthenticated", "forbidden", "runtime_unavailable", "start_failed", "computer_limit", "request_conflict", "run_conflict", "evidence_conflict", "evidence_unavailable", "authentication_unavailable", "operation_limit", "screen_starting", "screen_unavailable", "screen_control_held", "screen_control_lost", "screen_input_unavailable", "screen_input_uncertain", "screen_key_unsupported", "screen_text_unsupported", "screen_target_not_found", "screen_target_unavailable":
 		reason = detail
 	}
-	return r, responseFailure(r, code, fmt.Sprintf("Revyl refused the computer request (%s). See %s", reason, s.viewer))
+	next := computerRefusalNextSteps[code]
+	switch {
+	case suffix == "/screen/actions" && code == ErrActionUncertain:
+		next = "The screen action may have happened. Verify will not repeat it; take a Screenshot to check before you do."
+	case suffix == "/screen/actions" && code == ErrInvalidArgument:
+		next = "Part of the screen action may have run, so take a Screenshot to check the screen before you try again."
+	case code == ErrActionUncertain && method == "GET" && !strings.HasPrefix(suffix, "/operations/"):
+		next = "Nothing on the computer changed; it is safe to try again."
+	}
+	return r, responseFailure(r, code, fmt.Sprintf("Revyl refused the computer request (%s). %s See %s", reason, next, s.viewer))
 }
 
 func (s *Session) closeComputer(ctx context.Context) error {

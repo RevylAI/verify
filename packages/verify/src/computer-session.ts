@@ -17,6 +17,16 @@ const COMPUTER_AVAILABILITY = 'Computers are early access. Ask support@revyl.ai 
 const COMPUTER_CAPACITY = 'Computer admission was refused because of queued work (including iOS) or the concurrency limit. Verify will not retry the start.';
 const ERROR_CODES = new Set(['computer_not_enabled', 'run_closed', 'inaccessible', 'invalid_handle', 'operation_not_found', 'owner_unavailable', 'invalid_request', 'unauthenticated', 'forbidden', 'runtime_unavailable', 'start_failed', 'computer_limit', 'request_conflict', 'run_conflict', 'evidence_conflict', 'evidence_unavailable', 'authentication_unavailable', 'operation_limit', 'screen_starting', 'screen_unavailable', 'screen_control_held', 'screen_control_lost', 'screen_input_unavailable', 'screen_input_uncertain', 'screen_key_unsupported', 'screen_text_unsupported', 'screen_target_not_found', 'screen_target_unavailable']);
 const COMPUTER_KEYS: Record<Key, string> = { enter: 'Return', backspace: 'BackSpace', tab: 'Tab', escape: 'Escape', delete: 'Delete', space: 'space', arrowup: 'Up', arrowdown: 'Down', arrowleft: 'Left', arrowright: 'Right', home: 'Home', end: 'End', pageup: 'Page_Up', pagedown: 'Page_Down' };
+const REFUSAL_NEXT_STEPS = {
+  AUTH_REJECTED: "Check that REVYL_API_KEY is a current key and that its owner has the Member role or above in this computer's organization.",
+  SESSION_ENDED: 'This computer has stopped; start a new computer to continue.',
+  NOT_FOUND: 'Check that the id is right and that REVYL_API_KEY belongs to the organization that started this computer.',
+  ACTION_UNCERTAIN: "The request may have taken effect. Verify will not repeat it; check the computer's state before you do.",
+  INVALID_ARGUMENT: "Check the call's arguments against the docs; if they match, update Verify to the latest version.",
+  SESSION_START_FAILED: 'Start a new computer.',
+  SESSION_BUSY: 'The computer is busy with other work; try again once it finishes.',
+  API_ERROR: 'Try again; if it keeps failing, send this message to support@revyl.ai.',
+} satisfies Partial<Record<VerifyErrorCode, string>>;
 const SCREEN_CALLS = 'For the screen, use screenshot(), tap({ x, y }) or tap({ target }), typeFocused(text, { clear: false }) and pressKey(); for commands, use exec().';
 
 export class ComputerSession implements Session {
@@ -126,7 +136,14 @@ export class ComputerSession implements Session {
     const location = checkLocation(at);
     if ('target' in location) return this.tapTarget(location.target);
     const { x, y } = location;
-    if ((await this.act({ action: 'click', x, y })).status === 422) {
+    let response: RawResponse;
+    try {
+      response = await this.act({ action: 'click', x, y });
+    } catch (error) {
+      if (isVerifyError(error) && error.code === 'INVALID_ARGUMENT' && error.httpStatus === 422) throw new VerifyError('INVALID_ARGUMENT', `Nothing was clicked: the computer refused a click at (${x}, ${y}). That happens when the point is no longer on its screen, for example after its display size changed. Take a new screenshot() and pick the point from it. See ${this.viewerUrl}`, { cause: error, reason: error.reason, httpStatus: 422 });
+      throw error;
+    }
+    if (response.status === 422) {
       const size = await this.screenSize().catch(() => undefined);
       const range = size ? `x is 0 to ${size.width - 1} and y is 0 to ${size.height - 1}, in pixels of the image screenshot() returns.` : 'Use a point inside the image screenshot() returns.';
       throw new VerifyError('INVALID_ARGUMENT', `Nothing was clicked: (${x}, ${y}) is outside the screen. ${range}`);
@@ -169,16 +186,19 @@ export class ComputerSession implements Session {
       chunk += character;
     }
     if (chunk) chunks.push(chunk);
+    const total = [...text].length;
     let typed = 0;
     for (const part of chunks) {
+      const length = [...part].length;
       try {
         await this.act({ action: 'type', text: part });
       } catch (error) {
         if (chunks.length === 1 || !isVerifyError(error)) throw error;
-        const sent = error.code === 'ACTION_UNCERTAIN' ? 'may have been typed' : 'were not typed';
-        throw new VerifyError(error.code, `typeFocused() typed the first ${typed} of ${text.length} characters; the next ${part.length} ${sent}, and nothing after them was. ${error.message}`, { cause: error, reason: error.reason, httpStatus: error.httpStatus });
+        const uncertain = error.code === 'ACTION_UNCERTAIN';
+        const done = typed === 0 ? `typed nothing${uncertain ? ' for certain' : ''}: the first` : `typed the first ${typed} of ${total} characters; the next`;
+        throw new VerifyError(error.code, `typeFocused() ${done} ${length}${typed === 0 ? ` of ${total}` : ''} characters ${uncertain ? 'may have been typed' : 'were not typed'}, and nothing after them was. ${error.message}`, { cause: error, reason: error.reason, httpStatus: error.httpStatus });
       }
-      typed += part.length;
+      typed += length;
     }
   }
 
@@ -453,6 +473,7 @@ export class ComputerSession implements Session {
     try {
       response = await this.client.send(method, path, { body, signal, timeoutMs: timeoutMs ?? (suffix === '/stop' || suffix.startsWith('/operations') ? 310_000 : 30_000), retry: method === 'GET' && suffix !== '/screen/screenshot', headers: suffix === '/operations' ? { Prefer: 'respond-async' } : undefined });
     } catch (error) {
+      if (suffix === '/screen/actions') throw new VerifyError('ACTION_UNCERTAIN', `The screen action may have happened: Revyl's answer never arrived. Verify will not repeat it; take a screenshot() to check before you do. See ${this.viewerUrl}`);
       if (method === 'POST' || suffix.startsWith('/operations/')) throw new VerifyError('ACTION_UNCERTAIN', `Computer request outcome is unconfirmed. Verify will not repeat it. See ${this.viewerUrl}`);
       if (isVerifyError(error)) throw new VerifyError(error.code, `Could not read the computer state. See ${this.viewerUrl}`);
       throw error;
@@ -463,6 +484,7 @@ export class ComputerSession implements Session {
     if (suffix === '/recording' && response.status === 404 && responseErrorCode(response) === 'recording_unavailable') return response;
     const detail = responseRefusalReason(response) ?? responseDetail(response);
     const refusal = { reason: responseRefusalReason(response), httpStatus: response.status };
+    const reason = detail && ERROR_CODES.has(detail) ? detail : `HTTP ${response.status}`;
     if (suffix === '/screen/screenshot') {
       let raw: { detail?: unknown; message?: unknown; error?: unknown } | null = null;
       try { raw = JSON.parse(new TextDecoder().decode(response.body)); } catch {}
@@ -483,8 +505,10 @@ export class ComputerSession implements Session {
       if (response.status === 403) throw new VerifyError('AUTH_REJECTED', `Revyl refused the screen action (forbidden). The API key's owner needs the Member role or above in the organization, and CI runner keys can't control the screen yet. See ${this.viewerUrl}`, refusal);
       if (response.status === 503 && detail === 'authentication_unavailable') throw new VerifyError('API_ERROR', `Nothing happened: Revyl could not confirm your access just now (authentication_unavailable). It is safe to try again. See ${this.viewerUrl}`, refusal);
       if (detail === 'screen_text_unsupported') throw new VerifyError('INVALID_ARGUMENT', `Nothing was typed: this computer can't type some of these characters (screen_text_unsupported). See ${this.viewerUrl}`, refusal);
+      if (detail === 'screen_control_lost') throw new VerifyError('SESSION_BUSY', `Nothing happened: control of this computer's screen changed hands before the action was sent (screen_control_lost). Try again; if someone is controlling the screen in the viewer, wait until they release it, which happens on its own after 2 minutes without input. See ${this.viewerUrl}`, refusal);
+      if (detail === 'screen_key_unsupported') throw new VerifyError('INVALID_ARGUMENT', `Nothing was pressed: this computer can't press that key (screen_key_unsupported). Use a key pressKey() lists in the docs, or typeFocused() for a printable character. See ${this.viewerUrl}`, refusal);
     }
-    let code: VerifyErrorCode = 'API_ERROR';
+    let code: keyof typeof REFUSAL_NEXT_STEPS = 'API_ERROR';
     if (response.status === 401 || response.status === 403) code = 'AUTH_REJECTED';
     else if (detail === 'run_closed') code = 'SESSION_ENDED';
     else if (detail === 'inaccessible' || detail === 'invalid_handle') code = 'NOT_FOUND';
@@ -494,8 +518,11 @@ export class ComputerSession implements Session {
     else if (response.status === 409 || detail === 'operation_limit') code = 'SESSION_BUSY';
     else if (suffix.startsWith('/operations/') && response.status >= 500) code = 'ACTION_UNCERTAIN';
     else if (method === 'POST' && (response.status >= 500 || response.status < 400)) code = 'ACTION_UNCERTAIN';
-    const reason = detail && ERROR_CODES.has(detail) ? detail : `HTTP ${response.status}`;
-    throw new VerifyError(code, `Revyl refused the computer request (${reason}). See ${this.viewerUrl}`, refusal);
+    let next = REFUSAL_NEXT_STEPS[code];
+    if (suffix === '/screen/actions' && code === 'ACTION_UNCERTAIN') next = 'The screen action may have happened. Verify will not repeat it; take a screenshot() to check before you do.';
+    else if (suffix === '/screen/actions' && code === 'INVALID_ARGUMENT') next = 'Part of the screen action may have run, so take a screenshot() to check the screen before you try again.';
+    else if (code === 'ACTION_UNCERTAIN' && method === 'GET' && !suffix.startsWith('/operations/')) next = 'Nothing on the computer changed; it is safe to try again.';
+    throw new VerifyError(code, `Revyl refused the computer request (${reason}). ${next} See ${this.viewerUrl}`, refusal);
   }
 
   private async act(action: Record<string, unknown>, timeoutMs = 30_000): Promise<RawResponse> {
@@ -507,7 +534,8 @@ export class ComputerSession implements Session {
       if (response.status !== 409) return response;
       const retryAfter = Number(response.headers.get('retry-after'));
       const waitMs = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter, 60) * 1_000 : 1_000;
-      const starting = new VerifyError('SESSION_BUSY', `Nothing happened: the computer's screen is still starting (screen_starting). Try again in ${Math.ceil(waitMs / 1_000)} seconds. See ${this.viewerUrl}`, { httpStatus: 409 });
+      const seconds = Math.ceil(waitMs / 1_000);
+      const starting = new VerifyError('SESSION_BUSY', `Nothing happened: the computer's screen is still starting (screen_starting). Try again in ${seconds} second${seconds === 1 ? '' : 's'}. See ${this.viewerUrl}`, { httpStatus: 409 });
       if (Date.now() + waitMs >= deadlineMs) throw starting;
       try {
         await delay(waitMs, undefined, { signal });
