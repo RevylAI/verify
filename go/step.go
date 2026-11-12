@@ -40,7 +40,13 @@ func (s *Session) Instruction(ctx context.Context, text string, options ...StepO
 	}
 	result, err := s.step(ctx, "instruction", text, timeout, agent)
 	if err == nil && !result.Passed {
-		err = failure(ErrInstructionFailed, "Instruction failed. See "+s.viewer)
+		reason := strings.TrimSpace(result.Reason)
+		if reason == "" {
+			reason = "Revyl gave no reason."
+		} else if !strings.ContainsAny(reason[len(reason)-1:], ".!?") {
+			reason += "."
+		}
+		err = failure(ErrInstructionFailed, "Instruction failed: \""+result.Text+"\". "+reason+" See "+s.viewer)
 	}
 	return result, err
 }

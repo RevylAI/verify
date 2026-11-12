@@ -4,6 +4,7 @@ import io
 import json
 import math
 import os
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -27,6 +28,39 @@ Grounding = Literal["model", "revyl"]
 DevicePlatform = Literal["ios", "android", "web"]
 Location = Point | str
 SwipeDirection = Literal["up", "down", "left", "right"]
+Key = Literal[
+    "enter",
+    "backspace",
+    "tab",
+    "escape",
+    "delete",
+    "space",
+    "arrowup",
+    "arrowdown",
+    "arrowleft",
+    "arrowright",
+    "home",
+    "end",
+    "pageup",
+    "pagedown",
+]
+KeyModifier = Literal["ctrl", "shift", "alt", "meta"]
+WEB_KEYS: dict[str, str] = {
+    "enter": "Enter",
+    "backspace": "Backspace",
+    "tab": "Tab",
+    "escape": "Escape",
+    "delete": "Delete",
+    "space": "Space",
+    "arrowup": "ArrowUp",
+    "arrowdown": "ArrowDown",
+    "arrowleft": "ArrowLeft",
+    "arrowright": "ArrowRight",
+    "home": "Home",
+    "end": "End",
+    "pageup": "PageUp",
+    "pagedown": "PageDown",
+}
 
 
 @dataclass(frozen=True)
@@ -186,8 +220,25 @@ class Tap:
 
 
 @dataclass(frozen=True)
+class DoubleTap:
+    at: Location
+
+
+@dataclass(frozen=True)
+class LongPress:
+    at: Location
+    duration_ms: int | None = None
+
+
+@dataclass(frozen=True)
 class TypeText:
     at: Location
+    text: str
+    clear: bool
+
+
+@dataclass(frozen=True)
+class TypeFocused:
     text: str
     clear: bool
 
@@ -199,8 +250,15 @@ class Swipe:
 
 
 @dataclass(frozen=True)
+class Drag:
+    start: Location
+    end: Location
+
+
+@dataclass(frozen=True)
 class PressKey:
-    key: Literal["enter", "backspace"]
+    key: str
+    modifiers: tuple[KeyModifier, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -209,11 +267,64 @@ class Back:
 
 
 @dataclass(frozen=True)
+class GoHome:
+    pass
+
+
+@dataclass(frozen=True)
 class OpenUrl:
     url: str
 
 
-DeviceAction = Tap | TypeText | Swipe | PressKey | Back | OpenUrl
+DeviceAction = (
+    Tap
+    | DoubleTap
+    | LongPress
+    | TypeText
+    | TypeFocused
+    | Swipe
+    | Drag
+    | PressKey
+    | Back
+    | GoHome
+    | OpenUrl
+)
+
+
+def check_key(
+    platform: str, key: object, modifiers: object = ()
+) -> tuple[str, tuple[KeyModifier, ...]]:
+    if (
+        not isinstance(modifiers, (list, tuple))
+        or len(modifiers) > 4
+        or not all(modifier in ("ctrl", "shift", "alt", "meta") for modifier in modifiers)
+    ):
+        raise VerifyError(
+            "INVALID_ARGUMENT",
+            "press_key() modifiers are up to four of 'ctrl', 'shift', 'alt' and 'meta'.",
+        )
+    checked = cast(tuple[KeyModifier, ...], tuple(modifiers))
+    if platform != "web":
+        if key in ("enter", "backspace") and not checked:
+            return key, ()
+        if checked or (isinstance(key, str) and key in WEB_KEYS):
+            raise VerifyError(
+                "NOT_AVAILABLE_ON_PLATFORM",
+                "On iOS and Android, press_key() takes only 'enter' or 'backspace', with no "
+                "modifiers; tap the on-screen control instead.",
+            )
+        raise VerifyError("INVALID_ARGUMENT", "press_key() takes 'enter' or 'backspace'.")
+    if isinstance(key, str) and (
+        key in WEB_KEYS or (checked and re.fullmatch(r"[a-z0-9]", key) is not None)
+    ):
+        return key, checked
+    raise VerifyError(
+        "INVALID_ARGUMENT",
+        "press_key() takes one of "
+        + ", ".join(f"'{name}'" for name in WEB_KEYS)
+        + ", or a lowercase letter or digit with modifiers, such as "
+        "press_key('a', modifiers=['ctrl']).",
+    )
 
 
 @dataclass(frozen=True)
@@ -344,7 +455,7 @@ def run_local_step(
         action = call.name
         ok = False
         try:
-            device_action = _to_action(call, agent.grounding, image, size)
+            device_action = _to_action(call, controls.platform, agent.grounding, image, size)
             action = _describe(device_action)
             at = controls.perform(device_action, screen_token, deadline)
             ok = True
@@ -395,25 +506,30 @@ def js_round(value: float) -> int:
 
 
 def _to_action(
-    call: ModelToolCall, grounding: Grounding, image: ModelImage, size: ScreenSize
+    call: ModelToolCall,
+    platform: DevicePlatform,
+    grounding: Grounding,
+    image: ModelImage,
+    size: ScreenSize,
 ) -> DeviceAction:
     args = call.arguments
 
-    def location(required: bool) -> Location | None:
+    def location(required: bool, prefix: str = "") -> Location | None:
         if grounding == "revyl":
-            target = args.get("target")
+            target = args.get(f"{prefix}target")
             if isinstance(target, str) and target.strip():
                 return target.strip()[:500]
             if required:
                 raise VerifyError(
                     "INVALID_ARGUMENT",
-                    "target is required: describe the element by its visible text or appearance.",
+                    f"{prefix}target is required: describe the element by its visible text or "
+                    "appearance.",
                 )
             return None
-        x, y = args.get("x"), args.get("y")
+        x, y = args.get(f"{prefix}x"), args.get(f"{prefix}y")
         if not is_number(x) or not is_number(y):
             if required:
-                raise VerifyError("INVALID_ARGUMENT", "x and y are required.")
+                raise VerifyError("INVALID_ARGUMENT", f"{prefix}x and {prefix}y are required.")
             return None
         if x < 0 or y < 0 or x >= image.width or y >= image.height:
             raise VerifyError(
@@ -424,30 +540,59 @@ def _to_action(
             js_round(x * size.width / image.width), js_round(y * size.height / image.height)
         )
 
-    def required() -> Location:
-        at = location(True)
+    def required(prefix: str = "") -> Location:
+        at = location(True, prefix)
         assert at is not None
         return at
 
     if call.name == "tap":
         return Tap(required())
+    if call.name == "double_tap":
+        return DoubleTap(required())
+    if call.name == "long_press":
+        return LongPress(required())
     if call.name == "type":
         text = args.get("text")
         if not isinstance(text, str):
             raise VerifyError("INVALID_ARGUMENT", "text is required.")
         return TypeText(required(), text, args.get("clear") is not False)
+    if call.name == "type_focused":
+        if platform != "web":
+            raise VerifyError(
+                "NOT_AVAILABLE_ON_PLATFORM",
+                "type_focused is available only in a web browser; use type, which taps the "
+                "field first.",
+            )
+        text = args.get("text")
+        if not isinstance(text, str):
+            raise VerifyError("INVALID_ARGUMENT", "text is required.")
+        return TypeFocused(text, args.get("clear") is not False)
+    if call.name == "drag":
+        return Drag(required("from_"), required("to_"))
     if call.name == "swipe":
         direction = args.get("direction")
         if direction not in ("up", "down", "left", "right"):
             raise VerifyError("INVALID_ARGUMENT", "direction must be up, down, left or right.")
         return Swipe(cast(SwipeDirection, direction), location(False))
     if call.name == "press_key":
-        key = args.get("key")
-        if key != "enter" and key != "backspace":
-            raise VerifyError("INVALID_ARGUMENT", "key must be enter or backspace.")
-        return PressKey(cast(Literal["enter", "backspace"], key))
+        if platform != "web":
+            key = args.get("key")
+            if key != "enter" and key != "backspace":
+                raise VerifyError("INVALID_ARGUMENT", "key must be enter or backspace.")
+            return PressKey(key)
+        modifiers = args.get("modifiers")
+        return PressKey(
+            *check_key(platform, args.get("key"), () if modifiers is None else modifiers)
+        )
     if call.name == "back":
         return Back()
+    if call.name == "go_home":
+        if platform == "web":
+            raise VerifyError(
+                "NOT_AVAILABLE_ON_PLATFORM",
+                "A web browser has no home screen; use open_url to load a page.",
+            )
+        return GoHome()
     url = args.get("url")
     if not isinstance(url, str) or not url:
         raise VerifyError("INVALID_ARGUMENT", "url is required.")
@@ -462,15 +607,24 @@ def _describe(action: DeviceAction) -> str:
 
     if isinstance(action, Tap):
         return f"tap{where(action.at)}"
-    if isinstance(action, TypeText):
+    if isinstance(action, DoubleTap):
+        return f"double tap{where(action.at)}"
+    if isinstance(action, LongPress):
+        return f"long press{where(action.at)}"
+    if isinstance(action, (TypeText, TypeFocused)):
         text = action.text[:40] + "…" if len(action.text) > 40 else action.text
-        return f"type {json.dumps(text, ensure_ascii=False)} into{where(action.at)}"
+        into = where(action.at) if isinstance(action, TypeText) else " the focused field"
+        return f"type {json.dumps(text, ensure_ascii=False)} into{into}"
     if isinstance(action, Swipe):
         return f"swipe {action.direction}" + (f" from{where(action.start)}" if action.start else "")
+    if isinstance(action, Drag):
+        return f"drag from{where(action.start)} to{where(action.end)}"
     if isinstance(action, PressKey):
-        return f"press {action.key}"
+        return "press " + "+".join([*action.modifiers, action.key])
     if isinstance(action, Back):
         return "back"
+    if isinstance(action, GoHome):
+        return "home"
     return f"open {action.url}"
 
 
@@ -543,11 +697,21 @@ def _instruction_tools(platform: DevicePlatform, grounding: Grounding) -> list[M
             "y": {"type": "integer", "description": "Screenshot pixel y."},
         }
         required = ["x", "y"]
+    at: dict[str, Json] = {"type": "object", "properties": properties, "required": required}
+    drag_properties: dict[str, Json] = {
+        f"{prefix}{name}": schema
+        for prefix in ("from_", "to_")
+        for name, schema in properties.items()
+    }
+    drag_required: list[Json] = [
+        f"{prefix}{name}" for prefix in ("from_", "to_") for name in required
+    ]
+    web = platform == "web"
     tools = [
+        ModelTool("tap", "Tap an element.", at),
+        ModelTool("double_tap", "Double-tap an element.", at),
         ModelTool(
-            "tap",
-            "Tap an element.",
-            {"type": "object", "properties": properties, "required": required},
+            "long_press", "Press and hold an element, for example to open a context menu.", at
         ),
         ModelTool(
             "type",
@@ -562,6 +726,21 @@ def _instruction_tools(platform: DevicePlatform, grounding: Grounding) -> list[M
                 "required": [*required, "text"],
             },
         ),
+    ]
+    if web:
+        tools.append(
+            ModelTool(
+                "type_focused",
+                "Type into the field that already has focus, without tapping. Clears the field "
+                "first unless clear is false.",
+                {
+                    "type": "object",
+                    "properties": {"text": {"type": "string"}, "clear": {"type": "boolean"}},
+                    "required": ["text"],
+                },
+            )
+        )
+    tools += [
         ModelTool(
             "swipe",
             "Swipe from a point, or from the screen's center. up moves the finger up, "
@@ -576,6 +755,33 @@ def _instruction_tools(platform: DevicePlatform, grounding: Grounding) -> list[M
             },
         ),
         ModelTool(
+            "drag",
+            "Press an element, move it to another place and release, for example to reorder a "
+            "list or move a slider.",
+            {"type": "object", "properties": drag_properties, "required": drag_required},
+        ),
+        ModelTool(
+            "press_key",
+            "Press a key on the focused element, optionally with modifiers held, such as "
+            "escape, tab, arrowdown, or a with ctrl.",
+            {
+                "type": "object",
+                "properties": {
+                    "key": {
+                        "type": "string",
+                        "description": f"One of {', '.join(WEB_KEYS)}, or a lowercase letter or "
+                        "digit when modifiers are given.",
+                    },
+                    "modifiers": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": ["ctrl", "shift", "alt", "meta"]},
+                    },
+                },
+                "required": ["key"],
+            },
+        )
+        if web
+        else ModelTool(
             "press_key",
             "Press a key on the focused field.",
             {
@@ -584,11 +790,23 @@ def _instruction_tools(platform: DevicePlatform, grounding: Grounding) -> list[M
                 "required": ["key"],
             },
         ),
+    ]
+    if platform != "ios":
+        tools.append(
+            ModelTool(
+                "back",
+                "Go back in browser history." if web else "Press the Android back button.",
+                {"type": "object", "properties": {}},
+            )
+        )
+    if not web:
+        tools.append(
+            ModelTool("go_home", "Go to the home screen.", {"type": "object", "properties": {}})
+        )
+    tools += [
         ModelTool(
             "open_url",
-            "Load a URL in the current tab."
-            if platform == "web"
-            else "Open a URL or deep link on the device.",
+            "Load a URL in the current tab." if web else "Open a URL or deep link on the device.",
             {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]},
         ),
         ModelTool(
@@ -601,17 +819,6 @@ def _instruction_tools(platform: DevicePlatform, grounding: Grounding) -> list[M
             },
         ),
     ]
-    if platform != "ios":
-        tools.insert(
-            4,
-            ModelTool(
-                "back",
-                "Go back in browser history."
-                if platform == "web"
-                else "Press the Android back button.",
-                {"type": "object", "properties": {}},
-            ),
-        )
     return tools
 
 

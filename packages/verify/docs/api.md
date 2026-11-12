@@ -84,12 +84,15 @@ Web only, hosted or normal. Sends one deterministic `open_url` action and checks
 
 ## Exact actions
 
-**Since 0.4.0. Early access.** In TypeScript (`@revyl/verify` 0.4.0), Python (`revyl-verify` 0.2.0) and Go (v0.3.0); the [Python](https://github.com/RevylAI/verify/blob/v0.4.1/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.4.1/go/README.md#exact-actions) READMEs show them with each language's names. Web, iOS and Android sessions take device actions that need no agent.
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. The [Python](https://github.com/RevylAI/verify/blob/v0.5.0/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.5.0/go/README.md#exact-actions) READMEs show them with each language's names. Web, iOS and Android sessions take device actions that need no agent.
 
 | Call | Web | iOS | Android | Mac computer |
 | --- | --- | --- | --- | --- |
-| `tap`, `type`, `swipe`, `pressKey`, `locate`, `screenSize` | Yes | Yes | Yes | No, use `exec()` and files |
+| `tap`, `doubleTap`, `longPress`, `type`, `swipe`, `drag`, `locate`, `screenSize` | Yes | Yes | Yes | No, use `exec()` and files |
+| `pressKey(key, { modifiers })` | Yes: `'enter'`, `'backspace'`, `'tab'`, `'escape'`, arrows and more, with modifiers | `'enter'` and `'backspace'` only | `'enter'` and `'backspace'` only | No |
+| `typeFocused(text)` | Yes, types into the focused field | No, use `type(location, text)` | No, use `type(location, text)` | No |
 | `back()` | Yes, browser history | No, tap the on-screen back control | Yes, the system back button | No |
+| `goHome()` | No, use `openUrl` or `navigate` | Yes, the home screen | Yes, the home screen | No |
 | `openUrl(url)` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No |
 | `launchApp(bundleId)` | No, use `openUrl` or `navigate` | Yes | Yes | No |
 | `navigate(url)` | Yes | No, use `openUrl` | No, use `openUrl` | No |
@@ -104,10 +107,15 @@ A location is `{ x, y }` in screenshot pixels (see [Coordinates](#coordinates)) 
 | Call | What it does |
 | --- | --- |
 | `tap(at)` | Taps and resolves with the point tapped |
+| `doubleTap(at)` | Double-taps (double-clicks on Web) and resolves with the point |
+| `longPress(at, { duration })` | Presses and holds for `duration` milliseconds, 1 to 5000 (default 1500), and resolves with the point |
 | `type(at, text, { clear })` | Taps a text field and types into it, clearing it first unless `clear` is `false` |
+| `typeFocused(text, { clear })` | Web only: types into the field that already has focus, without clicking, replacing its text unless `clear` is `false`. Focus the field first, for example with `tap` or `pressKey('tab')`. With no field focused nothing is typed and no error is thrown, so check the result. On iOS and Android it throws `NOT_AVAILABLE_ON_PLATFORM`; use `type(location, text)` |
 | `swipe(direction, { from })` | Swipes from a location or the screen's center; `'up'` moves the finger up, which scrolls content down |
-| `pressKey('enter' \| 'backspace')` | Presses a key on the focused field |
+| `drag(from, to)` | Presses at one location, moves to the other and releases, for example to reorder a list, move a slider or select text |
+| `pressKey(key, { modifiers })` | Presses a key on the focused element. Every platform takes `'enter'` and `'backspace'`. Web also takes `'tab'`, `'escape'`, `'delete'`, `'space'`, `'arrowup'`, `'arrowdown'`, `'arrowleft'`, `'arrowright'`, `'home'`, `'end'`, `'pageup'` and `'pagedown'`, and `modifiers`: up to four of `'ctrl'`, `'shift'`, `'alt'` and `'meta'`, held while the key is pressed. With modifiers a lowercase letter or digit works too, such as `pressKey('a', { modifiers: ['ctrl'] })`. Other keys and any modifiers throw `NOT_AVAILABLE_ON_PLATFORM` on iOS and Android |
 | `back()` | Browser history on Web, the back button on Android; iOS throws `NOT_AVAILABLE_ON_PLATFORM` |
+| `goHome()` | Goes to the home screen on iOS and Android; Web throws `NOT_AVAILABLE_ON_PLATFORM` |
 | `openUrl(url)` | Opens a URL or deep link on a device, or loads a URL in a browser |
 | `launchApp(bundleId)` | Launches an installed app on a device |
 | `locate(target)` | Resolves with Revyl's best match on the current screen, without acting |
@@ -115,11 +123,11 @@ A location is `{ x, y }` in screenshot pixels (see [Coordinates](#coordinates)) 
 
 A failed action throws `ACTION_FAILED`, including when Revyl cannot find a target or nothing at a point can take the action. One whose outcome Revyl can't confirm throws `ACTION_UNCERTAIN` or `TIMEOUT`, so check the session before acting again. Actions are never repeated. If Verify can't reach Revyl, the action fails with `API_ERROR` and isn't resent either, so check the session before trying it again.
 
-Exact actions return when Revyl has accepted them, not when the screen has finished changing. After `swipe`, `openUrl` or `launchApp`, let the screen settle or check it before you `locate` or tap coordinates. `locate` returns Revyl's best match on the current screen and can return a point for an element that is off screen, so bring the element on screen first. A point outside `screenSize()` is off screen, and an action at it is refused.
+Exact actions return when Revyl has accepted them, not when the screen has finished changing. After `swipe`, `drag`, `goHome`, `openUrl` or `launchApp`, let the screen settle or check it before you `locate` or tap coordinates. `locate` returns Revyl's best match on the current screen and can return a point for an element that is off screen, so bring the element on screen first. A point outside `screenSize()` is off screen, and an action at it is refused.
 
 ### Coordinates
 
-Prefer a description, such as `tap({ target: 'Sign in button' })`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `{ x, y }` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `screenshot()` returns. So a position you read off a screenshot goes to `tap()`, `type()` and `swipe()` unchanged. `screenSize()` returns the screenshot's width and height, and `locate()` and the points `tap()` and `type()` return use the same pixels. A point outside the screenshot is refused with `INVALID_ARGUMENT` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they equal CSS pixels at the default device scale factor of 1, and you still pass screenshot pixels at any other. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points.
+Prefer a description, such as `tap({ target: 'Sign in button' })`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `{ x, y }` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `screenshot()` returns. So a position you read off a screenshot goes to `tap()`, `type()`, `swipe()` and every other exact action unchanged. `screenSize()` returns the screenshot's width and height, and `locate()` and the points `tap()`, `doubleTap()`, `longPress()` and `type()` return use the same pixels. A point outside the screenshot is refused with `INVALID_ARGUMENT` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they equal CSS pixels at the default device scale factor of 1, and you still pass screenshot pixels at any other. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points.
 
 ```ts
 await session.screenshot({ path: '.verify/screen.png' });  // open it and find the element
@@ -172,7 +180,7 @@ When inspecting `revyl device report --session-id <id>`, read validation verdict
 
 ## Your own model
 
-**Since 0.4.0. Early access.** In TypeScript (`@revyl/verify` 0.4.0), Python (`revyl-verify` 0.2.0) and Go (v0.3.0); the [Python](https://github.com/RevylAI/verify/blob/v0.4.1/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.4.1/go/README.md#your-own-model) READMEs show them with each language's names. Runs instructions and validations on a model you choose, in your process, instead of Revyl's agent. Revyl still provides the browser or device. Leave `model` out and Revyl's agent runs the step, as before.
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0; the [Python](https://github.com/RevylAI/verify/blob/v0.5.0/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.5.0/go/README.md#your-own-model) READMEs show them with each language's names. Runs instructions and validations on a model you choose, in your process, instead of Revyl's agent. Revyl still provides the browser or device. Leave `model` out and Revyl's agent runs the step, as before.
 
 ```ts
 const session = await open('ios', { model: 'anthropic/claude-sonnet-5-5' });  // every step on your model
@@ -208,7 +216,7 @@ const session = await open('ios', { agent });
 ```
 
 - `model`: a `ModelAdapter`. `anthropic({ model, apiKey, baseURL, maxTokens, maxRetries })` uses `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` for what you leave out. `openaiCompatible({ model, baseURL, apiKey, headers, provider, maxTokens, maxRetries })` uses `OPENAI_BASE_URL` and `OPENAI_API_KEY` only when `baseURL` is left out, so a key never reaches another provider; it then sends OpenAI's `max_completion_tokens`. To wrap another SDK or runtime, implement `{ name, complete(request, signal) }`: it gets the system prompt, text, screenshot and tools, and returns the chosen tool call and token usage.
-- `grounding`: `'revyl'` (default) as above. `'model'` has the model give screenshot coordinates instead, so Revyl receives only taps, typing and swipes, never element descriptions; it needs a model that points accurately.
+- `grounding`: `'revyl'` (default) as above. `'model'` has the model give screenshot coordinates instead, so Revyl receives only device actions such as taps, typing and swipes, never element descriptions; it needs a model that points accurately.
 - `maxTurns` (default 20, up to 100), `modelTimeout` per model call (default 60000), `maxImageSide` for screenshots sent to the model (default 1280).
 
 ## session.screenshot(options?)

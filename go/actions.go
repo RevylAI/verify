@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -38,15 +39,99 @@ const (
 	SwipeRight SwipeDirection = "right"
 )
 
-// Key is a key PressKey can press on the focused field.
+// Key is a key PressKey can press on the focused element. iOS and Android take KeyEnter and KeyBackspace; Web
+// takes every Key constant, and with modifiers also a lowercase letter or digit, such as Key("a").
 type Key string
 
 const (
-	KeyEnter     Key = "enter"
-	KeyBackspace Key = "backspace"
+	KeyEnter      Key = "enter"
+	KeyBackspace  Key = "backspace"
+	KeyTab        Key = "tab"
+	KeyEscape     Key = "escape"
+	KeyDelete     Key = "delete"
+	KeySpace      Key = "space"
+	KeyArrowUp    Key = "arrowup"
+	KeyArrowDown  Key = "arrowdown"
+	KeyArrowLeft  Key = "arrowleft"
+	KeyArrowRight Key = "arrowright"
+	KeyHome       Key = "home"
+	KeyEnd        Key = "end"
+	KeyPageUp     Key = "pageup"
+	KeyPageDown   Key = "pagedown"
 )
 
-// TypeOptions configures Type.
+var webKeys = []struct {
+	key  Key
+	wire string
+}{
+	{KeyEnter, "Enter"}, {KeyBackspace, "Backspace"}, {KeyTab, "Tab"}, {KeyEscape, "Escape"}, {KeyDelete, "Delete"},
+	{KeySpace, "Space"}, {KeyArrowUp, "ArrowUp"}, {KeyArrowDown, "ArrowDown"}, {KeyArrowLeft, "ArrowLeft"},
+	{KeyArrowRight, "ArrowRight"}, {KeyHome, "Home"}, {KeyEnd, "End"}, {KeyPageUp, "PageUp"}, {KeyPageDown, "PageDown"},
+}
+
+func webKey(key Key) (string, bool) {
+	for _, entry := range webKeys {
+		if entry.key == key {
+			return entry.wire, true
+		}
+	}
+	return "", false
+}
+
+// KeyModifier is a key held while PressKey presses a key on Web.
+type KeyModifier string
+
+const (
+	ModifierCtrl  KeyModifier = "ctrl"
+	ModifierShift KeyModifier = "shift"
+	ModifierAlt   KeyModifier = "alt"
+	ModifierMeta  KeyModifier = "meta"
+)
+
+// KeyOptions configures PressKey.
+type KeyOptions struct {
+	// Modifiers are held while the key is pressed: up to four of ModifierCtrl, ModifierShift, ModifierAlt and
+	// ModifierMeta. Web only.
+	Modifiers []KeyModifier
+}
+
+// LongPressOptions configures LongPress.
+type LongPressOptions struct {
+	// Duration is how long to hold, in whole milliseconds from 1 millisecond to 5 seconds. Zero leaves it to
+	// Revyl, which holds for 1.5 seconds.
+	Duration time.Duration
+}
+
+const invalidModifiers = "PressKey modifiers are up to four of ModifierCtrl, ModifierShift, ModifierAlt and ModifierMeta."
+
+var keyLetterPattern = regexp.MustCompile(`^[a-z0-9]$`)
+
+func checkKey(platform Platform, key Key, modifiers []KeyModifier) error {
+	if len(modifiers) > 4 {
+		return failure(ErrInvalidArgument, invalidModifiers)
+	}
+	for _, modifier := range modifiers {
+		if modifier != ModifierCtrl && modifier != ModifierShift && modifier != ModifierAlt && modifier != ModifierMeta {
+			return failure(ErrInvalidArgument, invalidModifiers)
+		}
+	}
+	_, named := webKey(key)
+	if platform != Web {
+		if (key == KeyEnter || key == KeyBackspace) && len(modifiers) == 0 {
+			return nil
+		}
+		if len(modifiers) > 0 || named {
+			return failure(ErrNotAvailableOnPlatform, "On iOS and Android, PressKey takes only KeyEnter or KeyBackspace, with no modifiers; tap the on-screen control instead.")
+		}
+		return failure(ErrInvalidArgument, "PressKey takes KeyEnter or KeyBackspace.")
+	}
+	if named || (keyLetterPattern.MatchString(string(key)) && len(modifiers) > 0) {
+		return nil
+	}
+	return failure(ErrInvalidArgument, "PressKey takes KeyEnter, KeyBackspace, KeyTab, KeyEscape, KeyDelete, KeySpace, KeyArrowUp, KeyArrowDown, KeyArrowLeft, KeyArrowRight, KeyHome, KeyEnd, KeyPageUp or KeyPageDown, or a lowercase letter or digit with modifiers, such as PressKey(ctx, Key(\"a\"), KeyOptions{Modifiers: []KeyModifier{ModifierCtrl}}).")
+}
+
+// TypeOptions configures Type and TypeFocused.
 type TypeOptions struct {
 	// Clear empties the field before typing. Defaults to true.
 	Clear *bool
@@ -160,15 +245,115 @@ func (s *Session) Swipe(ctx context.Context, direction SwipeDirection, options .
 	return err
 }
 
-// PressKey presses KeyEnter or KeyBackspace on the focused field.
-func (s *Session) PressKey(ctx context.Context, key Key) error {
+// TypeFocused types into the field that already has focus, without tapping, clearing it first unless
+// TypeOptions.Clear is false. Web only; on iOS and Android, use Type.
+func (s *Session) TypeFocused(ctx context.Context, text string, options ...TypeOptions) error {
+	if s.platform.computer() {
+		return s.computerAgentUnavailable("TypeFocused")
+	}
+	if len(options) > 1 {
+		return failure(ErrInvalidArgument, "TypeFocused accepts at most one options value.")
+	}
+	if s.platform != Web {
+		return failure(ErrNotAvailableOnPlatform, "TypeFocused is available only on web sessions; on iOS and Android, use Type(ctx, location, text), which taps the field first.")
+	}
+	if textLength(text) > 16384 {
+		return failure(ErrInvalidArgument, "TypeFocused takes text of at most 16384 characters.")
+	}
+	clearFirst := len(options) == 0 || options[0].Clear == nil || *options[0].Clear
+	_, err := s.perform(ctx, deviceAction{kind: "type_focused", text: text, clear: clearFirst}, "")
+	return err
+}
+
+// DoubleTap double-taps a point in screenshot pixels, or an element Revyl locates from a description, and returns
+// the point in screenshot pixels.
+func (s *Session) DoubleTap(ctx context.Context, at Location) (Point, error) {
+	if s.platform.computer() {
+		return Point{}, s.computerAgentUnavailable("DoubleTap")
+	}
+	return s.pointAction(ctx, deviceAction{kind: "double_tap", at: at})
+}
+
+// LongPress presses and holds a point in screenshot pixels, or an element Revyl locates from a description, and
+// returns the point in screenshot pixels.
+func (s *Session) LongPress(ctx context.Context, at Location, options ...LongPressOptions) (Point, error) {
+	if s.platform.computer() {
+		return Point{}, s.computerAgentUnavailable("LongPress")
+	}
+	if len(options) > 1 {
+		return Point{}, failure(ErrInvalidArgument, "LongPress accepts at most one options value.")
+	}
+	action := deviceAction{kind: "long_press", at: at}
+	if len(options) == 1 && options[0].Duration != 0 {
+		duration := options[0].Duration
+		if duration < time.Millisecond || duration > 5*time.Second || duration%time.Millisecond != 0 {
+			return Point{}, failure(ErrInvalidArgument, "LongPress Duration must be whole milliseconds from 1 millisecond to 5 seconds.")
+		}
+		action.durationMs = int(duration.Milliseconds())
+	}
+	return s.pointAction(ctx, action)
+}
+
+func (s *Session) pointAction(ctx context.Context, action deviceAction) (Point, error) {
+	at, err := checkLocation(action.at)
+	if err != nil {
+		return Point{}, err
+	}
+	if action.at, err = s.toDevice(ctx, at); err != nil {
+		return Point{}, err
+	}
+	if s.platform == IOS {
+		if _, err := s.readScreenshotSize(ctx, false); err != nil {
+			return Point{}, err
+		}
+	}
+	point, err := s.perform(ctx, action, "")
+	if err != nil {
+		return Point{}, err
+	}
+	return s.toScreenshot(ctx, *point)
+}
+
+// Drag presses at one location, moves to another and releases, such as to reorder a list or move a slider.
+func (s *Session) Drag(ctx context.Context, from, to Location) error {
+	if s.platform.computer() {
+		return s.computerAgentUnavailable("Drag")
+	}
+	start, err := checkLocation(from)
+	if err != nil {
+		return err
+	}
+	end, err := checkLocation(to)
+	if err != nil {
+		return err
+	}
+	if start, err = s.toDevice(ctx, start); err != nil {
+		return err
+	}
+	if end, err = s.toDevice(ctx, end); err != nil {
+		return err
+	}
+	_, err = s.perform(ctx, deviceAction{kind: "drag", at: start, to: end}, "")
+	return err
+}
+
+// PressKey presses a key on the focused element. iOS and Android take KeyEnter and KeyBackspace; Web takes every
+// Key constant and KeyOptions.Modifiers, with which a lowercase letter or digit also works.
+func (s *Session) PressKey(ctx context.Context, key Key, options ...KeyOptions) error {
 	if s.platform.computer() {
 		return s.computerAgentUnavailable("PressKey")
 	}
-	if key != KeyEnter && key != KeyBackspace {
-		return failure(ErrInvalidArgument, "PressKey takes KeyEnter or KeyBackspace.")
+	if len(options) > 1 {
+		return failure(ErrInvalidArgument, "PressKey accepts at most one options value.")
 	}
-	_, err := s.perform(ctx, deviceAction{kind: "key", key: key}, "")
+	var modifiers []KeyModifier
+	if len(options) == 1 {
+		modifiers = options[0].Modifiers
+	}
+	if err := checkKey(s.platform, key, modifiers); err != nil {
+		return err
+	}
+	_, err := s.perform(ctx, deviceAction{kind: "key", key: key, modifiers: slices.Clone(modifiers)}, "")
 	return err
 }
 
@@ -181,6 +366,18 @@ func (s *Session) Back(ctx context.Context) error {
 	return err
 }
 
+// GoHome goes to the home screen on iOS and Android. Not on Web.
+func (s *Session) GoHome(ctx context.Context) error {
+	if s.platform.computer() {
+		return s.computerAgentUnavailable("GoHome")
+	}
+	if s.platform == Web {
+		return failure(ErrNotAvailableOnPlatform, "GoHome is available only on iOS and Android sessions; on web, use OpenURL or Navigate to load a page.")
+	}
+	_, err := s.perform(ctx, deviceAction{kind: "go_home"}, "")
+	return err
+}
+
 // OpenURL opens a URL or deep link on a device, or loads an http(s) URL in a browser.
 func (s *Session) OpenURL(ctx context.Context, rawURL string) error {
 	if s.platform.computer() {
@@ -188,9 +385,6 @@ func (s *Session) OpenURL(ctx context.Context, rawURL string) error {
 	}
 	if length := textLength(rawURL); length == 0 || length > 8192 {
 		return failure(ErrInvalidArgument, "OpenURL takes a URL of 1 to 8192 characters.")
-	}
-	if lower := strings.ToLower(rawURL); s.platform == Web && !strings.HasPrefix(lower, "http:") && !strings.HasPrefix(lower, "https:") {
-		return failure(ErrInvalidArgument, "On web, OpenURL takes an http(s) URL; deep links such as myapp://orders/42 open only on iOS and Android.")
 	}
 	_, err := s.perform(ctx, deviceAction{kind: "open_url", url: rawURL}, "")
 	return err
@@ -417,6 +611,22 @@ func (s *Session) perform(ctx context.Context, action deviceAction, screenToken 
 			return nil, err
 		}
 		return &point, s.act(ctx, "tap", pointBody(point, token, action.at))
+	case "double_tap":
+		point, token, err := s.resolve(ctx, action.at, screenToken)
+		if err != nil {
+			return nil, err
+		}
+		return &point, s.act(ctx, "double_tap", pointBody(point, token, action.at))
+	case "long_press":
+		point, token, err := s.resolve(ctx, action.at, screenToken)
+		if err != nil {
+			return nil, err
+		}
+		body := pointBody(point, token, action.at)
+		if action.durationMs != 0 {
+			body["duration_ms"] = action.durationMs
+		}
+		return &point, s.act(ctx, "longpress", body)
 	case "type":
 		point, token, err := s.resolve(ctx, action.at, screenToken)
 		if err != nil {
@@ -425,6 +635,18 @@ func (s *Session) perform(ctx context.Context, action deviceAction, screenToken 
 		body := pointBody(point, token, action.at)
 		body["text"], body["clear_first"] = action.text, action.clear
 		return &point, s.act(ctx, "input", body)
+	case "type_focused":
+		return nil, s.act(ctx, "input", map[string]any{"text": action.text, "clear_first": action.clear})
+	case "drag":
+		from, _, err := s.resolve(ctx, action.at, screenToken)
+		if err != nil {
+			return nil, err
+		}
+		to, _, err := s.resolve(ctx, action.to, screenToken)
+		if err != nil {
+			return nil, err
+		}
+		return nil, s.act(ctx, "drag", map[string]any{"start_x": from.X, "start_y": from.Y, "end_x": to.X, "end_y": to.Y})
 	case "swipe":
 		var point Point
 		var token string
@@ -449,9 +671,18 @@ func (s *Session) perform(ctx context.Context, action deviceAction, screenToken 
 	case "key":
 		key := strings.ToUpper(string(action.key))
 		if s.platform == Web {
-			key = map[Key]string{KeyEnter: "Enter", KeyBackspace: "Backspace"}[action.key]
+			key = string(action.key)
+			if wire, ok := webKey(action.key); ok {
+				key = wire
+			}
 		}
-		return nil, s.act(ctx, "key", map[string]any{"key": key})
+		body := map[string]any{"key": key}
+		if len(action.modifiers) > 0 {
+			body["modifiers"] = action.modifiers
+		}
+		return nil, s.act(ctx, "key", body)
+	case "go_home":
+		return nil, s.act(ctx, "go_home", map[string]any{})
 	case "back":
 		if s.platform == IOS {
 			return nil, failure(ErrNotAvailableOnPlatform, "Back is not available on iOS; tap the on-screen back control.")
@@ -460,6 +691,9 @@ func (s *Session) perform(ctx context.Context, action deviceAction, screenToken 
 	}
 	if ctx.Err() != nil {
 		return nil, contextError(ctx)
+	}
+	if lower := strings.ToLower(action.url); s.platform == Web && !strings.HasPrefix(lower, "http:") && !strings.HasPrefix(lower, "https:") {
+		return nil, failure(ErrInvalidArgument, "On web, OpenURL takes an http(s) URL; deep links such as myapp://orders/42 open only on iOS and Android.")
 	}
 	if s.platform == Web {
 		return nil, s.uncertain(ctx, "open_url", s.Navigate(ctx, action.url))
@@ -537,7 +771,7 @@ func (s *Session) post(ctx context.Context, action string, body map[string]any) 
 
 func (s *Session) uncertain(ctx context.Context, action string, err error) error {
 	if err != nil && ctx.Err() != nil && errors.Is(err, ErrTimeout) {
-		return &Error{Code: ErrActionUncertain, Message: "The deadline passed while " + action + " was in flight, so it may have been applied. Verify did not repeat it. See " + s.viewer, Cause: err}
+		return &Error{Code: ErrActionUncertain, Message: "The step deadline passed while " + action + " was in flight, so it may have been applied. Verify did not repeat it. See " + s.viewer, Cause: err}
 	}
 	return err
 }

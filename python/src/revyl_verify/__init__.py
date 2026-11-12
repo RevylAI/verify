@@ -8,6 +8,8 @@ from typing import Literal
 from ._agent import (
     CustomModel,
     Grounding,
+    Key,
+    KeyModifier,
     LocalAgent,
     Location,
     ModelOption,
@@ -47,7 +49,7 @@ from ._models import (
 from ._session import Session
 from ._transport import Cancellation, CleanupStatus, RefusalReason, VerifyError, origin, seconds
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 __all__ = [
     "AsyncSession",
     "ComputerProcess",
@@ -58,6 +60,8 @@ __all__ = [
     "ExecResult",
     "FileStat",
     "Grounding",
+    "Key",
+    "KeyModifier",
     "LocalAgent",
     "Location",
     "ModelAdapter",

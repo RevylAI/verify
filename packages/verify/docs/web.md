@@ -53,7 +53,7 @@ Revyl runs one step at a time on a session. A step sent while another is still r
 
 ## Exact actions
 
-**Since 0.4.0. Early access.** In TypeScript (`@revyl/verify` 0.4.0), Python (`revyl-verify` 0.2.0) and Go (v0.3.0); the [Python](https://github.com/RevylAI/verify/blob/v0.4.1/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.4.1/go/README.md#exact-actions) READMEs show them with each language's names. When you know exactly what to click, skip the agent. Exact actions run in the browser as given, with no model, and mix freely with `instruction()` and `validation()`:
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. The [Python](https://github.com/RevylAI/verify/blob/v0.5.0/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.5.0/go/README.md#exact-actions) READMEs show them with each language's names. When you know exactly what to click, skip the agent. Exact actions run in the browser as given, with no model, and mix freely with `instruction()` and `validation()`:
 
 ```ts
 import { open } from '@revyl/verify';
@@ -76,12 +76,42 @@ try {
 }
 ```
 
-A location is `{ target: 'a description' }`, which Revyl's grounding model finds on the current page, or `{ x, y }` in screenshot pixels from the top-left corner; `screenSize()` gives the bounds and `locate(target)` gives an element's point without acting. `type()` clicks the field and clears it first unless you pass `{ clear: false }`. `pressKey()` takes `'enter'` or `'backspace'`, and `openUrl(url)` loads a page like `navigate(url)`. A failed action throws `ACTION_FAILED`. One whose outcome Revyl can't confirm throws `ACTION_UNCERTAIN` or `TIMEOUT`, so check the session before acting again. Actions are never repeated. If Verify can't reach Revyl, the action fails with `API_ERROR` and isn't resent either, so check the session before trying it again. [api.md](api.md#exact-actions) lists every call.
+A location is `{ target: 'a description' }`, which Revyl's grounding model finds on the current page, or `{ x, y }` in screenshot pixels from the top-left corner; `screenSize()` gives the bounds and `locate(target)` gives an element's point without acting. `type()` clicks the field and clears it first unless you pass `{ clear: false }`. `openUrl(url)` loads a page like `navigate(url)`.
+
+More actions, new in 0.5.0, on the same store:
+
+```ts
+import { open } from '@revyl/verify';
+
+const session = await open('web');                               // https://www.saucedemo.com in examples/web-store
+try {
+  await session.tap({ target: 'Username field' });
+  await session.typeFocused('standard_user');                    // types into the field that has focus, replacing its text
+  await session.pressKey('tab');                                 // focus moves to the password field
+  await session.typeFocused('secret_sauce');
+  await session.pressKey('enter');
+  await session.validation('A list of products is shown');
+  await session.tap({ target: 'Open Menu button' });
+  await session.pressKey('escape');                              // closes the menu
+  await session.validation('The side menu is closed');
+  await session.doubleTap({ target: 'Products heading' });       // a double-click
+  await session.pressKey('a', { modifiers: ['ctrl'] });          // a chord: a lowercase letter or digit with modifiers
+  await session.longPress({ target: 'Products heading' }, { duration: 800 });  // press and hold for 800 ms
+  await session.drag({ target: 'Sauce Labs Backpack description' }, { target: 'Sauce Labs Bike Light description' });  // selects the text between
+} finally {
+  await session.close();
+}
+```
+
+`typeFocused(text)` types where the focus already is, without clicking, and replaces the field's text unless you pass `{ clear: false }`. Focus the field first, with `tap()` or `pressKey('tab')`: with no field focused, nothing is typed and no error is thrown. `pressKey()` takes `'enter'`, `'backspace'`, `'tab'`, `'escape'`, `'delete'`, `'space'`, `'arrowup'`, `'arrowdown'`, `'arrowleft'`, `'arrowright'`, `'home'`, `'end'`, `'pageup'` and `'pagedown'`, with up to four `modifiers` held (`'ctrl'`, `'shift'`, `'alt'`, `'meta'`); with modifiers a lowercase letter or digit works too. `longPress()` holds for 1500 ms unless you pass `duration`, from 1 to 5000. `drag(from, to)` presses at one location, moves to the other and releases. A failed action throws `ACTION_FAILED`. One whose outcome Revyl can't confirm throws `ACTION_UNCERTAIN` or `TIMEOUT`, so check the session before acting again. Actions are never repeated. If Verify can't reach Revyl, the action fails with `API_ERROR` and isn't resent either, so check the session before trying it again. [api.md](api.md#exact-actions) lists every call.
 
 | Call | Web | iOS | Android | Mac computer |
 | --- | --- | --- | --- | --- |
-| `tap`, `type`, `swipe`, `pressKey`, `locate`, `screenSize` | Yes | Yes | Yes | No, use `exec()` and files |
+| `tap`, `doubleTap`, `longPress`, `type`, `swipe`, `drag`, `locate`, `screenSize` | Yes | Yes | Yes | No, use `exec()` and files |
+| `pressKey(key, { modifiers })` | Yes: `'enter'`, `'backspace'`, `'tab'`, `'escape'`, arrows and more, with modifiers | `'enter'` and `'backspace'` only | `'enter'` and `'backspace'` only | No |
+| `typeFocused(text)` | Yes, types into the focused field | No, use `type(location, text)` | No, use `type(location, text)` | No |
 | `back()` | Yes, browser history | No, tap the on-screen back control | Yes, the system back button | No |
+| `goHome()` | No, use `openUrl` or `navigate` | Yes, the home screen | Yes, the home screen | No |
 | `openUrl(url)` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No |
 | `launchApp(bundleId)` | No, use `openUrl` or `navigate` | Yes | Yes | No |
 | `navigate(url)` | Yes | No, use `openUrl` | No, use `openUrl` | No |
@@ -89,8 +119,8 @@ A location is `{ target: 'a description' }`, which Revyl's grounding model finds
 | `screenshot()` | Yes | Yes | Yes | Yes |
 | `exec`, files, processes | No, open a Mac computer | No, open a Mac computer | No, open a Mac computer | Yes |
 
-**Coordinates.** Prefer a description, such as `tap({ target: 'Sign in button' })`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `{ x, y }` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `screenshot()` returns. So a position you read off a screenshot goes to `tap()`, `type()` and `swipe()` unchanged. `screenSize()` returns the screenshot's width and height, and `locate()` and the points `tap()` and `type()` return use the same pixels. A point outside the screenshot is refused with `INVALID_ARGUMENT` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they equal CSS pixels at the default device scale factor of 1, and you still pass screenshot pixels at any other. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points.
+**Coordinates.** Prefer a description, such as `tap({ target: 'Sign in button' })`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `{ x, y }` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `screenshot()` returns. So a position you read off a screenshot goes to `tap()`, `type()`, `swipe()` and every other exact action unchanged. `screenSize()` returns the screenshot's width and height, and `locate()` and the points `tap()`, `doubleTap()`, `longPress()` and `type()` return use the same pixels. A point outside the screenshot is refused with `INVALID_ARGUMENT` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they equal CSS pixels at the default device scale factor of 1, and you still pass screenshot pixels at any other. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points.
 
 A call a platform doesn't support throws `NOT_AVAILABLE_ON_PLATFORM`, and its message names the alternative.
 
-When you pass a [`model`](own-model.md), your model uses `tap`, `type`, `swipe`, `pressKey`, `openUrl` and, where the platform has it, `back` inside `instruction()`.
+When you pass a [`model`](own-model.md), your model uses `tap`, `doubleTap`, `longPress`, `type`, `swipe`, `drag`, `pressKey`, `openUrl` and, where the platform has them, `typeFocused`, `back` and `goHome` inside `instruction()`.

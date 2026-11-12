@@ -48,7 +48,7 @@ try {
 | `SESSION_ENDED` | The session was closed, stopped, or expired, or Revyl answered 404 for the session itself | Close explicitly; computer expiry does not prove release |
 | `SESSION_BUSY` | A step conflict, computer operation limit, or recording requested before terminal state and confirmed release | Inspect the state before another call; a terminal computer alone does not prove release |
 | `COMPUTER_LIMIT` | Computer admission was refused due to queued work (including iOS) or the concurrency limit | Wait for capacity; Verify does not retry or stop a definitely refused start |
-| `NOT_AVAILABLE_ON_PLATFORM` | The call is unavailable: computer agent steps, device shell/file/recording methods, computer access or runtime unavailable, or a backend without web steps | See [web.md](web.md) and [computers.md](computers.md#availability-and-errors) |
+| `NOT_AVAILABLE_ON_PLATFORM` | The call is unavailable: computer agent steps, device shell/file/recording methods, an exact action the platform lacks (such as `back()` on iOS, `goHome()` or `launchApp()` on Web, `typeFocused()` or keys other than Enter and Backspace on iOS and Android), computer access or runtime unavailable, or a backend without web steps | See [web.md](web.md) and [computers.md](computers.md#availability-and-errors) |
 | `COMMAND_FAILED` | A computer command exited nonzero | Read its reason; use `exec(argv, { check: false })` to inspect the exit code and output instead |
 | `NOT_FOUND` | A computer file or resource was not found | Check the workspace-relative path |
 | `ACCESS_DENIED` | The computer refused access | Check permissions; do not assume host/root access |

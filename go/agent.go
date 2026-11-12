@@ -36,13 +36,16 @@ type ModelRun struct {
 }
 
 type deviceAction struct {
-	kind      string
-	at        Location
-	text      string
-	clear     bool
-	direction SwipeDirection
-	key       Key
-	url       string
+	kind       string
+	at         Location
+	to         Location
+	text       string
+	clear      bool
+	direction  SwipeDirection
+	key        Key
+	modifiers  []KeyModifier
+	durationMs int
+	url        string
 }
 
 type screen struct {
@@ -201,21 +204,21 @@ func toAction(call *ModelToolCall, platform Platform, grounding Grounding, image
 	bad := func(message string) (deviceAction, error) {
 		return deviceAction{}, failure(ErrInvalidArgument, message)
 	}
-	location := func(required bool) (Location, error) {
+	location := func(required bool, prefix string) (Location, error) {
 		if grounding == GroundingRevyl {
-			if target, ok := args["target"].(string); ok && strings.TrimSpace(target) != "" {
+			if target, ok := args[prefix+"target"].(string); ok && strings.TrimSpace(target) != "" {
 				return Element(clip(strings.TrimSpace(target), 500)), nil
 			}
 			if required {
-				return nil, failure(ErrInvalidArgument, "target is required: describe the element by its visible text or appearance.")
+				return nil, failure(ErrInvalidArgument, prefix+"target is required: describe the element by its visible text or appearance.")
 			}
 			return nil, nil
 		}
-		x, xOK := number(args["x"])
-		y, yOK := number(args["y"])
+		x, xOK := number(args[prefix+"x"])
+		y, yOK := number(args[prefix+"y"])
 		if !xOK || !yOK {
 			if required {
-				return nil, failure(ErrInvalidArgument, "x and y are required.")
+				return nil, failure(ErrInvalidArgument, prefix+"x and "+prefix+"y are required.")
 			}
 			return nil, nil
 		}
@@ -225,33 +228,75 @@ func toAction(call *ModelToolCall, platform Platform, grounding Grounding, image
 		return Point{X: int(math.Floor(x*float64(size.Width)/float64(image.Width) + 0.5)), Y: int(math.Floor(y*float64(size.Height)/float64(image.Height) + 0.5))}, nil
 	}
 	switch call.Name {
-	case "tap":
-		at, err := location(true)
-		return deviceAction{kind: "tap", at: at}, err
+	case "tap", "double_tap", "long_press":
+		at, err := location(true, "")
+		return deviceAction{kind: call.Name, at: at}, err
 	case "type":
 		text, ok := args["text"].(string)
 		if !ok {
 			return bad("text is required.")
 		}
-		at, err := location(true)
+		at, err := location(true, "")
 		return deviceAction{kind: "type", at: at, text: text, clear: args["clear"] != false}, err
+	case "type_focused":
+		if platform != Web {
+			return deviceAction{}, failure(ErrNotAvailableOnPlatform, "type_focused is available only in a web browser; use type, which taps the field first.")
+		}
+		text, ok := args["text"].(string)
+		if !ok {
+			return bad("text is required.")
+		}
+		return deviceAction{kind: "type_focused", text: text, clear: args["clear"] != false}, nil
+	case "drag":
+		from, err := location(true, "from_")
+		if err != nil {
+			return deviceAction{}, err
+		}
+		to, err := location(true, "to_")
+		return deviceAction{kind: "drag", at: from, to: to}, err
 	case "swipe":
 		direction, _ := args["direction"].(string)
 		if !validDirection(SwipeDirection(direction)) {
 			return bad("direction must be up, down, left or right.")
 		}
-		from, err := location(false)
+		from, err := location(false, "")
 		return deviceAction{kind: "swipe", direction: SwipeDirection(direction), at: from}, err
 	case "press_key":
-		if args["key"] != "enter" && args["key"] != "backspace" {
-			return bad("key must be enter or backspace.")
+		if platform != Web {
+			if args["key"] != "enter" && args["key"] != "backspace" {
+				return bad("key must be enter or backspace.")
+			}
+			return deviceAction{kind: "key", key: Key(args["key"].(string))}, nil
 		}
-		return deviceAction{kind: "key", key: Key(args["key"].(string))}, nil
+		var modifiers []KeyModifier
+		switch raw := args["modifiers"].(type) {
+		case nil:
+		case []any:
+			for _, value := range raw {
+				modifier, ok := value.(string)
+				if !ok {
+					return bad(webKeyMessage)
+				}
+				modifiers = append(modifiers, KeyModifier(modifier))
+			}
+		default:
+			return bad(webKeyMessage)
+		}
+		key, _ := args["key"].(string)
+		if checkKey(platform, Key(key), modifiers) != nil {
+			return bad(webKeyMessage)
+		}
+		return deviceAction{kind: "key", key: Key(key), modifiers: modifiers}, nil
 	case "back":
 		if platform == IOS {
 			return deviceAction{}, failure(ErrNotAvailableOnPlatform, "iOS has no back button; tap the on-screen back control.")
 		}
 		return deviceAction{kind: "back"}, nil
+	case "go_home":
+		if platform == Web {
+			return deviceAction{}, failure(ErrNotAvailableOnPlatform, "A web browser has no home screen; use open_url to load a page.")
+		}
+		return deviceAction{kind: "go_home"}, nil
 	case "open_url":
 		url, _ := args["url"].(string)
 		if url == "" {
@@ -287,11 +332,7 @@ func describe(action deviceAction) string {
 		}
 		return ""
 	}
-	switch action.kind {
-	case "tap":
-		return "tap" + where(action.at)
-	case "type":
-		text := action.text
+	quote := func(text string) string {
 		if len([]rune(text)) > 40 {
 			text = clip(text, 40) + "…"
 		}
@@ -299,16 +340,36 @@ func describe(action deviceAction) string {
 		encoder := json.NewEncoder(&quoted)
 		encoder.SetEscapeHTML(false)
 		_ = encoder.Encode(text)
-		return "type " + strings.TrimSpace(quoted.String()) + " into" + where(action.at)
+		return strings.TrimSpace(quoted.String())
+	}
+	switch action.kind {
+	case "tap":
+		return "tap" + where(action.at)
+	case "double_tap":
+		return "double tap" + where(action.at)
+	case "long_press":
+		return "long press" + where(action.at)
+	case "type":
+		return "type " + quote(action.text) + " into" + where(action.at)
+	case "type_focused":
+		return "type " + quote(action.text) + " into the focused field"
 	case "swipe":
 		if action.at != nil {
 			return "swipe " + string(action.direction) + " from" + where(action.at)
 		}
 		return "swipe " + string(action.direction)
+	case "drag":
+		return "drag from" + where(action.at) + " to" + where(action.to)
 	case "key":
-		return "press " + string(action.key)
+		keys := make([]string, 0, len(action.modifiers)+1)
+		for _, modifier := range action.modifiers {
+			keys = append(keys, string(modifier))
+		}
+		return "press " + strings.Join(append(keys, string(action.key)), "+")
 	case "back":
 		return "back"
+	case "go_home":
+		return "home"
 	}
 	return "open " + action.url
 }
@@ -349,29 +410,65 @@ func turnText(kind, task string, image ModelImage, history []string) string {
 
 var verdictTool = ModelTool{Name: "verdict", Description: "Report whether the statement holds on the screen.", Parameters: json.RawMessage(`{"type":"object","properties":{"passed":{"type":"boolean"},"reason":{"type":"string"}},"required":["passed","reason"]}`)}
 
-func instructionTools(platform Platform, grounding Grounding) []ModelTool {
-	properties, required := `"x":{"type":"integer","description":"Screenshot pixel x."},"y":{"type":"integer","description":"Screenshot pixel y."}`, `"x","y"`
-	if grounding == GroundingRevyl {
-		properties, required = `"target":{"type":"string","description":"The element, by its visible text or look."}`, `"target"`
+var webKeyMessage = "key must be one of " + webKeyNames() + ", or a lowercase letter or digit with modifiers; modifiers are up to four of ctrl, shift, alt and meta."
+
+func webKeyNames() string {
+	names := make([]string, len(webKeys))
+	for i, entry := range webKeys {
+		names[i] = string(entry.key)
 	}
+	return strings.Join(names, ", ")
+}
+
+func instructionTools(platform Platform, grounding Grounding) []ModelTool {
+	at := func(prefix string) (string, string) {
+		if grounding == GroundingRevyl {
+			return `"` + prefix + `target":{"type":"string","description":"The element, by its visible text or look."}`, `"` + prefix + `target"`
+		}
+		return `"` + prefix + `x":{"type":"integer","description":"Screenshot pixel x."},"` + prefix + `y":{"type":"integer","description":"Screenshot pixel y."}`, `"` + prefix + `x","` + prefix + `y"`
+	}
+	properties, required := at("")
+	fromProperties, fromRequired := at("from_")
+	toProperties, toRequired := at("to_")
+	location := json.RawMessage(`{"type":"object","properties":{` + properties + `},"required":[` + required + `]}`)
+	noParameters := json.RawMessage(`{"type":"object","properties":{}}`)
 	openURL := "Open a URL or deep link on the device."
 	if platform == Web {
 		openURL = "Load a URL in the current tab."
 	}
 	tools := []ModelTool{
-		{Name: "tap", Description: "Tap an element.", Parameters: json.RawMessage(`{"type":"object","properties":{` + properties + `},"required":[` + required + `]}`)},
+		{Name: "tap", Description: "Tap an element.", Parameters: location},
+		{Name: "double_tap", Description: "Double-tap an element.", Parameters: location},
+		{Name: "long_press", Description: "Press and hold an element, for example to open a context menu.", Parameters: location},
 		{Name: "type", Description: "Tap a text field and type into it. Clears the field first unless clear is false.", Parameters: json.RawMessage(`{"type":"object","properties":{` + properties + `,"text":{"type":"string"},"clear":{"type":"boolean"}},"required":[` + required + `,"text"]}`)},
-		{Name: "swipe", Description: "Swipe from a point, or from the screen's center. up moves the finger up, which scrolls content down.", Parameters: json.RawMessage(`{"type":"object","properties":{"direction":{"type":"string","enum":["up","down","left","right"]},` + properties + `},"required":["direction"]}`)},
-		{Name: "press_key", Description: "Press a key on the focused field.", Parameters: json.RawMessage(`{"type":"object","properties":{"key":{"type":"string","enum":["enter","backspace"]}},"required":["key"]}`)},
-		{Name: "open_url", Description: openURL, Parameters: json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"]}`)},
-		{Name: "done", Description: "Finish the task.", Parameters: json.RawMessage(`{"type":"object","properties":{"success":{"type":"boolean"},"reason":{"type":"string"}},"required":["success","reason"]}`)},
 	}
-	if platform == IOS {
-		return tools
-	}
-	back := "Press the Android back button."
 	if platform == Web {
-		back = "Go back in browser history."
+		tools = append(tools, ModelTool{Name: "type_focused", Description: "Type into the field that already has focus, without tapping. Clears the field first unless clear is false.", Parameters: json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"},"clear":{"type":"boolean"}},"required":["text"]}`)})
 	}
-	return slices.Insert(tools, 4, ModelTool{Name: "back", Description: back, Parameters: json.RawMessage(`{"type":"object","properties":{}}`)})
+	tools = append(tools,
+		ModelTool{Name: "swipe", Description: "Swipe from a point, or from the screen's center. up moves the finger up, which scrolls content down.", Parameters: json.RawMessage(`{"type":"object","properties":{"direction":{"type":"string","enum":["up","down","left","right"]},` + properties + `},"required":["direction"]}`)},
+		ModelTool{Name: "drag", Description: "Press an element, move it to another place and release, for example to reorder a list or move a slider.", Parameters: json.RawMessage(`{"type":"object","properties":{` + fromProperties + `,` + toProperties + `},"required":[` + fromRequired + `,` + toRequired + `]}`)},
+	)
+	switch platform {
+	case Web:
+		tools = append(tools,
+			ModelTool{Name: "press_key", Description: "Press a key on the focused element, optionally with modifiers held, such as escape, tab, arrowdown, or a with ctrl.", Parameters: json.RawMessage(`{"type":"object","properties":{"key":{"type":"string","description":"One of ` + webKeyNames() + `, or a lowercase letter or digit when modifiers are given."},"modifiers":{"type":"array","items":{"type":"string","enum":["ctrl","shift","alt","meta"]}}},"required":["key"]}`)},
+			ModelTool{Name: "back", Description: "Go back in browser history.", Parameters: noParameters},
+		)
+	case Android:
+		tools = append(tools,
+			ModelTool{Name: "press_key", Description: "Press a key on the focused field.", Parameters: json.RawMessage(`{"type":"object","properties":{"key":{"type":"string","enum":["enter","backspace"]}},"required":["key"]}`)},
+			ModelTool{Name: "back", Description: "Press the Android back button.", Parameters: noParameters},
+			ModelTool{Name: "go_home", Description: "Go to the home screen.", Parameters: noParameters},
+		)
+	default:
+		tools = append(tools,
+			ModelTool{Name: "press_key", Description: "Press a key on the focused field.", Parameters: json.RawMessage(`{"type":"object","properties":{"key":{"type":"string","enum":["enter","backspace"]}},"required":["key"]}`)},
+			ModelTool{Name: "go_home", Description: "Go to the home screen.", Parameters: noParameters},
+		)
+	}
+	return append(tools,
+		ModelTool{Name: "open_url", Description: openURL, Parameters: json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"]}`)},
+		ModelTool{Name: "done", Description: "Finish the task.", Parameters: json.RawMessage(`{"type":"object","properties":{"success":{"type":"boolean"},"reason":{"type":"string"}},"required":["success","reason"]}`)},
+	)
 }
