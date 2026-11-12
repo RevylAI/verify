@@ -91,7 +91,7 @@ const (
 // KeyOptions configures PressKey.
 type KeyOptions struct {
 	// Modifiers are held while the key is pressed: up to four of ModifierCtrl, ModifierShift, ModifierAlt and
-	// ModifierMeta. Web only.
+	// ModifierMeta. Web and Mac computers, where ModifierMeta is Command.
 	Modifiers []KeyModifier
 }
 
@@ -164,10 +164,10 @@ func checkLocation(at Location) (Location, error) {
 }
 
 // Tap taps a point in screenshot pixels, or an element Revyl locates from a description, and returns the point
-// tapped in screenshot pixels.
+// tapped in screenshot pixels. A Mac computer takes only a Point.
 func (s *Session) Tap(ctx context.Context, at Location) (Point, error) {
 	if s.platform.computer() {
-		return Point{}, s.computerAgentUnavailable("Tap")
+		return s.computerTap(ctx, at)
 	}
 	at, err := checkLocation(at)
 	if err != nil {
@@ -246,10 +246,10 @@ func (s *Session) Swipe(ctx context.Context, direction SwipeDirection, options .
 }
 
 // TypeFocused types into the field that already has focus, without tapping, clearing it first unless
-// TypeOptions.Clear is false. Web only; on iOS and Android, use Type.
+// TypeOptions.Clear is false. Web and Mac computers, where Clear must point to false; on iOS and Android, use Type.
 func (s *Session) TypeFocused(ctx context.Context, text string, options ...TypeOptions) error {
 	if s.platform.computer() {
-		return s.computerAgentUnavailable("TypeFocused")
+		return s.computerTypeFocused(ctx, text, options)
 	}
 	if len(options) > 1 {
 		return failure(ErrInvalidArgument, "TypeFocused accepts at most one options value.")
@@ -337,11 +337,12 @@ func (s *Session) Drag(ctx context.Context, from, to Location) error {
 	return err
 }
 
-// PressKey presses a key on the focused element. iOS and Android take KeyEnter and KeyBackspace; Web takes every
-// Key constant and KeyOptions.Modifiers, with which a lowercase letter or digit also works.
+// PressKey presses a key on the focused element. iOS and Android take KeyEnter and KeyBackspace; Web and Mac
+// computers take every Key constant and KeyOptions.Modifiers, with which a lowercase letter or digit also works. On a
+// Mac computer ModifierMeta is Command.
 func (s *Session) PressKey(ctx context.Context, key Key, options ...KeyOptions) error {
 	if s.platform.computer() {
-		return s.computerAgentUnavailable("PressKey")
+		return s.computerPressKey(ctx, key, options)
 	}
 	if len(options) > 1 {
 		return failure(ErrInvalidArgument, "PressKey accepts at most one options value.")
@@ -409,7 +410,7 @@ func (s *Session) LaunchApp(ctx context.Context, bundleID string) error {
 // Locate asks Revyl's grounding model where an element is on the current screen, in screenshot pixels, without acting.
 func (s *Session) Locate(ctx context.Context, target string) (Point, error) {
 	if s.platform.computer() {
-		return Point{}, s.computerAgentUnavailable("Locate")
+		return Point{}, describedUnavailable("Locate")
 	}
 	at, err := checkLocation(Element(target))
 	if err != nil {
@@ -425,7 +426,7 @@ func (s *Session) Locate(ctx context.Context, target string) (Point, error) {
 // ScreenSize returns the screenshot's size in pixels, the space every coordinate uses.
 func (s *Session) ScreenSize(ctx context.Context) (Size, error) {
 	if s.platform.computer() {
-		return Size{}, s.computerAgentUnavailable("ScreenSize")
+		return s.computerScreenSize(ctx)
 	}
 	scale, err := s.readScreenshotSize(ctx, false)
 	return scale.size, err

@@ -155,11 +155,11 @@ export interface OpenedSession extends Session {
   report(): Promise<Record<string, unknown>>;
   navigate(url: string): Promise<void>;
   open(target: HostedTargetConfig): Promise<OpenedSession>;
-  /** Taps a point in screenshot pixels, or an element Revyl locates from a description. Returns the point tapped, in screenshot pixels. Browsers and devices only. */
+  /** Taps a point in screenshot pixels, or an element Revyl locates from a description. Returns the point tapped, in screenshot pixels. A Mac computer takes only a point. */
   tap(at: Location): Promise<Point>;
   /** Taps a text field and types into it, clearing it first unless clear is false. Returns the point tapped. Browsers and devices only. */
   type(at: Location, text: string, options?: { clear?: boolean }): Promise<Point>;
-  /** Types into the field that already has focus, without tapping, replacing its content unless clear is false. Web only; on iOS and Android, use type(location, text). */
+  /** Types into the field that already has focus, without tapping, replacing its content unless clear is false. Web and Mac computers, where clear must be false; on iOS and Android, use type(location, text). */
   typeFocused(text: string, options?: { clear?: boolean }): Promise<void>;
   /** Double-taps a point in screenshot pixels, or an element Revyl locates from a description. Returns the point, in screenshot pixels. Browsers and devices only. */
   doubleTap(at: Location): Promise<Point>;
@@ -169,7 +169,7 @@ export interface OpenedSession extends Session {
   swipe(direction: SwipeDirection, options?: { from?: Location }): Promise<void>;
   /** Presses at one point or element, moves to another and releases. Browsers and devices only. */
   drag(from: Location, to: Location): Promise<void>;
-  /** Presses a key on the focused element. iOS and Android take 'enter' and 'backspace'; Web also takes the other Key names, and modifiers, with which a lowercase letter or digit also works. */
+  /** Presses a key on the focused element. iOS and Android take 'enter' and 'backspace'; Web and Mac computers also take the other Key names, and modifiers, with which a lowercase letter or digit also works. On a Mac computer 'meta' is Command. */
   pressKey(key: Key | string, options?: { modifiers?: KeyModifier[] }): Promise<void>;
   /** Goes back: browser history on Web, the back button on Android. Not on iOS. */
   back(): Promise<void>;
@@ -181,7 +181,7 @@ export interface OpenedSession extends Session {
   launchApp(bundleId: string): Promise<void>;
   /** Asks Revyl's grounding model where an element is on the current screen, in screenshot pixels. Browsers and devices only. */
   locate(target: string): Promise<Point>;
-  /** The screenshot's size in pixels, the space every coordinate uses. Browsers and devices only. */
+  /** The screenshot's size in pixels, the space every coordinate uses. */
   screenSize(): Promise<{ width: number; height: number }>;
 }
 
@@ -1075,7 +1075,7 @@ export function pngSize(bytes: Uint8Array): { width: number; height: number } | 
   return width > 0 && height > 0 ? { width, height } : undefined;
 }
 
-function checkLocation(at: Location): Location {
+export function checkLocation(at: Location): Location {
   if (at && typeof at === 'object' && 'target' in at) {
     if (typeof at.target !== 'string' || at.target.trim() === '' || at.target.length > 500) throw new VerifyError('INVALID_ARGUMENT', 'A target is a description of 1 to 500 characters.');
     return { target: at.target.trim() };

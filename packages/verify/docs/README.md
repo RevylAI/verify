@@ -10,7 +10,7 @@ These files ship inside the npm package at `node_modules/@revyl/verify/docs/`, s
 | [configuration.md](configuration.md) | Look up every option in `verify.config.ts`, the environment variables, and the CLI |
 | [web.md](web.md) | Open a web app in a Revyl cloud browser, and act on it with exact actions |
 | [mobile.md](mobile.md) | Open an iOS or Android app on a Revyl cloud device, and act on it with exact actions |
-| [computers.md](computers.md) | Open a Mac computer for commands, files, processes, screenshots, and optional recording metadata |
+| [computers.md](computers.md) | Open a Mac computer for commands, files, processes, screenshots, clicks and keys on its screen, and optional recording metadata |
 | [ci.md](ci.md) | Call Verify from CI or from a test runner you already use |
 | [own-model.md](own-model.md) | Run instructions and validations on your own model, such as Claude, GPT or a local model |
 | [errors.md](errors.md) | Understand an error code and fix it, or troubleshoot a common problem |

@@ -545,7 +545,7 @@ class Client:
         headers = {
             "Authorization": f"Bearer {self._token}",
             "Accept": "application/json",
-            "User-Agent": "revyl-verify/0.3.0 python",
+            "User-Agent": "revyl-verify/0.4.0 python",
             "X-Revyl-Client": "verify",
         }
         if worker:

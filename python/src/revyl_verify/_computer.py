@@ -12,7 +12,16 @@ from pathlib import Path
 from typing import NoReturn
 from urllib.parse import quote, urlsplit
 
-from ._agent import Key, KeyModifier, LocalAgent, Location, ModelOption, SwipeDirection
+from ._agent import (
+    WEB_KEYS,
+    Key,
+    KeyModifier,
+    LocalAgent,
+    Location,
+    ModelOption,
+    SwipeDirection,
+    check_key,
+)
 from ._cleanup import track, untrack
 from ._models import (
     ComputerProcess,
@@ -20,9 +29,12 @@ from ._models import (
     ExecResult,
     FileStat,
     Platform,
+    Point,
+    ScreenSize,
     Target,
+    text_length,
 )
-from ._session import Session, save_screenshot
+from ._session import Session, _location, png_size, save_screenshot
 from ._transport import (
     Cancellation,
     Client,
@@ -63,8 +75,84 @@ _ERRORS = {
     "operation_limit",
     "screen_starting",
     "screen_unavailable",
+    "screen_control_held",
+    "screen_control_lost",
+    "screen_input_unavailable",
+    "screen_input_uncertain",
+    "screen_key_unsupported",
+    "screen_text_unsupported",
 }
 _AVAILABILITY = "Computers are early access. Ask support@revyl.ai about access."
+_COMPUTER_KEYS: dict[str, str] = {
+    "enter": "Return",
+    "backspace": "BackSpace",
+    "tab": "Tab",
+    "escape": "Escape",
+    "delete": "Delete",
+    "space": "space",
+    "arrowup": "Up",
+    "arrowdown": "Down",
+    "arrowleft": "Left",
+    "arrowright": "Right",
+    "home": "Home",
+    "end": "End",
+    "pageup": "Page_Up",
+    "pagedown": "Page_Down",
+}
+_SCREEN_CALLS = (
+    "For the screen, use screenshot(), tap(Point(x, y)), type_focused(text, clear=False) "
+    "and press_key(); for commands, use exec()."
+)
+_CONTROL_CHARACTER = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f\ud800-\udfff]")
+
+
+def _screen_error(status: int, detail: str | None) -> tuple[str, str] | None:
+    if detail == "screen_control_held":
+        return (
+            "SESSION_BUSY",
+            "Nothing happened: someone else is controlling this computer's screen in the "
+            "viewer (screen_control_held). Try again after they release it; control frees "
+            "itself after 2 minutes without input.",
+        )
+    if status == 409 and detail in {
+        "screen_input_uncertain",
+        "screen_unavailable",
+        "screen_input_unavailable",
+    }:
+        return (
+            "ACTION_UNCERTAIN",
+            f"The screen action may have happened ({detail}). Verify will not repeat it; "
+            "take a screenshot() to check before you do.",
+        )
+    if status == 403:
+        return (
+            "AUTH_REJECTED",
+            "Revyl refused the screen action (forbidden). The API key's owner needs the "
+            "Member role or above in the organization, and CI runner keys can't control "
+            "the screen yet.",
+        )
+    if status == 503 and detail == "authentication_unavailable":
+        return (
+            "API_ERROR",
+            "Nothing happened: Revyl could not confirm your access just now "
+            "(authentication_unavailable). It is safe to try again.",
+        )
+    if detail == "screen_text_unsupported":
+        return (
+            "INVALID_ARGUMENT",
+            "Nothing was typed: this computer can't type some of these characters "
+            "(screen_text_unsupported).",
+        )
+    return None
+
+
+def _described_unavailable(method: str) -> NoReturn:
+    raise VerifyError(
+        "NOT_AVAILABLE_ON_PLATFORM",
+        ("Described taps aren't" if method == "tap" else "locate() isn't")
+        + " available on computers yet. Read the point off screenshot() and pass it to "
+        "tap(Point(x, y)).",
+    )
 
 
 def _invalid() -> VerifyError:
@@ -398,6 +486,17 @@ class ComputerSession(Session):
                 reason=reason,
                 http_status=response.status,
             )
+        if suffix == "/screen/actions":
+            if response.status == 422 and detail == "screen_point_outside":
+                return response
+            screen = _screen_error(response.status, detail)
+            if screen is not None:
+                raise VerifyError(
+                    screen[0],
+                    f"{screen[1]} See {self.viewer_url}",
+                    reason=reason,
+                    http_status=response.status,
+                )
         code = "API_ERROR"
         if response.status in {401, 403}:
             code = "AUTH_REJECTED"
@@ -423,6 +522,15 @@ class ComputerSession(Session):
             f"Revyl refused the computer request ({description}). See {self.viewer_url}",
             reason=reason,
             http_status=response.status,
+        )
+
+    def _screen_action(self, action: dict[str, Json]) -> Response:
+        self._assert_computer_open()
+        return self._request(
+            "POST",
+            "/screen/actions",
+            {"action": action, "screenshot": False},
+            self._observation_deadline(30),
         )
 
     def _report(self, response: Response) -> dict[str, Json]:
@@ -810,14 +918,76 @@ class ComputerSession(Session):
     ) -> NoReturn:
         self._unavailable("validation")
 
-    def tap(self, at: Location) -> NoReturn:
-        self._unavailable("tap")
+    def tap(self, at: Location) -> Point:
+        """Clicks a point in screenshot pixels with the left button. Returns the point."""
+        point = _location(at)
+        if isinstance(point, str):
+            _described_unavailable("tap")
+        if self._screen_action({"action": "click", "x": point.x, "y": point.y}).status == 422:
+            size = self.screen_size()
+            raise VerifyError(
+                "INVALID_ARGUMENT",
+                f"Nothing was clicked: ({point.x}, {point.y}) is outside the screen. x is 0 to "
+                f"{size.width - 1} and y is 0 to {size.height - 1}, in pixels of the image "
+                "screenshot() returns.",
+            )
+        return point
 
     def type(self, at: Location, text: str, *, clear: bool = True) -> NoReturn:
         self._unavailable("type")
 
-    def type_focused(self, text: str, *, clear: bool = True) -> NoReturn:
-        self._unavailable("type_focused")
+    def type_focused(self, text: str, *, clear: bool = True) -> None:
+        """Types into whatever has keyboard focus. Computers can't clear a field: pass
+        clear=False."""
+        if clear is not False:
+            raise VerifyError(
+                "INVALID_ARGUMENT",
+                "On a computer, type_focused() can't clear the field first, so pass clear=False "
+                "to type at the cursor: type_focused(text, clear=False). To replace text, select "
+                "it first, for example with press_key('a', modifiers=['meta']) (Command+A on a "
+                "Mac computer).",
+            )
+        if not isinstance(text, str) or text_length(text) > 16_384:
+            raise VerifyError(
+                "INVALID_ARGUMENT", "type_focused() takes text of at most 16384 characters."
+            )
+        control = _CONTROL_CHARACTER.search(text)
+        if control is not None:
+            raise VerifyError(
+                "INVALID_ARGUMENT",
+                "Nothing was typed: type_focused() on a computer takes newline and tab but no "
+                "other control characters, and the text has one at index "
+                f"{text_length(text[: control.start()])}. Use press_key() for keys such as "
+                "'escape'.",
+            )
+        chunks: list[str] = []
+        chunk = ""
+        for character in text:
+            if len(chunk) == 500 or len((chunk + character).encode()) > 1_500:
+                chunks.append(chunk)
+                chunk = ""
+            chunk += character
+        if chunk:
+            chunks.append(chunk)
+        typed = 0
+        for part in chunks:
+            try:
+                self._screen_action({"action": "type", "text": part})
+            except VerifyError as error:
+                if len(chunks) == 1:
+                    raise
+                sent = (
+                    "may have been typed" if error.code == "ACTION_UNCERTAIN" else "were not typed"
+                )
+                raise VerifyError(
+                    error.code,
+                    f"type_focused() typed the first {typed} of {text_length(text)} characters; "
+                    f"the next {text_length(part)} {sent}, and nothing after them was. "
+                    f"{error.message}",
+                    reason=error.reason,
+                    http_status=error.http_status,
+                ) from error
+            typed += text_length(part)
 
     def double_tap(self, at: Location) -> NoReturn:
         self._unavailable("double_tap")
@@ -831,8 +1001,13 @@ class ComputerSession(Session):
     def drag(self, start: Location, end: Location) -> NoReturn:
         self._unavailable("drag")
 
-    def press_key(self, key: Key | str, *, modifiers: Sequence[KeyModifier] = ()) -> NoReturn:
-        self._unavailable("press_key")
+    def press_key(self, key: Key | str, *, modifiers: Sequence[KeyModifier] = ()) -> None:
+        """Presses a key with modifiers held. 'meta' is the Command key on a Mac computer, and
+        'alt' is Option."""
+        name, checked = check_key("web", key, modifiers)
+        keys = ["cmd" if modifier == "meta" else modifier for modifier in dict.fromkeys(checked)]
+        keys.append(_COMPUTER_KEYS[name] if name in WEB_KEYS else name)
+        self._screen_action({"action": "key", "keys": "+".join(keys)})
 
     def back(self) -> NoReturn:
         self._unavailable("back")
@@ -850,16 +1025,17 @@ class ComputerSession(Session):
         self._unavailable("launch_app")
 
     def locate(self, target: str) -> NoReturn:
-        self._unavailable("locate")
+        _described_unavailable("locate")
 
-    def screen_size(self) -> NoReturn:
-        self._unavailable("screen_size")
+    def screen_size(self) -> ScreenSize:
+        """The screenshot's size in pixels, the space tap() uses."""
+        width, height = png_size(self.screenshot())
+        return ScreenSize(width, height)
 
     def _unavailable(self, method: str) -> NoReturn:
         raise VerifyError(
             "NOT_AVAILABLE_ON_PLATFORM",
-            f"{method}() is not available on computers; use exec() and file operations. "
-            f"See {self.viewer_url}",
+            f"{method}() is not available on computers. {_SCREEN_CALLS} See {self.viewer_url}",
         )
 
     def close(self) -> None:

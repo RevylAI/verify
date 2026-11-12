@@ -7,14 +7,17 @@ import type { ComputerCommand, ComputerCommandResponse, ComputerPlatform, Comput
 import { trackSession, untrackSession } from './cleanup.js';
 import { validateHostedTarget, type HostedTargetConfig, type ResolvedComputerTarget } from './config.js';
 import { VerifyError, isVerifyError, type VerifyErrorCode } from './errors.js';
-import { DeviceSession, pngSize, type ComputerProcess, type ComputerRecording, type ExecOptions, type ExecResult, type FileStat, type OpenedSession, type OperationOptions, type Session, type SessionOptions, type StepResult } from './session.js';
+import { WEB_KEYS, checkKey, type Key, type KeyModifier, type Location, type Point } from './agent/loop.js';
+import { DeviceSession, checkLocation, pngSize, type ComputerProcess, type ComputerRecording, type ExecOptions, type ExecResult, type FileStat, type OpenedSession, type OperationOptions, type Session, type SessionOptions, type StepResult } from './session.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATES = new Set(['starting', 'active', 'closing', 'stopped', 'failed', 'owner_lost']);
 const MAX_OUTPUT_BYTES = 1_048_576;
 const COMPUTER_AVAILABILITY = 'Computers are early access. Ask support@revyl.ai about access.';
 const COMPUTER_CAPACITY = 'Computer admission was refused because of queued work (including iOS) or the concurrency limit. Verify will not retry the start.';
-const ERROR_CODES = new Set(['computer_not_enabled', 'run_closed', 'inaccessible', 'invalid_handle', 'operation_not_found', 'owner_unavailable', 'invalid_request', 'unauthenticated', 'forbidden', 'runtime_unavailable', 'start_failed', 'computer_limit', 'request_conflict', 'run_conflict', 'evidence_conflict', 'evidence_unavailable', 'authentication_unavailable', 'operation_limit', 'screen_starting', 'screen_unavailable']);
+const ERROR_CODES = new Set(['computer_not_enabled', 'run_closed', 'inaccessible', 'invalid_handle', 'operation_not_found', 'owner_unavailable', 'invalid_request', 'unauthenticated', 'forbidden', 'runtime_unavailable', 'start_failed', 'computer_limit', 'request_conflict', 'run_conflict', 'evidence_conflict', 'evidence_unavailable', 'authentication_unavailable', 'operation_limit', 'screen_starting', 'screen_unavailable', 'screen_control_held', 'screen_control_lost', 'screen_input_unavailable', 'screen_input_uncertain', 'screen_key_unsupported', 'screen_text_unsupported']);
+const COMPUTER_KEYS: Record<Key, string> = { enter: 'Return', backspace: 'BackSpace', tab: 'Tab', escape: 'Escape', delete: 'Delete', space: 'space', arrowup: 'Up', arrowdown: 'Down', arrowleft: 'Left', arrowright: 'Right', home: 'Home', end: 'End', pageup: 'Page_Up', pagedown: 'Page_Down' };
+const SCREEN_CALLS = 'For the screen, use screenshot(), tap({ x, y }), typeFocused(text, { clear: false }) and pressKey(); for commands, use exec().';
 
 export class ComputerSession implements Session {
   readonly platform: ComputerPlatform;
@@ -117,16 +120,49 @@ export class ComputerSession implements Session {
     return this.unavailable('navigate');
   }
 
-  tap(): Promise<never> {
-    return this.unavailable('tap');
+  /** Clicks a point in screenshot pixels with the left button. Returns the point clicked. */
+  async tap(at: Location): Promise<Point> {
+    const location = checkLocation(at);
+    if ('target' in location) throw describedUnavailable('tap');
+    const { x, y } = location;
+    if ((await this.act({ action: 'click', x, y })).status === 422) {
+      const { width, height } = await this.screenSize();
+      throw new VerifyError('INVALID_ARGUMENT', `Nothing was clicked: (${x}, ${y}) is outside the screen. x is 0 to ${width - 1} and y is 0 to ${height - 1}, in pixels of the image screenshot() returns.`);
+    }
+    return { x, y };
   }
 
   type(): Promise<never> {
     return this.unavailable('type');
   }
 
-  typeFocused(): Promise<never> {
-    return this.unavailable('typeFocused');
+  /** Types into whatever has keyboard focus. Computers can't clear a field, so pass { clear: false }. */
+  async typeFocused(text: string, options: { clear?: boolean } = {}): Promise<void> {
+    if (options.clear !== false) throw new VerifyError('INVALID_ARGUMENT', "On a computer, typeFocused() can't clear the field first, so pass { clear: false } to type at the cursor: typeFocused(text, { clear: false }). To replace text, select it first, for example with pressKey('a', { modifiers: ['meta'] }) (Command+A on a Mac computer).");
+    if (typeof text !== 'string' || text.length > 16_384) throw new VerifyError('INVALID_ARGUMENT', 'typeFocused() takes text of at most 16384 characters.');
+    const control = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.exec(text);
+    if (control) throw new VerifyError('INVALID_ARGUMENT', `Nothing was typed: typeFocused() on a computer takes newline and tab but no other control characters, and the text has one at index ${control.index}. Use pressKey() for keys such as 'escape'.`);
+    const chunks: string[] = [];
+    let chunk = '';
+    for (const character of text) {
+      if ([...chunk].length === 500 || Buffer.byteLength(chunk + character) > 1_500) {
+        chunks.push(chunk);
+        chunk = '';
+      }
+      chunk += character;
+    }
+    if (chunk) chunks.push(chunk);
+    let typed = 0;
+    for (const part of chunks) {
+      try {
+        await this.act({ action: 'type', text: part });
+      } catch (error) {
+        if (chunks.length === 1 || !isVerifyError(error)) throw error;
+        const sent = error.code === 'ACTION_UNCERTAIN' ? 'may have been typed' : 'were not typed';
+        throw new VerifyError(error.code, `typeFocused() typed the first ${typed} of ${text.length} characters; the next ${part.length} ${sent}, and nothing after them was. ${error.message}`, { cause: error, reason: error.reason, httpStatus: error.httpStatus });
+      }
+      typed += part.length;
+    }
   }
 
   doubleTap(): Promise<never> {
@@ -145,8 +181,12 @@ export class ComputerSession implements Session {
     return this.unavailable('drag');
   }
 
-  pressKey(): Promise<never> {
-    return this.unavailable('pressKey');
+  /** Presses a key with modifiers held. 'meta' is the Command key on a Mac computer, and 'alt' is Option. */
+  async pressKey(key: Key | string, options: { modifiers?: KeyModifier[] } = {}): Promise<void> {
+    const checked = checkKey('web', key, options.modifiers ?? []);
+    const name = checked.key in WEB_KEYS ? COMPUTER_KEYS[checked.key as Key] : checked.key;
+    const modifiers = [...new Set(checked.modifiers)].map((modifier) => (modifier === 'meta' ? 'cmd' : modifier));
+    await this.act({ action: 'key', keys: [...modifiers, name].join('+') });
   }
 
   back(): Promise<never> {
@@ -166,11 +206,13 @@ export class ComputerSession implements Session {
   }
 
   locate(): Promise<never> {
-    return this.unavailable('locate');
+    return Promise.reject(describedUnavailable('locate'));
   }
 
-  screenSize(): Promise<never> {
-    return this.unavailable('screenSize');
+  /** The screenshot's size in pixels, the space tap() uses. */
+  async screenSize(): Promise<{ width: number; height: number }> {
+    const { width, height } = pngSize(await this.screenshot())!;
+    return { width, height };
   }
 
   get expiresAt(): Date | undefined {
@@ -414,6 +456,14 @@ export class ComputerSession implements Session {
       throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `Revyl refused the computer request (${detail}). ${COMPUTER_AVAILABILITY} See ${this.viewerUrl}`, refusal);
     }
     if (response.status === 429 && detail === 'computer_limit') throw new VerifyError('COMPUTER_LIMIT', `${COMPUTER_CAPACITY} See ${this.viewerUrl}`, refusal);
+    if (suffix === '/screen/actions') {
+      if (response.status === 422 && detail === 'screen_point_outside') return response;
+      if (detail === 'screen_control_held') throw new VerifyError('SESSION_BUSY', `Nothing happened: someone else is controlling this computer's screen in the viewer (screen_control_held). Try again after they release it; control frees itself after 2 minutes without input. See ${this.viewerUrl}`, refusal);
+      if (response.status === 409 && (detail === 'screen_input_uncertain' || detail === 'screen_unavailable' || detail === 'screen_input_unavailable')) throw new VerifyError('ACTION_UNCERTAIN', `The screen action may have happened (${detail}). Verify will not repeat it; take a screenshot() to check before you do. See ${this.viewerUrl}`, refusal);
+      if (response.status === 403) throw new VerifyError('AUTH_REJECTED', `Revyl refused the screen action (forbidden). The API key's owner needs the Member role or above in the organization, and CI runner keys can't control the screen yet. See ${this.viewerUrl}`, refusal);
+      if (response.status === 503 && detail === 'authentication_unavailable') throw new VerifyError('API_ERROR', `Nothing happened: Revyl could not confirm your access just now (authentication_unavailable). It is safe to try again. See ${this.viewerUrl}`, refusal);
+      if (detail === 'screen_text_unsupported') throw new VerifyError('INVALID_ARGUMENT', `Nothing was typed: this computer can't type some of these characters (screen_text_unsupported). See ${this.viewerUrl}`, refusal);
+    }
     let code: VerifyErrorCode = 'API_ERROR';
     if (response.status === 401 || response.status === 403) code = 'AUTH_REJECTED';
     else if (detail === 'run_closed') code = 'SESSION_ENDED';
@@ -426,6 +476,11 @@ export class ComputerSession implements Session {
     else if (method === 'POST' && (response.status >= 500 || response.status < 400)) code = 'ACTION_UNCERTAIN';
     const reason = detail && ERROR_CODES.has(detail) ? detail : `HTTP ${response.status}`;
     throw new VerifyError(code, `Revyl refused the computer request (${reason}). See ${this.viewerUrl}`, refusal);
+  }
+
+  private act(action: Record<string, unknown>): Promise<RawResponse> {
+    this.assertOpen();
+    return this.request('POST', '/screen/actions', { action, screenshot: false }, this.observationSignal(30_000));
   }
 
   private parseReport(response: RawResponse): ComputerReport {
@@ -445,7 +500,7 @@ export class ComputerSession implements Session {
   }
 
   private unavailable(method: string): Promise<never> {
-    return Promise.reject(new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `${method}() is not available on computers; use exec() and file operations. See ${this.viewerUrl}`));
+    return Promise.reject(new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `${method}() is not available on computers. ${SCREEN_CALLS} See ${this.viewerUrl}`));
   }
 
   private log(line: string): void {
@@ -459,6 +514,10 @@ export function computerOperationId(sessionId: string, requestId: string): strin
   hash[8] = (hash[8]! & 0x3f) | 0x80;
   const hex = hash.subarray(0, 16).toString('hex');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function describedUnavailable(method: 'tap' | 'locate'): VerifyError {
+  return new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `${method === 'tap' ? "Described taps aren't" : "locate() isn't"} available on computers yet. Read the point off screenshot() and pass it to tap({ x, y }).`);
 }
 
 function operationTimeout(options: OperationOptions): number {

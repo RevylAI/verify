@@ -37,23 +37,23 @@ try {
 
 | Code | What happened | What to do |
 | --- | --- | --- |
-| `INVALID_ARGUMENT` | A call got a bad value: an unknown target name, an empty step, two steps at once on one session, a point outside the screenshot | The message names the argument |
+| `INVALID_ARGUMENT` | A call got a bad value: an unknown target name, an empty step, two steps at once on one session, a point outside the screenshot, `typeFocused` on a computer without `{ clear: false }` | The message names the argument |
 | `CONFIG_NOT_FOUND` | `open('name')` found no `verify.config.ts` at or above the current folder | Run `npx @revyl/verify init`, pass `options.config`, or pass a target object |
 | `CONFIG_INVALID` | The config failed validation or did not load | The message names the exact option and the rule |
 | `AUTH_MISSING` | No `REVYL_API_KEY` and no saved login | Run `npx @revyl/verify login` in a terminal, or set `REVYL_API_KEY` |
-| `AUTH_REJECTED` | Revyl rejected the credentials | Create a new API key, or log in again |
+| `AUTH_REJECTED` | Revyl rejected the credentials, or refused a computer screen action with HTTP 403 | Create a new API key, or log in again. For a screen action, the key's owner needs the Member role or above, and CI runner keys can't control the screen yet |
 | `EDGE_BLOCKED` | An HTTP 403 has a `text/html` content type and nonempty `cf-ray`, without a valid JSON body | Check network access or contact support; Verify does not retry the request |
 | `API_ERROR` | Revyl returned an unexpected response | Try again; after an exact action, check the session first, since the action may have run. If it persists, report it with the session link |
 | `SESSION_START_FAILED` | The browser, device, or computer did not start | Computer `no_host` reports the 120-second unclaimed-start context; `device_limit` reports queued-work/concurrency context. Inspect the session and cleanup before starting again. |
 | `SESSION_ENDED` | The session was closed, stopped, or expired, or Revyl answered 404 for the session itself | Close explicitly; computer expiry does not prove release |
-| `SESSION_BUSY` | A step conflict, computer operation limit, or recording requested before terminal state and confirmed release | Inspect the state before another call; a terminal computer alone does not prove release |
+| `SESSION_BUSY` | A step conflict, computer operation limit, someone controlling a computer's screen in the Revyl viewer, or recording requested before terminal state and confirmed release | Inspect the state before another call; a terminal computer alone does not prove release |
 | `COMPUTER_LIMIT` | Computer admission was refused due to queued work (including iOS) or the concurrency limit | Wait for capacity; Verify does not retry or stop a definitely refused start |
 | `NOT_AVAILABLE_ON_PLATFORM` | The call is unavailable: computer agent steps, device shell/file/recording methods, an exact action the platform lacks (such as `back()` on iOS, `goHome()` or `launchApp()` on Web, `typeFocused()` or keys other than Enter and Backspace on iOS and Android), computer access or runtime unavailable, or a backend without web steps | See [web.md](web.md) and [computers.md](computers.md#availability-and-errors) |
 | `COMMAND_FAILED` | A computer command exited nonzero | Read its reason; use `exec(argv, { check: false })` to inspect the exit code and output instead |
 | `NOT_FOUND` | A computer file or resource was not found | Check the workspace-relative path |
 | `ACCESS_DENIED` | The computer refused access | Check permissions; do not assume host/root access |
 | `ACTION_FAILED` | Revyl refused or failed a request on the session | Read the reason in the message |
-| `ACTION_UNCERTAIN` | The connection failed mid-request, so the step may or may not have run | Verify does not repeat it; check the session link before deciding what to do |
+| `ACTION_UNCERTAIN` | The connection failed mid-request, or Revyl couldn't confirm a computer screen action, so the step may or may not have run | Verify does not repeat it; check the session link before deciding what to do |
 | `INSTRUCTION_FAILED` | Revyl's agent could not do what the instruction asked | Make the instruction more specific, or split it into smaller steps |
 | `VALIDATION_FAILED` | The validation did not hold | The message has Revyl's reason; watch the recording at the session link |
 | `STEP_FAILED` | Revyl could not run the step to an outcome: it errored, it was cancelled on Revyl, a validation came back without a verdict, or Revyl accepted the step but still answered "Live step not found" about 10 seconds later (`httpStatus` 404). This says nothing about your app, and `soft` does not cover it. Verify leaves the session open. | Watch the session at the link. After "Live step not found", the step may still be running, so wait for it to finish (another step meanwhile gets `SESSION_BUSY`), then run the step again |
@@ -65,9 +65,22 @@ try {
 
 Computer operations use `TIMEOUT` for bounded runtime with confirmed termination, and `ACTION_UNCERTAIN` when termination, execution, or cleanup is unconfirmed. An observed successful operation can return its result while logging pending/failed evidence. Timeout never proves rollback, and failed evidence does not prove the command never ran. Never automatically retry a mutation with a fresh request id; inspect the computer first. See [computers.md](computers.md).
 
+### Computer screen actions
+
+Clicks, typing and keys on a Mac computer's screen map Revyl's answers to these codes. Verify never repeats a screen action. See [computers.md](computers.md#screen).
+
+| Revyl's answer | `code` | What it means |
+| --- | --- | --- |
+| 409 `screen_control_held` | `SESSION_BUSY` | Nothing happened: someone controls the screen in the viewer. Try again after they release it; control frees itself after 2 minutes without input |
+| 422 `screen_point_outside` | `INVALID_ARGUMENT` | Nothing was clicked: the point is past the screen's edge. The message names the valid range |
+| `screen_text_unsupported` | `INVALID_ARGUMENT` | Nothing was typed: the computer can't type some of the characters |
+| 409 `screen_input_uncertain`, or `screen_unavailable` or `screen_input_unavailable` on an action | `ACTION_UNCERTAIN` | The action may have happened. Take a `screenshot()` before you do it again |
+| 403 | `AUTH_REJECTED` | The key's owner needs the Member role or above; CI runner keys can't control the screen yet |
+| 503 `authentication_unavailable` | `API_ERROR` | Nothing happened: Revyl couldn't check the key. It is safe to try again |
+
 ## Troubleshooting
 
-- **`NOT_AVAILABLE_ON_PLATFORM`:** the requested method is not available for that target. Computer targets do not run instruction or validation steps; Web and mobile targets do not expose computer commands or files.
+- **`NOT_AVAILABLE_ON_PLATFORM`:** the requested method is not available for that target. Computer targets do not run instruction or validation steps or described taps; Web and mobile targets do not expose computer commands or files.
 - **`COMPUTER_LIMIT`:** computer admission was refused because of queued work or a concurrency limit. Verify does not retry creation or stop a definitely refused start.
 - **Blank first screen:** mobile startup uses a bounded, best-effort blank-frame observation, not a rendered-readiness guarantee. Begin with an instruction that reaches the screen your workflow needs. See [mobile.md](mobile.md#steps).
 - **A validation report looks successful but the assertion failed:** inspect each step's `effective_status` and `validation_result`, and compare `validations_passed` with `total_validations` rather than transport counters. See [reading the verdict](end-to-end.md#reading-the-verdict).

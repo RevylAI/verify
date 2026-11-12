@@ -1,6 +1,6 @@
 # Mac computers (early access)
 
-Verify opens a Revyl cloud macOS computer for commands, files, processes, and screenshots. It does not open an assigned physical computer. Mac computers are **early access**. Ask [support@revyl.ai](mailto:support@revyl.ai) about access.
+Verify opens a Revyl cloud macOS computer for commands, files, processes, screenshots, and clicks and keys on its screen. It does not open an assigned physical computer. Mac computers are **early access**. Ask [support@revyl.ai](mailto:support@revyl.ai) about access.
 
 ```bash
 export REVYL_API_KEY=...
@@ -47,6 +47,55 @@ Paths are relative to the computer's workspace: no leading slash, empty componen
 
 Operation `timeout` is milliseconds, defaults to 30,000, and must be an integer from 1 to 300,000. It is also bounded by the run's remaining lifetime. A computer has a hard lifetime **from create** (two hours today; `expiresAt` is authoritative), not from readiness or last activity; `idleTimeoutSeconds` and the agent `stepTimeout` do not configure computer lifetime or commands. `expiresAt` is a `Date` when the API returns `expires_at`, and otherwise undefined (including on devices and older APIs). Verify refuses new operations after that deadline and bounds operation/screenshot observation by it; expiry does not prevent explicit close or recording retrieval. Revyl allows at most 256 operations per run.
 
+## Screen
+
+**Early access**, since TypeScript 0.6.0, Python 0.4.0 and Go v0.5.0. A script can click, type and press keys on the computer's screen at points it reads off `screenshot()`:
+
+```ts
+import { open } from '@revyl/verify';
+
+const computer = await open({ platform: 'mac', startTimeout: 600_000 });
+try {
+  await computer.writeFile('notes.txt', 'Notes\n');
+  await computer.exec(['open', '-a', 'TextEdit', 'notes.txt']);   // exec runs in the workspace
+  await new Promise((resolve) => setTimeout(resolve, 3_000));      // let the window open
+  await computer.screenshot({ path: '.verify/mac.png' });           // open it and find the text
+  await computer.tap({ x: 400, y: 300 });                           // the point as you read it
+  await computer.typeFocused('First line\nSecond line', { clear: false });
+  await computer.pressKey('a', { modifiers: ['meta'] });            // Command+A selects all
+  await computer.typeFocused('Replacement', { clear: false });      // typing replaces the selection
+  await computer.screenshot({ path: '.verify/mac-after.png' });
+} finally {
+  await computer.close();
+}
+```
+
+| Call | What it does |
+| --- | --- |
+| `screenshot({ path? })` | A PNG of the whole screen. Its pixels are the coordinates the other calls take |
+| `screenSize()` | The screenshot's `{ width, height }`: x is 0 to width - 1, y is 0 to height - 1 |
+| `tap({ x, y })` | Clicks the point with the left button and resolves with it. Whole numbers from the top-left corner of the screenshot |
+| `typeFocused(text, { clear: false })` | Types the text where the cursor is, in the app that has focus. `{ clear: false }` is required, because Verify doesn't clear anything first: to replace text, select it with `pressKey('a', { modifiers: ['meta'] })` and type over it. Up to 16,384 characters, including line breaks (`\n`) and tabs (`\t`); other control characters are refused before anything is typed. Long text goes in pieces of up to 500 characters, in order |
+| `pressKey(key, { modifiers })` | Presses a key: `'enter'`, `'backspace'`, `'tab'`, `'escape'`, `'delete'`, `'space'`, `'arrowup'`, `'arrowdown'`, `'arrowleft'`, `'arrowright'`, `'home'`, `'end'`, `'pageup'` or `'pagedown'`, with up to four `modifiers`: `'meta'` (Command), `'ctrl'`, `'alt'` (Option) and `'shift'`. With modifiers a lowercase letter or digit works too, so Command+A is `pressKey('a', { modifiers: ['meta'] })`. On Web the shortcut key is `'ctrl'` instead |
+
+Described taps (`tap({ target })`) and `locate()` aren't available on computers yet, nor are `doubleTap`, `longPress`, `type(location, text)`, `swipe`, `drag`, `back`, `goHome`, `openUrl` and `launchApp`. They throw `NOT_AVAILABLE_ON_PLATFORM` before anything is sent; open apps and files with `exec()`, such as `exec(['open', '-a', 'TextEdit', 'notes.txt'])`. Open a file rather than the bare app: TextEdit opened without a file may show a file picker instead of a document.
+
+Each call returns when Revyl has accepted the action, not when the app has finished reacting, so take a screenshot before you rely on what changed. Verify never repeats a screen action. Window positions and the desktop size aren't fixed, so for a script that runs unattended, run it once up to the screenshot, read the points off that image, and then write them into the script.
+
+A script that controls the screen keeps control for 120 seconds after its last action. During that time a teammate can't take control of the screen in the Revyl viewer. The other way round, while someone controls the screen in the viewer, the script's actions throw `SESSION_BUSY`.
+
+| What happened | Error | What to do |
+| --- | --- | --- |
+| A point past the screen's edge (`screen_point_outside`), or a negative or fractional one | `INVALID_ARGUMENT`, and nothing was clicked | The message names the valid range |
+| `typeFocused` without `{ clear: false }`, with control characters other than `\n` and `\t`, or with more than 16,384 characters | `INVALID_ARGUMENT` before anything is sent | The message says how to fix the call |
+| The computer can't type some of the characters (`screen_text_unsupported`) | `INVALID_ARGUMENT`, and nothing was typed | Type those characters another way, such as writing a file with `writeFile` |
+| Someone controls the screen in the viewer (`screen_control_held`) | `SESSION_BUSY`, and nothing happened | Try again after they release it; control frees itself after 2 minutes without input |
+| Revyl can't confirm the action (`screen_input_uncertain`, `screen_unavailable` or `screen_input_unavailable`) | `ACTION_UNCERTAIN` | It may have happened. Take a `screenshot()` before you do it again |
+| The API key may not control the screen (HTTP 403) | `AUTH_REJECTED` | The key's owner needs the Member role or above. CI runner keys can't control the screen yet |
+| Revyl couldn't check the key (HTTP 503 `authentication_unavailable`) | `API_ERROR`, and nothing happened | It is safe to try again |
+
+When long text fails part way, the error says how many characters were certainly typed and whether the piece that failed may have been typed.
+
 ## Recording metadata
 
 After terminal state **and** confirmed release, `await computer.recording()` returns `{ url, durationSeconds?, startedAt? }` or `null` if the recording is unavailable or still processing. `durationSeconds` is a finite nonnegative number; `startedAt` is a `Date`. Missing or nullable optional fields are omitted. Calling before terminal state and confirmed release throws `SESSION_BUSY`; Verify does not wait for the recording or download it. The method works after `close()` and checks the report before requesting the recording.
@@ -59,7 +108,7 @@ Mac computers are early access. A `503 runtime_unavailable` or typed `computer_n
 
 The default `startTimeout` remains 600000 ms; override it explicitly if needed. An unclaimed start can transition to `failed` with `failure_reason: 'no_host'` after 120 seconds from create. Verify stops readiness polling and throws `SESSION_START_FAILED` with that context, then attempts bounded cleanup. This is not a 120-second timeout for every start: claimed guests may take longer. `device_limit` also yields `SESSION_START_FAILED`, with queued-work/concurrency context. A start timeout or unconfirmed close does not prove resources were released. Inspect the session and contact support rather than blindly repeating a start or stop.
 
-`instruction()` and `validation()` throw `NOT_AVAILABLE_ON_PLATFORM` on computers without sending agent requests. Screenshots are supported, but screenshot readiness is separate from command readiness. Agent control of the screen is not part of this release. On web, iOS, and Android, shell/file/process methods throw `NOT_AVAILABLE_ON_PLATFORM`.
+`instruction()` and `validation()` throw `NOT_AVAILABLE_ON_PLATFORM` on computers without sending agent requests. Screenshots are supported, but screenshot readiness is separate from command readiness. For the screen, use the calls in [Screen](#screen). On web, iOS, and Android, shell/file/process methods throw `NOT_AVAILABLE_ON_PLATFORM`.
 
 For the first 30 seconds after a computer becomes active, `screenshot()` retries exact structured `screen_unavailable` responses (HTTP 409 or 503) and `screen_starting` (HTTP 409). Backoff starts at 500 ms and doubles up to 2 seconds; the fixed window does not restart on each call. Cancellation, close, expiry, and the observation deadline still bound the wait. Exhausting that window yields `SESSION_BUSY` with a desktop-not-ready message, rather than requiring a caller sleep. Authentication failures, unrelated errors, malformed responses, and transport failures are not replayed. Commands and other mutations are never retried by this screenshot behavior.
 

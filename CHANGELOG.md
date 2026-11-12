@@ -1,6 +1,28 @@
 # Changelog
 
-## 0.5.0 (unreleased)
+## 0.6.0 (unreleased)
+
+- Early access: a Mac computer's screen. `tap({ x, y })` clicks a point in screenshot pixels and resolves with it, `screenSize()` returns the screenshot's size, `typeFocused(text, { clear: false })` types where the cursor is, and `pressKey(key, { modifiers })` takes the Web keys and modifiers, where `'meta'` is Command and `'alt'` is Option, as in `pressKey('a', { modifiers: ['meta'] })` to select all.
+- `typeFocused` on a computer requires `{ clear: false }` and throws `INVALID_ARGUMENT` without it, naming the fix. It takes up to 16,384 characters, with line breaks and tabs; other control characters are refused before anything is sent. Text over 500 characters goes in pieces, in order, and a failure part way says how many characters were certainly typed and whether the failed piece may have been.
+- A point past the screen's edge throws `INVALID_ARGUMENT` naming the valid range, and nothing is clicked; negative and fractional points are refused before anything is sent. There is no extra request per click.
+- Screen errors: someone controlling the screen in the Revyl viewer (`screen_control_held`) throws `SESSION_BUSY` and nothing happened; an action Revyl can't confirm (`screen_input_uncertain`, `screen_unavailable`, `screen_input_unavailable`) throws `ACTION_UNCERTAIN`; a 403 throws `AUTH_REJECTED` saying the key's owner needs the Member role or above and CI runner keys can't control the screen yet; a 503 `authentication_unavailable` throws `API_ERROR` and is safe to retry. Verify never repeats a screen action.
+- Described taps (`tap({ target })`) and `locate()` aren't available on computers yet, nor are the other exact actions. They throw `NOT_AVAILABLE_ON_PLATFORM` before anything is sent, naming `tap({ x, y })`, `typeFocused`, `pressKey` and `exec()`.
+- Every other call sends the same requests as 0.5.0.
+- Docs: a Screen section in `computers.md`, the platform table, `api.md`, `errors.md`, `agents.md` and `llms.txt`. The Web docs say `'meta'` is not the shortcut key there; use `'ctrl'`.
+
+## Go 0.5.0 (unreleased)
+
+Published as the `go/v0.5.0` tag.
+
+- Early access: a Mac computer's screen, as in TypeScript 0.6.0. `Tap(ctx, verify.Point{X, Y})`, `ScreenSize(ctx)`, `TypeFocused(ctx, text, TypeOptions{Clear})` with `Clear` pointing to `false`, and `PressKey(ctx, key, KeyOptions{Modifiers})`, where `ModifierMeta` is Command. Leaving `Clear` unset returns `ErrInvalidArgument` naming the fix.
+- The same limits, errors and refusals as TypeScript 0.6.0: `ErrSessionBusy` for `screen_control_held`, `ErrActionUncertain` for an action Revyl can't confirm, `ErrAuthRejected` for a 403, and `ErrNotAvailableOnPlatform` before any request for `Element` taps, `Locate` and the other exact actions. Every other call sends the same requests as v0.4.0.
+
+## Python 0.4.0 (unreleased)
+
+- Early access: a Mac computer's screen, as in TypeScript 0.6.0. `tap(Point(x, y))`, `screen_size()`, `type_focused(text, clear=False)` and `press_key(key, modifiers=[...])`, where `"meta"` is Command. Leaving `clear` out raises `INVALID_ARGUMENT` naming the fix. `AsyncSession` has the same methods.
+- The same limits, errors and refusals as TypeScript 0.6.0, and every other call sends the same requests as 0.3.0.
+
+## 0.5.0 (2026-11-12)
 
 - Early access: more exact actions on Web, iOS and Android. `doubleTap(at)` double-taps (double-clicks on Web), `longPress(at, { duration })` presses and holds for `duration` milliseconds (1 to 5000, 1500 by default), and `drag(from, to)` presses at one location, moves to the other and releases. They take a description or screenshot pixels like `tap`, and `doubleTap` and `longPress` resolve with the point.
 - Web: `typeFocused(text, { clear })` types into the field that already has focus, without clicking, and replaces its text unless `clear` is `false`, the same default as `type()`. `pressKey` also takes `'tab'`, `'escape'`, `'delete'`, `'space'`, `'arrowup'`, `'arrowdown'`, `'arrowleft'`, `'arrowright'`, `'home'`, `'end'`, `'pageup'` and `'pagedown'`, and `{ modifiers }`: up to four of `'ctrl'`, `'shift'`, `'alt'` and `'meta'`, with which a lowercase letter or digit works too, as in `pressKey('a', { modifiers: ['ctrl'] })`. The `Key` and `KeyModifier` types are exported.
@@ -10,7 +32,7 @@
 - Every existing call sends the same requests as 0.4.1. Your own model choosing `open_url` with a deep link on Web gets the `openUrl()` wording.
 - Docs: the platform table, `api.md`, the web and mobile guides with a script for the new calls, `agents.md` and `llms.txt`.
 
-## Go 0.4.0 (unreleased)
+## Go 0.4.0 (2026-11-12)
 
 Published as the `go/v0.4.0` tag.
 
@@ -20,7 +42,7 @@ Published as the `go/v0.4.0` tag.
 - A call the platform lacks returns `ErrNotAvailableOnPlatform` before anything is sent, naming the alternative. Your own model can choose the new actions with both groundings, so it sees more tools; the tools it had send the same requests as v0.3.1, as does every existing call.
 - `ErrInstructionFailed` names the step and the reason, as TypeScript does: `Instruction failed: "<text>". <reason> See <link>`. The uncertain-action message says "The step deadline passed". Your own model choosing `open_url` with a deep link on Web gets the `OpenURL` wording.
 
-## Python 0.3.0 (unreleased)
+## Python 0.3.0 (2026-11-12)
 
 - Early access: more exact actions on Web, iOS and Android, as in TypeScript 0.5.0. `double_tap(at)` and `long_press(at, duration=None)` return the point; `duration` is seconds, 0.001 to 5 in whole milliseconds, 1.5 by default. `drag(start, end)` presses, moves and releases.
 - Web: `type_focused(text, clear=True)` types into the field that already has focus and replaces its text unless `clear` is `False`. `press_key(key, modifiers=())` adds `"tab"`, `"escape"`, `"delete"`, `"space"`, the arrows, `"home"`, `"end"`, `"pageup"` and `"pagedown"`, and modifiers (`"ctrl"`, `"shift"`, `"alt"`, `"meta"`), with which a lowercase letter or digit works too. `Key` and `KeyModifier` are exported.
