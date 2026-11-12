@@ -105,6 +105,20 @@ _SCREEN_CALLS = (
     'For the screen, use screenshot(), tap(Point(x, y)) or tap("description"), '
     "type_focused(text, clear=False) and press_key(); for commands, use exec()."
 )
+_REFUSAL_NEXT_STEPS: dict[str, str] = {
+    "AUTH_REJECTED": "Check that REVYL_API_KEY is a current key and that its owner has the "
+    "Member role or above in this computer's organization.",
+    "SESSION_ENDED": "This computer has stopped; start a new computer to continue.",
+    "NOT_FOUND": "Check that the id is right and that REVYL_API_KEY belongs to the "
+    "organization that started this computer.",
+    "ACTION_UNCERTAIN": "The request may have taken effect. Verify will not repeat it; check "
+    "the computer's state before you do.",
+    "INVALID_ARGUMENT": "Check the call's arguments against the docs; if they match, update "
+    "Verify to the latest version.",
+    "SESSION_START_FAILED": "Start a new computer.",
+    "SESSION_BUSY": "The computer is busy with other work; try again once it finishes.",
+    "API_ERROR": "Try again; if it keeps failing, send this message to support@revyl.ai.",
+}
 _CONTROL_CHARACTER = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f\ud800-\udfff]")
 
 
@@ -157,6 +171,21 @@ def _screen_error(status: int, detail: str | None) -> tuple[str, str] | None:
             "INVALID_ARGUMENT",
             "Nothing was typed: this computer can't type some of these characters "
             "(screen_text_unsupported).",
+        )
+    if detail == "screen_control_lost":
+        return (
+            "SESSION_BUSY",
+            "Nothing happened: control of this computer's screen changed hands before the "
+            "action was sent (screen_control_lost). Try again; if someone is controlling the "
+            "screen in the viewer, wait until they release it, which happens on its own after "
+            "2 minutes without input.",
+        )
+    if detail == "screen_key_unsupported":
+        return (
+            "INVALID_ARGUMENT",
+            "Nothing was pressed: this computer can't press that key (screen_key_unsupported). "
+            "Use a key press_key() lists in the docs, or type_focused() for a printable "
+            "character.",
         )
     return None
 
@@ -453,6 +482,13 @@ class ComputerSession(Session):
                 retry=method == "GET" and suffix != "/screen/screenshot",
             )
         except VerifyError as error:
+            if suffix == "/screen/actions":
+                raise VerifyError(
+                    "ACTION_UNCERTAIN",
+                    "The screen action may have happened: Revyl's answer never arrived. Verify "
+                    "will not repeat it; take a screenshot() to check before you do. "
+                    f"See {self.viewer_url}",
+                ) from error
             if method == "POST" or suffix.startswith("/operations/"):
                 raise VerifyError(
                     "ACTION_UNCERTAIN",
@@ -528,9 +564,25 @@ class ComputerSession(Session):
         ):
             code = "ACTION_UNCERTAIN"
         description = detail if detail in _ERRORS else f"HTTP {response.status}"
+        next_step = _REFUSAL_NEXT_STEPS[code]
+        if suffix == "/screen/actions" and code == "ACTION_UNCERTAIN":
+            next_step = (
+                "The screen action may have happened. Verify will not repeat it; take a "
+                "screenshot() to check before you do."
+            )
+        elif suffix == "/screen/actions" and code == "INVALID_ARGUMENT":
+            next_step = (
+                "Part of the screen action may have run, so take a screenshot() to check the "
+                "screen before you try again."
+            )
+        elif (
+            code == "ACTION_UNCERTAIN" and method == "GET" and not suffix.startswith("/operations/")
+        ):
+            next_step = "Nothing on the computer changed; it is safe to try again."
         raise VerifyError(
             code,
-            f"Revyl refused the computer request ({description}). See {self.viewer_url}",
+            f"Revyl refused the computer request ({description}). {next_step} "
+            f"See {self.viewer_url}",
             reason=reason,
             http_status=response.status,
         )
@@ -557,7 +609,8 @@ class ComputerSession(Session):
             starting = VerifyError(
                 "SESSION_BUSY",
                 "Nothing happened: the computer's screen is still starting (screen_starting). "
-                f"Try again in {math.ceil(wait)} seconds. See {self.viewer_url}",
+                f"Try again in {math.ceil(wait)} second{'' if math.ceil(wait) == 1 else 's'}. "
+                f"See {self.viewer_url}",
                 http_status=409,
             )
             if time.monotonic() + wait >= until:
@@ -962,7 +1015,21 @@ class ComputerSession(Session):
         point = _location(at)
         if isinstance(point, str):
             return self._tap_target(point)
-        if self._screen_action({"action": "click", "x": point.x, "y": point.y}).status == 422:
+        try:
+            response = self._screen_action({"action": "click", "x": point.x, "y": point.y})
+        except VerifyError as error:
+            if error.code == "INVALID_ARGUMENT" and error.http_status == 422:
+                raise VerifyError(
+                    "INVALID_ARGUMENT",
+                    f"Nothing was clicked: the computer refused a click at ({point.x}, "
+                    f"{point.y}). That happens when the point is no longer on its screen, for "
+                    "example after its display size changed. Take a new screenshot() and pick "
+                    f"the point from it. See {self.viewer_url}",
+                    reason=error.reason,
+                    http_status=422,
+                ) from error
+            raise
+        if response.status == 422:
             try:
                 size = self.screen_size()
                 where = (
@@ -1039,6 +1106,7 @@ class ComputerSession(Session):
             chunk += character
         if chunk:
             chunks.append(chunk)
+        total = len(text)
         typed = 0
         for part in chunks:
             try:
@@ -1046,18 +1114,22 @@ class ComputerSession(Session):
             except VerifyError as error:
                 if len(chunks) == 1:
                     raise
-                sent = (
-                    "may have been typed" if error.code == "ACTION_UNCERTAIN" else "were not typed"
+                uncertain = error.code == "ACTION_UNCERTAIN"
+                done = (
+                    f"typed nothing{' for certain' if uncertain else ''}: the first "
+                    f"{len(part)} of {total}"
+                    if typed == 0
+                    else f"typed the first {typed} of {total} characters; the next {len(part)}"
                 )
                 raise VerifyError(
                     error.code,
-                    f"type_focused() typed the first {typed} of {text_length(text)} characters; "
-                    f"the next {text_length(part)} {sent}, and nothing after them was. "
-                    f"{error.message}",
+                    f"type_focused() {done} characters "
+                    f"{'may have been typed' if uncertain else 'were not typed'}, and nothing "
+                    f"after them was. {error.message}",
                     reason=error.reason,
                     http_status=error.http_status,
                 ) from error
-            typed += text_length(part)
+            typed += len(part)
 
     def double_tap(self, at: Location) -> NoReturn:
         self._unavailable("double_tap")

@@ -102,15 +102,19 @@ A script that controls the screen keeps control for 120 seconds after its last a
 | `typeFocused` without `{ clear: false }`, with control characters other than `\n` and `\t`, or with more than 16,384 characters | `INVALID_ARGUMENT` before anything is sent | The message says how to fix the call |
 | The computer can't type some of the characters (`screen_text_unsupported`) | `INVALID_ARGUMENT`, and nothing was typed | Type those characters another way, such as writing a file with `writeFile` |
 | Someone controls the screen in the viewer (`screen_control_held`) | `SESSION_BUSY`, and nothing happened | Try again after they release it; control frees itself after 2 minutes without input |
+| Control of the screen changed hands before the action was sent (`screen_control_lost`) | `SESSION_BUSY`, and nothing happened | Try again; if someone controls the screen in the viewer, wait until they release it |
+| The computer refused a click at a point (`invalid_request` on `tap({ x, y })`), as when the point is no longer on its screen after its display size changed | `INVALID_ARGUMENT`, and nothing was clicked | Take a new screenshot and pick the point from it |
+| The computer refused typing or a key (`invalid_request`) | `INVALID_ARGUMENT`; part of it may have run | Take a `screenshot()` before you try again |
+| The computer can't press that key (`screen_key_unsupported`) | `INVALID_ARGUMENT`, and nothing was pressed | Use a key `pressKey` lists, or `typeFocused` for a printable character |
 | The screen is still starting (`screen_starting`) for more than 30 seconds | `SESSION_BUSY`, and nothing happened | Try again after the number of seconds the message names |
 | Revyl didn't find the described target (`screen_target_not_found`) | `ACTION_FAILED`, and nothing was clicked | Take a screenshot and pass a point to `tap({ x, y })`, or describe the element differently |
 | Revyl couldn't look the target up just then (`screen_target_unavailable`) | `API_ERROR`, and nothing was clicked | It is safe to try again |
 | The backend doesn't have described clicks yet (`invalid_request` on a described tap) | `NOT_AVAILABLE_ON_PLATFORM`, and nothing was clicked | Pass a point to `tap({ x, y })` |
-| Revyl can't confirm the action (`screen_input_uncertain`, `screen_unavailable` or `screen_input_unavailable`, HTTP 409 or 503) | `ACTION_UNCERTAIN` | It may have happened. Take a `screenshot()` before you do it again |
+| Revyl can't confirm the action (`screen_input_uncertain`, `screen_unavailable`, `screen_input_unavailable` or `owner_unavailable`, any other HTTP 5xx, or no answer at all) | `ACTION_UNCERTAIN` | It may have happened. Take a `screenshot()` before you do it again |
 | The API key may not control the screen (HTTP 403) | `AUTH_REJECTED` | The key's owner needs the Member role or above. CI runner keys can't control the screen yet |
 | Revyl couldn't check the key (HTTP 503 `authentication_unavailable`) | `API_ERROR`, and nothing happened | It is safe to try again |
 
-When long text fails part way, the error says how many characters were certainly typed and whether the piece that failed may have been typed.
+When long text fails part way, the error says how many characters were certainly typed and whether the piece that failed may have been typed, counting characters as Unicode code points, so an emoji is one. Every other refusal names its reason and what to do next, such as starting a new computer after `run_closed`.
 
 ## Recording metadata
 

@@ -72,15 +72,21 @@ Clicks, typing and keys on a Mac computer's screen map Revyl's answers to these 
 | Revyl's answer | `code` | What it means |
 | --- | --- | --- |
 | 409 `screen_control_held` | `SESSION_BUSY` | Nothing happened: someone controls the screen in the viewer. Try again after they release it; control frees itself after 2 minutes without input |
+| 409 `screen_control_lost` | `SESSION_BUSY` | Nothing happened: control of the screen changed hands before the action was sent. Try again; if someone controls the screen in the viewer, wait until they release it |
 | 409 `screen_starting` for more than 30 seconds | `SESSION_BUSY` | Nothing happened: the screen is still starting. Try again after the number of seconds the message names |
 | 422 `screen_target_not_found` | `ACTION_FAILED` | Nothing was clicked: Revyl didn't find the described target. A target that isn't there can also be clicked as a look-alike, so check the point `tap({ target })` returns |
 | 503 `screen_target_unavailable` | `API_ERROR` | Nothing was clicked: Revyl couldn't look the target up just then. It is safe to try again |
 | 422 `invalid_request` on a described tap | `NOT_AVAILABLE_ON_PLATFORM` | Nothing was clicked: this backend doesn't have described clicks yet. Pass a point |
 | 422 `screen_point_outside` | `INVALID_ARGUMENT` | Nothing was clicked: the point is past the screen's edge. The message names the valid range |
+| 422 `invalid_request` on a tap at a point | `INVALID_ARGUMENT` | Nothing was clicked: the computer refused the point, as when it is no longer on the screen after the display size changed. Take a new `screenshot()` and pick the point from it |
+| 422 `invalid_request` on typing or a key | `INVALID_ARGUMENT` | Part of the action may have run. Take a `screenshot()` before you try again |
+| 422 `screen_key_unsupported` | `INVALID_ARGUMENT` | Nothing was pressed: the computer can't press that key. Use a key `pressKey` lists, or `typeFocused` for a printable character |
 | `screen_text_unsupported` | `INVALID_ARGUMENT` | Nothing was typed: the computer can't type some of the characters |
-| `screen_input_uncertain`, `screen_unavailable` or `screen_input_unavailable` on an action (409 or 503) | `ACTION_UNCERTAIN` | The action may have happened. Take a `screenshot()` before you do it again |
+| `screen_input_uncertain`, `screen_unavailable`, `screen_input_unavailable` or `owner_unavailable` on an action (409 or 503), any other 5xx, or no answer at all | `ACTION_UNCERTAIN` | The action may have happened. Take a `screenshot()` before you do it again |
 | 403 | `AUTH_REJECTED` | The key's owner needs the Member role or above; CI runner keys can't control the screen yet |
 | 503 `authentication_unavailable` | `API_ERROR` | Nothing happened: Revyl couldn't check the key. It is safe to try again |
+
+Any other refusal of a computer request names its reason and what to do next: `run_closed` (`SESSION_ENDED`) says to start a new computer, `inaccessible` (`NOT_FOUND`) says to check the id and the key's organization, a 401 or 403 (`AUTH_REJECTED`) says to check the key and its owner's role, and an answer Verify can't classify (`API_ERROR`) says to try again.
 
 ## Troubleshooting
 
