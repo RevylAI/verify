@@ -160,6 +160,8 @@ class Session:
         self._agent: LocalAgent | None = None
         self._attribution: dict[str, str] | None = None
         self._size: ScreenSize | None = None
+        self._size_from_health = False
+        self._screenshot_size: tuple[ScreenSize, ScreenSize] | None = None
 
     def _log(self, message: str) -> None:
         if self._log_callback:
@@ -626,19 +628,27 @@ class Session:
             raise VerifyError("ACTION_FAILED", "Revyl did not confirm web navigation.")
 
     def tap(self, at: Location) -> Point:
-        return cast(Point, self._perform(Tap(_location(at))))
+        location = self._to_device(_location(at))
+        if self.platform == "ios":
+            self._read_screenshot_size()
+        return self._to_screenshot(cast(Point, self._perform(Tap(location))))
 
     def type(self, at: Location, text: str, *, clear: bool = True) -> Point:
         if not isinstance(text, str) or text_length(text) > 16_384:
             raise VerifyError("INVALID_ARGUMENT", "type() takes text of at most 16384 characters.")
         if not isinstance(clear, bool):
             raise VerifyError("INVALID_ARGUMENT", "clear must be a boolean.")
-        return cast(Point, self._perform(TypeText(_location(at), text, clear)))
+        location = self._to_device(_location(at))
+        if self.platform == "ios":
+            self._read_screenshot_size()
+        return self._to_screenshot(cast(Point, self._perform(TypeText(location, text, clear))))
 
     def swipe(self, direction: SwipeDirection, *, from_: Location | None = None) -> None:
         if direction not in ("up", "down", "left", "right"):
             raise VerifyError("INVALID_ARGUMENT", "swipe() takes 'up', 'down', 'left' or 'right'.")
-        self._perform(Swipe(direction, None if from_ is None else _location(from_)))
+        self._perform(
+            Swipe(direction, None if from_ is None else self._to_device(_location(from_)))
+        )
 
     def press_key(self, key: Literal["enter", "backspace"]) -> None:
         if key not in ("enter", "backspace"):
@@ -683,10 +693,75 @@ class Session:
         point, _ = self._resolve(
             _location(target), None, Deadline(self._step_timeout, self._cancellation)
         )
-        return point
+        return self._to_screenshot(point)
 
     def screen_size(self) -> ScreenSize:
-        return self._read_screen_size(Deadline(self._step_timeout, self._cancellation))
+        return self._read_screenshot_size()[0]
+
+    def _read_screenshot_size(self, fresh: bool = False) -> tuple[ScreenSize, ScreenSize]:
+        # The screenshot's size, then the device size Revyl acts in. They differ on iOS, where
+        # Revyl acts in points and a screenshot has more pixels.
+        if fresh:
+            cached = (self._size, self._size_from_health, self._screenshot_size)
+            self._size, self._size_from_health, self._screenshot_size = None, False, None
+            try:
+                return self._read_screenshot_size()
+            except Exception:
+                self._size, self._size_from_health, self._screenshot_size = cached
+                raise
+        if self._screenshot_size is not None:
+            return self._screenshot_size
+        deadline = Deadline(self._step_timeout, self._cancellation)
+        device = self._read_screen_size(deadline)
+        size = device
+        if self.platform == "ios":
+            if not self._size_from_health:
+                raise VerifyError(
+                    "ACTION_FAILED",
+                    "Revyl did not report this iOS screen's size in points, so Verify cannot map "
+                    f"screenshot pixels to it and sent no action. See {self.viewer_url}",
+                )
+            size = ScreenSize(*png_size(self._capture(deadline)[0]))
+        self._screenshot_size = (size, device)
+        return self._screenshot_size
+
+    def _to_device(self, at: Location) -> Location:
+        if isinstance(at, str):
+            return at
+
+        def read(fresh: bool) -> tuple[ScreenSize, ScreenSize] | None:
+            try:
+                return self._read_screenshot_size(fresh)
+            except VerifyError:
+                if self.platform == "ios":
+                    raise
+                return None
+
+        sizes = read(False)
+        if sizes is not None and (at.x >= sizes[0].width or at.y >= sizes[0].height):
+            sizes = read(True)
+        if sizes is None:
+            return at
+        size, device = sizes
+        if at.x >= size.width or at.y >= size.height:
+            raise VerifyError(
+                "INVALID_ARGUMENT",
+                f"({at.x}, {at.y}) is outside the screenshot: x must be 0 to {size.width - 1} "
+                f"and y 0 to {size.height - 1}, in screenshot pixels.",
+            )
+        return Point(
+            min(device.width - 1, js_round(at.x * device.width / size.width)),
+            min(device.height - 1, js_round(at.y * device.height / size.height)),
+        )
+
+    def _to_screenshot(self, point: Point) -> Point:
+        if self.platform != "ios":
+            return point
+        size, device = self._read_screenshot_size()
+        return Point(
+            js_round(point.x * size.width / device.width),
+            js_round(point.y * size.height / device.height),
+        )
 
     def _run_local(
         self,
@@ -731,6 +806,7 @@ class Session:
             width, height = health.get("screen_width"), health.get("screen_height")
             if type(width) is int and type(height) is int and width > 0 and height > 0:
                 self._size = ScreenSize(width, height)
+                self._size_from_health = True
                 return self._size
         width, height = png_size(self._capture(deadline)[0])
         self._size = ScreenSize(width, height)
@@ -1215,7 +1291,7 @@ def _location(at: object) -> Location:
     ):
         raise VerifyError(
             "INVALID_ARGUMENT",
-            "A location is Point(x, y) in non-negative whole device units, "
+            "A location is Point(x, y) in non-negative whole screenshot pixels, "
             "or a target description.",
         )
     return at

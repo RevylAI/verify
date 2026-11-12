@@ -3,7 +3,7 @@ import { VerifyError, errorMessage, isVerifyError } from '../errors.js';
 import { fitPng } from './image.js';
 import type { ModelAdapter, ModelTool, ModelToolCall } from './model.js';
 
-/** A point in device units: iOS points, Android and Web pixels, from the top-left corner. */
+/** A point in screenshot pixels, from the top-left corner. */
 export interface Point {
   x: number;
   y: number;

@@ -50,7 +50,7 @@ For Android Settings, instruct the agent to scroll or navigate until the OS vers
 
 ## Exact actions
 
-**Since 0.4.0. Early access.** In TypeScript (`@revyl/verify` 0.4.0), Python (`revyl-verify` 0.2.0) and Go (v0.3.0); the [Python](https://github.com/RevylAI/verify/blob/v0.4.0/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.4.0/go/README.md#exact-actions) READMEs show them with each language's names. When you know exactly what to press, skip the agent. Exact actions run on the device as given, with no model, and mix freely with `instruction()` and `validation()` in one script:
+**Since 0.4.0. Early access.** In TypeScript (`@revyl/verify` 0.4.0), Python (`revyl-verify` 0.2.0) and Go (v0.3.0); the [Python](https://github.com/RevylAI/verify/blob/v0.4.1/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.4.1/go/README.md#exact-actions) READMEs show them with each language's names. When you know exactly what to press, skip the agent. Exact actions run on the device as given, with no model, and mix freely with `instruction()` and `validation()` in one script:
 
 ```ts
 import { open } from '@revyl/verify';
@@ -64,7 +64,7 @@ try {
   await session.tap({ target: 'Back button' });
 
   await session.swipe('down');                                   // the finger moves down, so the list scrolls to the top
-  const search = await session.locate('Search field');           // where Revyl finds it, in iOS points
+  const search = await session.locate('Search field');           // a point in screenshot pixels
   await session.tap(search);                                     // a tap by coordinates
   await session.type(search, 'Wallpaper');
   await session.pressKey('enter');
@@ -75,7 +75,7 @@ try {
 }
 ```
 
-A location is `{ target: 'a description' }`, which Revyl's grounding model finds on the current screen, or `{ x, y }` from the top-left corner in iOS points or Android pixels; `screenSize()` gives the bounds. `type()` taps the field and clears it first unless you pass `{ clear: false }`. `pressKey()` takes `'enter'` or `'backspace'`.
+A location is `{ target: 'a description' }`, which Revyl's grounding model finds on the current screen, or `{ x, y }` in screenshot pixels from the top-left corner; `screenSize()` gives the bounds. `type()` taps the field and clears it first unless you pass `{ clear: false }`. `pressKey()` takes `'enter'` or `'backspace'`.
 
 On Android, `back()` presses the system back button. On both platforms, `launchApp(bundleId)` brings an installed app to the front and `openUrl('myapp://orders/42')` opens a deep link. A failed action throws `ACTION_FAILED`. One whose outcome Revyl can't confirm throws `ACTION_UNCERTAIN` or `TIMEOUT`, so check the session before acting again. Actions are never repeated. If Verify can't reach Revyl, the action fails with `API_ERROR` and isn't resent either, so check the session before trying it again. [api.md](api.md#exact-actions) lists every call.
 
@@ -90,6 +90,8 @@ On Android, `back()` presses the system back button. On both platforms, `launchA
 | `screenshot()` | Yes | Yes | Yes | Yes |
 | `exec`, files, processes | No, open a Mac computer | No, open a Mac computer | No, open a Mac computer | Yes |
 
-Coordinates are in iOS points, Android pixels and Web CSS pixels, from the top-left corner. A call a platform doesn't support throws `NOT_AVAILABLE_ON_PLATFORM`, and its message names the alternative.
+**Coordinates.** Prefer a description, such as `tap({ target: 'Sign in button' })`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `{ x, y }` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `screenshot()` returns. So a position you read off a screenshot goes to `tap()`, `type()` and `swipe()` unchanged. `screenSize()` returns the screenshot's width and height, and `locate()` and the points `tap()` and `type()` return use the same pixels. A point outside the screenshot is refused with `INVALID_ARGUMENT` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they equal CSS pixels at the default device scale factor of 1, and you still pass screenshot pixels at any other. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points.
+
+A call a platform doesn't support throws `NOT_AVAILABLE_ON_PLATFORM`, and its message names the alternative.
 
 When you pass a [`model`](own-model.md), your model uses `tap`, `type`, `swipe`, `pressKey`, `openUrl` and, where the platform has it, `back` inside `instruction()`.

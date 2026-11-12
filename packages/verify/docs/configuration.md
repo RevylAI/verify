@@ -36,7 +36,7 @@ Mac targets are early access. Ask support@revyl.ai about access. See [computer a
 | `app.url` | A public HTTPS URL to open, registered as a build each time a session opens. |
 | `app.buildId` | An exact Revyl web build to open instead of a URL. |
 | `app.branch` | Branch to register the URL on, or to take the newest build from. |
-| `viewport` | `{ width, height, deviceScaleFactor? }` in CSS pixels |
+| `viewport` | `{ width, height, deviceScaleFactor? }` in CSS pixels. Screenshots, and so exact-action coordinates, are `deviceScaleFactor` times the CSS size |
 | `signIn` | `{ path, secret, persona? }`: a test-only sign-in route. See [web.md](web.md). |
 | `startTimeout` | Milliseconds to wait for the browser. Default 600000. |
 | `idleTimeoutSeconds` | Revyl stops the session after this much inactivity. Default 600. |

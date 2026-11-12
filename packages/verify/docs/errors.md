@@ -37,7 +37,7 @@ try {
 
 | Code | What happened | What to do |
 | --- | --- | --- |
-| `INVALID_ARGUMENT` | A call got a bad value: an unknown target name, an empty step, two steps at once on one session | The message names the argument |
+| `INVALID_ARGUMENT` | A call got a bad value: an unknown target name, an empty step, two steps at once on one session, a point outside the screenshot | The message names the argument |
 | `CONFIG_NOT_FOUND` | `open('name')` found no `verify.config.ts` at or above the current folder | Run `npx @revyl/verify init`, pass `options.config`, or pass a target object |
 | `CONFIG_INVALID` | The config failed validation or did not load | The message names the exact option and the rule |
 | `AUTH_MISSING` | No `REVYL_API_KEY` and no saved login | Run `npx @revyl/verify login` in a terminal, or set `REVYL_API_KEY` |

@@ -47,7 +47,7 @@ from ._models import (
 from ._session import Session
 from ._transport import Cancellation, CleanupStatus, RefusalReason, VerifyError, origin, seconds
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 __all__ = [
     "AsyncSession",
     "ComputerProcess",

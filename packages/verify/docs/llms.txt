@@ -16,4 +16,8 @@ Mac computers are early access; ask support@revyl.ai about access. See computers
 - [CI and test runners](ci.md): GitHub Actions, node:test, Vitest, Jest, Playwright Test
 - [Use your own model](own-model.md): run instructions and validations on Claude, GPT, Gemini, a local model or any OpenAI-compatible endpoint; providers, limits, privacy and troubleshooting
 - [Errors](errors.md): every error code and what to do about it
-- [For coding agents](agents.md): the workflow and rules for agents using Verify
+- [For coding agents](agents.md): the workflow and rules for agents using Verify, and the coordinate rule for exact actions
+
+## Exact actions and coordinates
+
+Prefer a description, such as `tap({ target: 'Sign in button' })`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `{ x, y }` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `screenshot()` returns. So a position you read off a screenshot goes to `tap()`, `type()` and `swipe()` unchanged. `screenSize()` returns the screenshot's width and height, and `locate()` and the points `tap()` and `type()` return use the same pixels. A point outside the screenshot is refused with `INVALID_ARGUMENT` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they equal CSS pixels at the default device scale factor of 1, and you still pass screenshot pixels at any other. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points. See [For coding agents](agents.md#exact-actions-and-coordinates) for a runnable example.

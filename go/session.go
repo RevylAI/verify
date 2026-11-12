@@ -78,6 +78,8 @@ type Session struct {
 	leaveComputerRunning     bool
 	agent                    *agent
 	size                     *Size
+	sizeFromHealth           bool
+	screenshotScale          *screenshotScale
 }
 
 func (s *Session) ID() string           { return s.id }

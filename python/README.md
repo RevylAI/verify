@@ -149,17 +149,17 @@ from revyl_verify import Point, Target, open
 
 with open(Target(platform="ios", bundle_id="com.apple.Preferences")) as session:
     session.tap("General")  # Revyl's grounding model finds the element
-    session.tap(Point(220, 480))  # or a point in device units
+    session.tap(Point(220, 480))  # or a point in screenshot pixels
     session.type("Search", "Bluetooth")  # clears the field first unless clear=False
     session.swipe("up")  # from the screen's center, or from_=location
     session.press_key("enter")
     session.open_url("prefs:root=General")  # a URL or deep link on devices
     session.launch_app("com.apple.Preferences")
     where = session.locate("About")  # a Point, without acting
-    size = session.screen_size()  # ScreenSize(width, height) in device units
+    size = session.screen_size()  # the screenshot's ScreenSize(width, height)
 ```
 
-A location is a `Point(x, y)` in whole, non-negative device units (iOS points, Android and Web pixels, from the top-left corner; `screen_size()` gives the bounds), or a string describing the element, such as `"Login button"`, which Revyl's grounding model finds on the current screen.
+A location is a `Point(x, y)` in whole, non-negative screenshot pixels from the top-left corner, or a string describing the element, such as `"Login button"`, which Revyl's grounding model finds on the current screen.
 
 | Call | What it does |
 | --- | --- |
@@ -171,11 +171,19 @@ A location is a `Point(x, y)` in whole, non-negative device units (iOS points, A
 | `open_url(url)` | Opens a URL or deep link on a device, or loads an http(s) URL in a browser |
 | `launch_app(bundle_id)` | Launches an installed app on a device |
 | `locate(target)` | Returns Revyl's best match on the current screen, without acting |
-| `screen_size()` | Returns `ScreenSize(width, height)` in device units |
+| `screen_size()` | Returns the screenshot's `ScreenSize(width, height)` in pixels |
 
 A failed action raises `ACTION_FAILED`, including when Revyl cannot find a target or nothing at a point can take the action. One whose outcome Revyl can't confirm raises `ACTION_UNCERTAIN` or `TIMEOUT`, so check the session before acting again. Actions are never repeated. If Verify can't reach Revyl, the action fails with `API_ERROR` and isn't resent either, so check the session before trying it again.
 
-Exact actions return when Revyl has accepted them, not when the screen has finished changing. After `swipe`, `open_url` or `launch_app`, let the screen settle or check it before you `locate` or tap coordinates. `locate` returns Revyl's best match on the current screen and can return a point for an element that is off screen, so bring the element on screen first and check the point before you use it.
+Exact actions return when Revyl has accepted them, not when the screen has finished changing. After `swipe`, `open_url` or `launch_app`, let the screen settle or check it before you `locate` or tap coordinates. `locate` returns Revyl's best match on the current screen and can return a point for an element that is off screen, so bring the element on screen first. A point outside `screen_size()` is off screen, and an action at it is refused.
+
+**Coordinates.** Prefer a description, such as `tap("Sign in button")`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `Point(x, y)` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `screenshot()` returns. So a position you read off a screenshot goes to `tap()`, `type()` and `swipe()` unchanged. `screen_size()` returns the screenshot's width and height, and `locate()` and the points `tap()` and `type()` return use the same pixels. A point outside the screenshot is refused with `INVALID_ARGUMENT` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they equal CSS pixels at the default device scale factor of 1, and you still pass screenshot pixels at any other. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points.
+
+```python
+session.screenshot(path=".verify/screen.png")  # open it and find the element
+session.tap(Point(660, 1500))  # the position as you read it, on every platform
+size = session.screen_size()  # the screenshot's size: x is 0 to size.width - 1
+```
 
 ### Which call works where
 
@@ -190,7 +198,7 @@ Exact actions return when Revyl has accepted them, not when the screen has finis
 | `screenshot()` | Yes | Yes | Yes | Yes |
 | `exec`, files, processes | No, open a Mac computer | No, open a Mac computer | No, open a Mac computer | Yes |
 
-Coordinates are in iOS points, Android pixels and Web CSS pixels, from the top-left corner. A call a platform doesn't support raises `NOT_AVAILABLE_ON_PLATFORM`, and its message names the alternative.
+Coordinates follow the rule in [Exact actions](#exact-actions). A call a platform doesn't support raises `NOT_AVAILABLE_ON_PLATFORM`, and its message names the alternative.
 
 ## Your own model
 
