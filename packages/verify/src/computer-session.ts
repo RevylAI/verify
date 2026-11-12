@@ -127,8 +127,9 @@ export class ComputerSession implements Session {
     if ('target' in location) return this.tapTarget(location.target);
     const { x, y } = location;
     if ((await this.act({ action: 'click', x, y })).status === 422) {
-      const { width, height } = await this.screenSize();
-      throw new VerifyError('INVALID_ARGUMENT', `Nothing was clicked: (${x}, ${y}) is outside the screen. x is 0 to ${width - 1} and y is 0 to ${height - 1}, in pixels of the image screenshot() returns.`);
+      const size = await this.screenSize().catch(() => undefined);
+      const range = size ? `x is 0 to ${size.width - 1} and y is 0 to ${size.height - 1}, in pixels of the image screenshot() returns.` : 'Use a point inside the image screenshot() returns.';
+      throw new VerifyError('INVALID_ARGUMENT', `Nothing was clicked: (${x}, ${y}) is outside the screen. ${range}`);
     }
     return { x, y };
   }

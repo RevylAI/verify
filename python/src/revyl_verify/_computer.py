@@ -963,12 +963,17 @@ class ComputerSession(Session):
         if isinstance(point, str):
             return self._tap_target(point)
         if self._screen_action({"action": "click", "x": point.x, "y": point.y}).status == 422:
-            size = self.screen_size()
+            try:
+                size = self.screen_size()
+                where = (
+                    f"x is 0 to {size.width - 1} and y is 0 to {size.height - 1}, in pixels of "
+                    "the image screenshot() returns."
+                )
+            except VerifyError:
+                where = "Use a point inside the image screenshot() returns."
             raise VerifyError(
                 "INVALID_ARGUMENT",
-                f"Nothing was clicked: ({point.x}, {point.y}) is outside the screen. x is 0 to "
-                f"{size.width - 1} and y is 0 to {size.height - 1}, in pixels of the image "
-                "screenshot() returns.",
+                f"Nothing was clicked: ({point.x}, {point.y}) is outside the screen. {where}",
             )
         return point
 

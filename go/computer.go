@@ -228,11 +228,11 @@ func (s *Session) computerTap(ctx context.Context, at Location) (Point, error) {
 		return Point{}, err
 	}
 	if r.status == 422 {
-		size, err := s.computerScreenSize(ctx)
-		if err != nil {
-			return Point{}, err
+		where := "Use a point inside the image Screenshot returns."
+		if size, err := s.computerScreenSize(ctx); err == nil {
+			where = fmt.Sprintf("x is 0 to %d and y is 0 to %d, in pixels of the image Screenshot returns.", size.Width-1, size.Height-1)
 		}
-		return Point{}, failure(ErrInvalidArgument, fmt.Sprintf("Nothing was clicked: (%d, %d) is outside the screen. x is 0 to %d and y is 0 to %d, in pixels of the image Screenshot returns.", point.X, point.Y, size.Width-1, size.Height-1))
+		return Point{}, failure(ErrInvalidArgument, fmt.Sprintf("Nothing was clicked: (%d, %d) is outside the screen. %s", point.X, point.Y, where))
 	}
 	return point, nil
 }
