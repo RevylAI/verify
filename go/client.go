@@ -19,7 +19,7 @@ import (
 const (
 	backendURL = "https://backend.revyl.ai"
 	appURL     = "https://app.revyl.ai"
-	Version    = "0.4.0"
+	Version    = "0.5.0"
 )
 
 type client struct {
@@ -34,6 +34,7 @@ type response struct {
 	contentType string
 	cfRay       string
 	screenToken string
+	retryAfter  string
 }
 
 // attributionKey carries the X-Revyl-Agent and X-Revyl-Agent-Session-Id values of a step run on your own model.
@@ -210,7 +211,7 @@ func (c *client) sendOnce(ctx context.Context, method, path string, body []byte,
 	if int64(len(data)) > maxBytes {
 		return response{}, failure(ErrAPI, "Revyl response exceeds the response size limit.")
 	}
-	return response{status: r.StatusCode, body: data, contentType: r.Header.Get("Content-Type"), cfRay: r.Header.Get("Cf-Ray"), screenToken: r.Header.Get("X-Revyl-Screen-Token")}, nil
+	return response{status: r.StatusCode, body: data, contentType: r.Header.Get("Content-Type"), cfRay: r.Header.Get("Cf-Ray"), screenToken: r.Header.Get("X-Revyl-Screen-Token"), retryAfter: r.Header.Get("Retry-After")}, nil
 }
 
 func decode(r response, into any) error {

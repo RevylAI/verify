@@ -71,4 +71,4 @@ A thrown `VerifyError` fails the test with its code, Revyl's reason, and the ses
 
 ## Cost and parallelism
 
-Each `open()` holds one Revyl session until `close()`. Sessions run in parallel when you open several at once, so close each one as soon as you are done with it. A browser/mobile session that loses its process stops itself after `idleTimeoutSeconds` (10 minutes by default). Computers instead have a server-bounded one-hour lifetime and no configurable idle timeout; close in `finally` and do not treat a timed-out CI job as proof of physical release.
+Each `open()` holds one Revyl session until `close()`. Sessions run in parallel when you open several at once, so close each one as soon as you are done with it. A browser/mobile session that loses its process stops itself after `idleTimeoutSeconds` (10 minutes by default). Computers instead have a hard lifetime from create (two hours today; `expiresAt` is authoritative) and no configurable idle timeout; close in `finally` and do not treat a timed-out CI job as proof of physical release.
