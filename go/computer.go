@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -163,18 +164,14 @@ func (s *Session) logLine(message string) {
 	}
 }
 
-const computerScreenCalls = "For the screen, use Screenshot, Tap with a Point, TypeFocused with Clear set to false, and PressKey; for commands, use Exec."
+const computerScreenCalls = "For the screen, use Screenshot, Tap with a Point or an Element, TypeFocused with Clear set to false, and PressKey; for commands, use Exec."
 
 func (s *Session) computerAgentUnavailable(method string) error {
 	return failure(ErrNotAvailableOnPlatform, method+" is not available on computers. "+computerScreenCalls+" See "+s.viewer)
 }
 
-func describedUnavailable(method string) error {
-	subject := "Locate isn't"
-	if method == "Tap" {
-		subject = "Described taps aren't"
-	}
-	return failure(ErrNotAvailableOnPlatform, subject+" available on computers yet. Read the point off Screenshot and pass it to Tap(ctx, verify.Point{X: x, Y: y}).")
+func computerLocateUnavailable() error {
+	return failure(ErrNotAvailableOnPlatform, "Locate isn't available on computers, because Revyl can't find a point there without clicking it. Tap with a verify.Element clicks a description and returns the point it clicked; to choose the point yourself, read it off Screenshot and pass it to Tap(ctx, verify.Point{X: x, Y: y}).")
 }
 
 var computerKeys = map[Key]string{
@@ -183,15 +180,38 @@ var computerKeys = map[Key]string{
 	KeyPageUp: "Page_Up", KeyPageDown: "Page_Down",
 }
 
-func (s *Session) computerAction(ctx context.Context, action map[string]any) (response, error) {
+func (s *Session) computerAction(ctx context.Context, action map[string]any, timeout time.Duration) (response, error) {
 	if err := s.assertComputerOpen(); err != nil {
 		return response{}, err
 	}
 	ctx, cancel := s.observationContext(ctx)
 	defer cancel()
-	ctx, cancelAction := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancelAction := context.WithTimeout(ctx, timeout)
 	defer cancelAction()
-	return s.computerRequest(ctx, "POST", "/screen/actions", map[string]any{"action": action, "screenshot": false})
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		r, err := s.computerRequestTimeout(ctx, "POST", "/screen/actions", map[string]any{"action": action, "screenshot": false}, timeout)
+		if err != nil || r.status != 409 {
+			return r, err
+		}
+		wait := time.Second
+		if seconds, err := strconv.ParseFloat(strings.TrimSpace(r.retryAfter), 64); err == nil && seconds > 0 && !math.IsInf(seconds, 0) {
+			wait = time.Duration(min(seconds, 60) * float64(time.Second))
+		}
+		starting := responseFailure(r, ErrSessionBusy, fmt.Sprintf("Nothing happened: the computer's screen is still starting (screen_starting). Try again in %d seconds. See %s", int(math.Ceil(wait.Seconds())), s.viewer))
+		if !time.Now().Add(wait).Before(deadline) {
+			return response{}, starting
+		}
+		if err := pause(ctx, wait); err != nil {
+			if openErr := s.assertComputerOpen(); openErr != nil {
+				return response{}, openErr
+			}
+			return response{}, starting
+		}
+		if err := s.assertComputerOpen(); err != nil {
+			return response{}, err
+		}
+	}
 }
 
 func (s *Session) computerTap(ctx context.Context, at Location) (Point, error) {
@@ -201,9 +221,9 @@ func (s *Session) computerTap(ctx context.Context, at Location) (Point, error) {
 	}
 	point, ok := at.(Point)
 	if !ok {
-		return Point{}, describedUnavailable("Tap")
+		return s.computerTapTarget(ctx, string(at.(Element)))
 	}
-	r, err := s.computerAction(ctx, map[string]any{"action": "click", "x": point.X, "y": point.Y})
+	r, err := s.computerAction(ctx, map[string]any{"action": "click", "x": point.X, "y": point.Y}, 30*time.Second)
 	if err != nil {
 		return Point{}, err
 	}
@@ -215,6 +235,27 @@ func (s *Session) computerTap(ctx context.Context, at Location) (Point, error) {
 		return Point{}, failure(ErrInvalidArgument, fmt.Sprintf("Nothing was clicked: (%d, %d) is outside the screen. x is 0 to %d and y is 0 to %d, in pixels of the image Screenshot returns.", point.X, point.Y, size.Width-1, size.Height-1))
 	}
 	return point, nil
+}
+
+func (s *Session) computerTapTarget(ctx context.Context, target string) (Point, error) {
+	r, err := s.computerAction(ctx, map[string]any{"action": "click", "target": target}, 90*time.Second)
+	if err != nil {
+		var typed *Error
+		if errors.As(err, &typed) && typed.Code == ErrInvalidArgument && typed.HTTPStatus == 422 {
+			return Point{}, &Error{Code: ErrNotAvailableOnPlatform, Message: "Nothing was clicked: this Revyl backend can't click a described target on a computer yet (invalid_request). Read the point off Screenshot and pass it to Tap(ctx, verify.Point{X: x, Y: y}). See " + s.viewer, HTTPStatus: 422, Cause: err}
+		}
+		return Point{}, err
+	}
+	var result struct {
+		Point *struct {
+			X *int `json:"x"`
+			Y *int `json:"y"`
+		} `json:"point"`
+	}
+	if decode(r, &result) != nil || result.Point == nil || result.Point.X == nil || result.Point.Y == nil || *result.Point.X < 0 || *result.Point.Y < 0 {
+		return Point{}, failure(ErrActionUncertain, "Revyl answered the described click without the point it clicked, so where it landed is unknown. Take a Screenshot to check. See "+s.viewer)
+	}
+	return Point{X: *result.Point.X, Y: *result.Point.Y}, nil
 }
 
 func (s *Session) computerTypeFocused(ctx context.Context, text string, options []TypeOptions) error {
@@ -246,7 +287,7 @@ func (s *Session) computerTypeFocused(ctx context.Context, text string, options 
 	}
 	typed := 0
 	for _, part := range chunks {
-		if _, err := s.computerAction(ctx, map[string]any{"action": "type", "text": part}); err != nil {
+		if _, err := s.computerAction(ctx, map[string]any{"action": "type", "text": part}, 30*time.Second); err != nil {
 			var typedErr *Error
 			if len(chunks) == 1 || !errors.As(err, &typedErr) {
 				return err
@@ -287,7 +328,7 @@ func (s *Session) computerPressKey(ctx context.Context, key Key, options []KeyOp
 	if !named {
 		name = string(key)
 	}
-	_, err := s.computerAction(ctx, map[string]any{"action": "key", "keys": strings.Join(append(keys, name), "+")})
+	_, err := s.computerAction(ctx, map[string]any{"action": "key", "keys": strings.Join(append(keys, name), "+")}, 30*time.Second)
 	return err
 }
 
@@ -328,13 +369,17 @@ func (s *Session) readComputerReport(r response) (computerReport, error) {
 }
 
 func (s *Session) computerRequest(ctx context.Context, method, suffix string, body any) (response, error) {
-	path := "/api/v1/computer-runs"
-	if suffix != "" {
-		path += "/" + s.id + suffix
-	}
 	timeout := 30 * time.Second
 	if suffix == "/stop" || strings.HasPrefix(suffix, "/operations") {
 		timeout = computerObservationTimeout
+	}
+	return s.computerRequestTimeout(ctx, method, suffix, body, timeout)
+}
+
+func (s *Session) computerRequestTimeout(ctx context.Context, method, suffix string, body any, timeout time.Duration) (response, error) {
+	path := "/api/v1/computer-runs"
+	if suffix != "" {
+		path += "/" + s.id + suffix
 	}
 	r, err := s.client.send(ctx, method, path, body, method == "GET" && suffix != "/screen/screenshot", timeout, false)
 	if err != nil {
@@ -383,9 +428,15 @@ func (s *Session) computerRequest(ctx context.Context, method, suffix string, bo
 		switch {
 		case r.status == 422 && detail == "screen_point_outside":
 			return r, nil
+		case r.status == 409 && detail == "screen_starting":
+			return r, nil
+		case detail == "screen_target_not_found":
+			return r, responseFailure(r, ErrActionFailed, "Nothing was clicked: Revyl could not find the described target on the screen (screen_target_not_found). Take a Screenshot and pass a verify.Point to Tap. See "+s.viewer)
+		case detail == "screen_target_unavailable":
+			return r, responseFailure(r, ErrAPI, "Nothing was clicked: Revyl could not look up the described target just now (screen_target_unavailable). It is safe to try again. See "+s.viewer)
 		case detail == "screen_control_held":
 			return r, responseFailure(r, ErrSessionBusy, "Nothing happened: someone else is controlling this computer's screen in the viewer (screen_control_held). Try again after they release it; control frees itself after 2 minutes without input. See "+s.viewer)
-		case r.status == 409 && (detail == "screen_input_uncertain" || detail == "screen_unavailable" || detail == "screen_input_unavailable"):
+		case detail == "screen_input_uncertain" || detail == "screen_unavailable" || detail == "screen_input_unavailable":
 			return r, responseFailure(r, ErrActionUncertain, fmt.Sprintf("The screen action may have happened (%s). Verify will not repeat it; take a Screenshot to check before you do. See %s", detail, s.viewer))
 		case r.status == 403:
 			return r, responseFailure(r, ErrAuthRejected, "Revyl refused the screen action (forbidden). The API key's owner needs the Member role or above in the organization, and CI runner keys can't control the screen yet. See "+s.viewer)
@@ -418,7 +469,7 @@ func (s *Session) computerRequest(ctx context.Context, method, suffix string, bo
 	}
 	reason := fmt.Sprintf("HTTP %d", r.status)
 	switch detail {
-	case "computer_not_enabled", "run_closed", "inaccessible", "invalid_handle", "operation_not_found", "owner_unavailable", "invalid_request", "unauthenticated", "forbidden", "runtime_unavailable", "start_failed", "computer_limit", "request_conflict", "run_conflict", "evidence_conflict", "evidence_unavailable", "authentication_unavailable", "operation_limit", "screen_starting", "screen_unavailable", "screen_control_held", "screen_control_lost", "screen_input_unavailable", "screen_input_uncertain", "screen_key_unsupported", "screen_text_unsupported":
+	case "computer_not_enabled", "run_closed", "inaccessible", "invalid_handle", "operation_not_found", "owner_unavailable", "invalid_request", "unauthenticated", "forbidden", "runtime_unavailable", "start_failed", "computer_limit", "request_conflict", "run_conflict", "evidence_conflict", "evidence_unavailable", "authentication_unavailable", "operation_limit", "screen_starting", "screen_unavailable", "screen_control_held", "screen_control_lost", "screen_input_unavailable", "screen_input_uncertain", "screen_key_unsupported", "screen_text_unsupported", "screen_target_not_found", "screen_target_unavailable":
 		reason = detail
 	}
 	return r, responseFailure(r, code, fmt.Sprintf("Revyl refused the computer request (%s). See %s", reason, s.viewer))

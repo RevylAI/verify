@@ -164,8 +164,8 @@ The Go SDK does not read `verify.config.ts`, resolve named targets, or provide a
 
 | Call | Web | iOS | Android | Mac computer |
 | --- | --- | --- | --- | --- |
-| `Tap` with a `verify.Point`, `ScreenSize` | Yes | Yes | Yes | Yes |
-| `Tap` with a `verify.Element`, `Locate` | Yes | Yes | Yes | No, read the point off `Screenshot` and pass it to `Tap` |
+| `Tap` with a `verify.Point` or a `verify.Element`, `ScreenSize` | Yes | Yes | Yes | Yes |
+| `Locate` | Yes | Yes | Yes | No, tap a `verify.Element`, which returns the point it clicked, or read the point off `Screenshot` |
 | `DoubleTap`, `LongPress`, `Type`, `Swipe`, `Drag` | Yes | Yes | Yes | No |
 | `PressKey(ctx, key, KeyOptions{Modifiers})` | Yes: `KeyEnter`, `KeyBackspace`, `KeyTab`, `KeyEscape`, arrows and more, with modifiers | `KeyEnter` and `KeyBackspace` only | `KeyEnter` and `KeyBackspace` only | Yes: the Web keys and modifiers, where `ModifierMeta` is Command |
 | `TypeFocused` | Yes, types into the focused field | No, use `Type(ctx, location, text)` | No, use `Type(ctx, location, text)` | Yes, with `Clear` pointing to `false` |
@@ -182,7 +182,7 @@ Coordinates follow the rule in [Exact actions](#exact-actions). A call a platfor
 
 ## Exact actions
 
-**Since Go `v0.3.0`. Early access.** Web, iOS and Android sessions take device actions that need no agent. `DoubleTap`, `LongPress`, `Drag`, `TypeFocused`, `GoHome`, and Web keys and modifiers in `PressKey`, are new in `v0.4.0`. `Tap` with a point, `ScreenSize`, `TypeFocused` and `PressKey` on a Mac computer's screen are new in `v0.5.0`; see [Mac screen](#mac-screen). A location is a `verify.Point{X, Y}` in whole, non-negative screenshot pixels from the top-left corner, or a `verify.Element("Login button")` that Revyl's grounding model finds on the current screen.
+**Since Go `v0.3.0`. Early access.** Web, iOS and Android sessions take device actions that need no agent. `DoubleTap`, `LongPress`, `Drag`, `TypeFocused`, `GoHome`, and Web keys and modifiers in `PressKey`, are new in `v0.4.0`. `Tap` (with a point or an `Element`), `ScreenSize`, `TypeFocused` and `PressKey` on a Mac computer's screen are new in `v0.5.0`; see [Mac screen](#mac-screen). A location is a `verify.Point{X, Y}` in whole, non-negative screenshot pixels from the top-left corner, or a `verify.Element("Login button")` that Revyl's grounding model finds on the current screen.
 
 ```go
 if _, err := s.Tap(ctx, verify.Element("General")); err != nil {
@@ -231,7 +231,7 @@ if err := s.PressKey(ctx, verify.KeyEscape); err != nil {
 
 | Method | What it does |
 | --- | --- |
-| `Tap(ctx, at)` | Taps (clicks on Web and Mac computers) and returns the `Point` tapped. A Mac computer takes only a `verify.Point` |
+| `Tap(ctx, at)` | Taps (clicks on Web and Mac computers) and returns the `Point` tapped. On a Mac computer a tap on a `verify.Element` takes several seconds and can click a look-alike, so check the point |
 | `DoubleTap(ctx, at)` | Double-taps (double-clicks on Web) and returns the `Point` |
 | `LongPress(ctx, at, LongPressOptions{Duration})` | Presses and holds for `Duration`, whole milliseconds from 1 millisecond to 5 seconds (zero means 1.5 seconds), and returns the `Point` |
 | `Type(ctx, at, text, TypeOptions{Clear})` | Taps a text field and types into it, clearing it first unless `Clear` points to `false` |
@@ -250,7 +250,7 @@ A failed action returns `ErrActionFailed`, including when Revyl cannot find an e
 
 Exact actions return when Revyl has accepted them, not when the screen has finished changing. After `Swipe`, `Drag`, `GoHome`, `OpenURL` or `LaunchApp`, let the screen settle or check it before you `Locate` or tap coordinates. `Locate` returns Revyl's best match on the current screen and can return a point for an element that is off screen, so bring the element on screen first. A point outside `ScreenSize` is off screen, and an action at it is refused.
 
-**Coordinates.** Prefer a description, such as `Tap(ctx, verify.Element("Sign in button"))`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `verify.Point{X, Y}` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `Screenshot` returns. So a position you read off a screenshot goes to `Tap`, `Type`, `Swipe` and every other exact action unchanged. `ScreenSize` returns the screenshot's width and height, and `Locate` and the points `Tap`, `DoubleTap`, `LongPress` and `Type` return use the same pixels. A point outside the screenshot is refused with `ErrInvalidArgument` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they equal CSS pixels at the default device scale factor of 1, and you still pass screenshot pixels at any other. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points. On a Mac computer only a `verify.Point` works, not an `Element`, so read it off `Screenshot`; it is in screenshot pixels, as on every other platform. Verify refuses a negative point before sending it, and Revyl refuses one past the screen's edge without clicking; both return `ErrInvalidArgument` naming the valid range.
+**Coordinates.** Prefer a description, such as `Tap(ctx, verify.Element("Sign in button"))`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `verify.Point{X, Y}` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `Screenshot` returns. So a position you read off a screenshot goes to `Tap`, `Type`, `Swipe` and every other exact action unchanged. `ScreenSize` returns the screenshot's width and height, and `Locate` and the points `Tap`, `DoubleTap`, `LongPress` and `Type` return use the same pixels. A point outside the screenshot is refused with `ErrInvalidArgument` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they equal CSS pixels at the default device scale factor of 1, and you still pass screenshot pixels at any other. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points. On a Mac computer a point is in screenshot pixels too, and a tap on a `verify.Element` returns the point it clicked in the same pixels. Verify refuses a negative point before sending it, and Revyl refuses one past the screen's edge without clicking; both return `ErrInvalidArgument` naming the valid range.
 
 ```go
 if _, err := s.Screenshot(ctx, ".verify/screen.png"); err != nil { // open it and find the element
@@ -527,7 +527,7 @@ if err := s.TypeFocused(ctx, "Replacement", verify.TypeOptions{Clear: &keep}); e
 }
 ```
 
-On a computer, `TypeFocused` needs `Clear` pointing to `false`: it types where the cursor is and clears nothing, so to replace text, select it first. `ModifierMeta` is Command and `ModifierAlt` is Option. `ScreenSize` works too. Tapping a `verify.Element`, `Locate` and the other exact actions aren't available on computers yet and return `ErrNotAvailableOnPlatform` before anything is sent. A program keeps control of the screen for 120 seconds after its last action, so a teammate can't take control in the Revyl viewer until then; while someone does control it there, actions return `ErrSessionBusy` and nothing happens. A 403 returns `ErrAuthRejected`: the key's owner needs the Member role or above, and CI runner keys can't control the screen yet. Revyl's `screen_input_uncertain` returns `ErrActionUncertain`, so take a screenshot before you act again. [computers.md](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#screen) lists every screen error.
+On a computer, `TypeFocused` needs `Clear` pointing to `false`: it types where the cursor is and clears nothing, so to replace text, select it first. `ModifierMeta` is Command and `ModifierAlt` is Option. `ScreenSize` works too. `Tap(ctx, verify.Element("the Help menu in the menu bar"))` clicks a description and returns the `Point` it clicked. It takes several seconds and can click a look-alike, or something else when the target isn't on the screen, so check the point or take a screenshot afterwards, and use a `verify.Point` from a screenshot for anything that's hard to undo. `Locate` and the other exact actions aren't available on computers and return `ErrNotAvailableOnPlatform` before anything is sent. When Revyl answers `screen_starting`, nothing happened, so Verify waits and tries again for up to 30 seconds. A program keeps control of the screen for 120 seconds after its last action, so a teammate can't take control in the Revyl viewer until then; while someone does control it there, actions return `ErrSessionBusy` and nothing happens. A 403 returns `ErrAuthRejected`: the key's owner needs the Member role or above, and CI runner keys can't control the screen yet. Revyl's `screen_input_uncertain` returns `ErrActionUncertain`, so take a screenshot before you act again. [computers.md](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#screen) lists every screen error.
 
 ## Results and errors
 

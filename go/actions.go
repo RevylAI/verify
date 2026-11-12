@@ -164,7 +164,7 @@ func checkLocation(at Location) (Location, error) {
 }
 
 // Tap taps a point in screenshot pixels, or an element Revyl locates from a description, and returns the point
-// tapped in screenshot pixels. A Mac computer takes only a Point.
+// tapped in screenshot pixels.
 func (s *Session) Tap(ctx context.Context, at Location) (Point, error) {
 	if s.platform.computer() {
 		return s.computerTap(ctx, at)
@@ -410,7 +410,7 @@ func (s *Session) LaunchApp(ctx context.Context, bundleID string) error {
 // Locate asks Revyl's grounding model where an element is on the current screen, in screenshot pixels, without acting.
 func (s *Session) Locate(ctx context.Context, target string) (Point, error) {
 	if s.platform.computer() {
-		return Point{}, describedUnavailable("Locate")
+		return Point{}, computerLocateUnavailable()
 	}
 	at, err := checkLocation(Element(target))
 	if err != nil {

@@ -49,7 +49,7 @@ Operation `timeout` is milliseconds, defaults to 30,000, and must be an integer 
 
 ## Screen
 
-**Early access**, since TypeScript 0.6.0, Python 0.4.0 and Go v0.5.0. A script can click, type and press keys on the computer's screen at points it reads off `screenshot()`:
+**Early access**, since TypeScript 0.6.0, Python 0.4.0 and Go v0.5.0. A script can click, type and press keys on the computer's screen, at points it reads off `screenshot()` or at elements it describes:
 
 ```ts
 import { open } from '@revyl/verify';
@@ -75,12 +75,24 @@ try {
 | `screenshot({ path? })` | A PNG of the whole screen. Its pixels are the coordinates the other calls take |
 | `screenSize()` | The screenshot's `{ width, height }`: x is 0 to width - 1, y is 0 to height - 1 |
 | `tap({ x, y })` | Clicks the point with the left button and resolves with it. Whole numbers from the top-left corner of the screenshot |
+| `tap({ target })` | Revyl finds the described element on a fresh screenshot, clicks it, and resolves with the point it clicked, in screenshot pixels. The description is 1 to 500 characters. Takes several seconds |
 | `typeFocused(text, { clear: false })` | Types the text where the cursor is, in the app that has focus. `{ clear: false }` is required, because Verify doesn't clear anything first: to replace text, select it with `pressKey('a', { modifiers: ['meta'] })` and type over it. Up to 16,384 characters, including line breaks (`\n`) and tabs (`\t`); other control characters are refused before anything is typed. Long text goes in pieces of up to 500 characters, in order |
 | `pressKey(key, { modifiers })` | Presses a key: `'enter'`, `'backspace'`, `'tab'`, `'escape'`, `'delete'`, `'space'`, `'arrowup'`, `'arrowdown'`, `'arrowleft'`, `'arrowright'`, `'home'`, `'end'`, `'pageup'` or `'pagedown'`, with up to four `modifiers`: `'meta'` (Command), `'ctrl'`, `'alt'` (Option) and `'shift'`. With modifiers a lowercase letter or digit works too, so Command+A is `pressKey('a', { modifiers: ['meta'] })`. On Web the shortcut key is `'ctrl'` instead |
 
-Described taps (`tap({ target })`) and `locate()` aren't available on computers yet, nor are `doubleTap`, `longPress`, `type(location, text)`, `swipe`, `drag`, `back`, `goHome`, `openUrl` and `launchApp`. They throw `NOT_AVAILABLE_ON_PLATFORM` before anything is sent; open apps and files with `exec()`, such as `exec(['open', '-a', 'TextEdit', 'notes.txt'])`. Open a file rather than the bare app: TextEdit opened without a file may show a file picker instead of a document.
+`locate()` isn't available on computers, because Revyl can't find a point there without clicking it; `tap({ target })` returns the point it clicked instead. `doubleTap`, `longPress`, `type(location, text)`, `swipe`, `drag`, `back`, `goHome`, `openUrl` and `launchApp` aren't available on computers either, and a description works only in `tap`. They throw `NOT_AVAILABLE_ON_PLATFORM` before anything is sent; open apps and files with `exec()`, such as `exec(['open', '-a', 'TextEdit', 'notes.txt'])`. For TextEdit, open a file rather than the bare app: opened without a file, it may show a file picker instead of a document.
 
-Each call returns when Revyl has accepted the action, not when the app has finished reacting, so take a screenshot before you rely on what changed. Verify never repeats a screen action. Window positions and the desktop size aren't fixed, so for a script that runs unattended, run it once up to the screenshot, read the points off that image, and then write them into the script.
+### Described clicks
+
+```ts
+const point = await computer.tap({ target: 'the Help menu in the menu bar' });   // several seconds
+await computer.screenshot({ path: '.verify/help.png' });                       // check what it clicked
+```
+
+A described click takes several seconds, because Revyl takes a screenshot and finds the element first. It can pick a look-alike, and when the target isn't on the screen it can still click something else instead of failing. So check the point it returns or take a screenshot afterwards, and for anything that's hard to undo, read the point off `screenshot()` and use `tap({ x, y })`.
+
+### Behaviour and errors
+
+Each call returns when Revyl has accepted the action, not when the app has finished reacting, so take a screenshot before you rely on what changed. Verify never repeats a screen action, with one exception: when Revyl answers `screen_starting`, nothing happened, so Verify waits as long as Revyl asks and tries again, for up to 30 seconds. Window positions and the desktop size aren't fixed, so for a script that runs unattended, run it once up to the screenshot, read the points off that image, and then write them into the script.
 
 A script that controls the screen keeps control for 120 seconds after its last action. During that time a teammate can't take control of the screen in the Revyl viewer. The other way round, while someone controls the screen in the viewer, the script's actions throw `SESSION_BUSY`.
 
@@ -90,7 +102,11 @@ A script that controls the screen keeps control for 120 seconds after its last a
 | `typeFocused` without `{ clear: false }`, with control characters other than `\n` and `\t`, or with more than 16,384 characters | `INVALID_ARGUMENT` before anything is sent | The message says how to fix the call |
 | The computer can't type some of the characters (`screen_text_unsupported`) | `INVALID_ARGUMENT`, and nothing was typed | Type those characters another way, such as writing a file with `writeFile` |
 | Someone controls the screen in the viewer (`screen_control_held`) | `SESSION_BUSY`, and nothing happened | Try again after they release it; control frees itself after 2 minutes without input |
-| Revyl can't confirm the action (`screen_input_uncertain`, `screen_unavailable` or `screen_input_unavailable`) | `ACTION_UNCERTAIN` | It may have happened. Take a `screenshot()` before you do it again |
+| The screen is still starting (`screen_starting`) for more than 30 seconds | `SESSION_BUSY`, and nothing happened | Try again after the number of seconds the message names |
+| Revyl didn't find the described target (`screen_target_not_found`) | `ACTION_FAILED`, and nothing was clicked | Take a screenshot and pass a point to `tap({ x, y })`, or describe the element differently |
+| Revyl couldn't look the target up just then (`screen_target_unavailable`) | `API_ERROR`, and nothing was clicked | It is safe to try again |
+| The backend doesn't have described clicks yet (`invalid_request` on a described tap) | `NOT_AVAILABLE_ON_PLATFORM`, and nothing was clicked | Pass a point to `tap({ x, y })` |
+| Revyl can't confirm the action (`screen_input_uncertain`, `screen_unavailable` or `screen_input_unavailable`, HTTP 409 or 503) | `ACTION_UNCERTAIN` | It may have happened. Take a `screenshot()` before you do it again |
 | The API key may not control the screen (HTTP 403) | `AUTH_REJECTED` | The key's owner needs the Member role or above. CI runner keys can't control the screen yet |
 | Revyl couldn't check the key (HTTP 503 `authentication_unavailable`) | `API_ERROR`, and nothing happened | It is safe to try again |
 

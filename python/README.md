@@ -127,7 +127,7 @@ with open(Target(platform="mac", start_timeout=600)) as computer:
     computer.type_focused("Replacement", clear=False)  # typing replaces the selection
 ```
 
-On a computer, `type_focused` needs `clear=False`: it types where the cursor is and clears nothing, so to replace text, select it first. `"meta"` is Command and `"alt"` is Option. `screen_size()` works too. Described taps such as `tap("Login button")`, `locate()` and the other exact actions aren't available on computers yet and raise `NOT_AVAILABLE_ON_PLATFORM` before anything is sent. A script keeps control of the screen for 120 seconds after its last action, so a teammate can't take control in the Revyl viewer until then; while someone does control it there, actions raise `SESSION_BUSY` and nothing happens. A 403 raises `AUTH_REJECTED`: the key's owner needs the Member role or above, and CI runner keys can't control the screen yet. [computers.md](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#screen) lists every screen error.
+On a computer, `type_focused` needs `clear=False`: it types where the cursor is and clears nothing, so to replace text, select it first. `"meta"` is Command and `"alt"` is Option. `screen_size()` works too. `tap("the Help menu in the menu bar")` clicks a description and returns the `Point` it clicked. It takes several seconds and can click a look-alike, or something else when the target isn't on the screen, so check the point or take a screenshot afterwards, and use `tap(Point(x, y))` from a screenshot for anything that's hard to undo. `locate()` and the other exact actions aren't available on computers and raise `NOT_AVAILABLE_ON_PLATFORM` before anything is sent. When Revyl answers `screen_starting`, nothing happened, so Verify waits and tries again for up to 30 seconds. A script keeps control of the screen for 120 seconds after its last action, so a teammate can't take control in the Revyl viewer until then; while someone does control it there, actions raise `SESSION_BUSY` and nothing happens. A 403 raises `AUTH_REJECTED`: the key's owner needs the Member role or above, and CI runner keys can't control the screen yet. [computers.md](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#screen) lists every screen error.
 
 **Breaking wire change:** computer-operation arguments use `argv_b64` (one padded URL-safe base64 UTF-8 string per argument) and file paths use `path_b64`, with no raw `argv` or `path`. This SDK is incompatible with the previous backend contract. Deploy the encoded-only backend before publishing or upgrading to this SDK. Public APIs and decoded limits are unchanged; `stdin` and file `data` retain their existing standard base64 encoding, and process commands are unchanged. Encoding is not encryption, and Verify does not fall back to plaintext or replay the request.
 
@@ -162,7 +162,7 @@ For async code use `async with await async_attach(computer_id) as computer`, the
 
 ## Exact actions
 
-**Since 0.2.0. Early access.** Web, iOS and Android sessions take device actions that need no agent. They match the TypeScript SDK's exact actions in snake_case, and `AsyncSession` has the same methods to await. `double_tap`, `long_press`, `drag`, `type_focused`, `go_home`, and Web keys and modifiers in `press_key`, are new in 0.3.0. `tap(Point(x, y))`, `screen_size`, `type_focused` and `press_key` on a Mac computer's screen are new in 0.4.0; see [Mac computer](#mac-computer-early-access).
+**Since 0.2.0. Early access.** Web, iOS and Android sessions take device actions that need no agent. They match the TypeScript SDK's exact actions in snake_case, and `AsyncSession` has the same methods to await. `double_tap`, `long_press`, `drag`, `type_focused`, `go_home`, and Web keys and modifiers in `press_key`, are new in 0.3.0. `tap` (by point or description), `screen_size`, `type_focused` and `press_key` on a Mac computer's screen are new in 0.4.0; see [Mac computer](#mac-computer-early-access).
 
 ```python
 from revyl_verify import Point, Target, open
@@ -206,7 +206,7 @@ A location is a `Point(x, y)` in whole, non-negative screenshot pixels from the 
 
 | Call | What it does |
 | --- | --- |
-| `tap(at)` | Taps (clicks on Web and Mac computers) and returns the `Point` tapped. A Mac computer takes only a `Point` |
+| `tap(at)` | Taps (clicks on Web and Mac computers) and returns the `Point` tapped. On a Mac computer a described tap takes several seconds and can click a look-alike, so check the point |
 | `double_tap(at)` | Double-taps (double-clicks on Web) and returns the `Point` |
 | `long_press(at, duration=None)` | Presses and holds for `duration` seconds, 0.001 to 5 in whole milliseconds (1.5 by default), and returns the `Point` |
 | `type(at, text, clear=True)` | Taps a text field and types into it, clearing it first unless `clear` is `False`; returns the `Point` tapped |
@@ -225,7 +225,7 @@ A failed action raises `ACTION_FAILED`, including when Revyl cannot find a targe
 
 Exact actions return when Revyl has accepted them, not when the screen has finished changing. After `swipe`, `drag`, `go_home`, `open_url` or `launch_app`, let the screen settle or check it before you `locate` or tap coordinates. `locate` returns Revyl's best match on the current screen and can return a point for an element that is off screen, so bring the element on screen first. A point outside `screen_size()` is off screen, and an action at it is refused.
 
-**Coordinates.** Prefer a description, such as `tap("Sign in button")`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `Point(x, y)` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `screenshot()` returns. So a position you read off a screenshot goes to `tap()`, `type()`, `swipe()` and every other exact action unchanged. `screen_size()` returns the screenshot's width and height, and `locate()` and the points `tap()`, `double_tap()`, `long_press()` and `type()` return use the same pixels. A point outside the screenshot is refused with `INVALID_ARGUMENT` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they equal CSS pixels at the default device scale factor of 1, and you still pass screenshot pixels at any other. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points. On a Mac computer only a `Point(x, y)` works, not a description, so read it off `screenshot()`; it is in screenshot pixels, as on every other platform. Verify refuses a negative or fractional point before sending it, and Revyl refuses one past the screen's edge without clicking; both raise `INVALID_ARGUMENT` naming the valid range.
+**Coordinates.** Prefer a description, such as `tap("Sign in button")`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `Point(x, y)` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `screenshot()` returns. So a position you read off a screenshot goes to `tap()`, `type()`, `swipe()` and every other exact action unchanged. `screen_size()` returns the screenshot's width and height, and `locate()` and the points `tap()`, `double_tap()`, `long_press()` and `type()` return use the same pixels. A point outside the screenshot is refused with `INVALID_ARGUMENT` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they equal CSS pixels at the default device scale factor of 1, and you still pass screenshot pixels at any other. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points. On a Mac computer a point is in screenshot pixels too, and `tap("description")` returns the point it clicked in the same pixels. Verify refuses a negative or fractional point before sending it, and Revyl refuses one past the screen's edge without clicking; both raise `INVALID_ARGUMENT` naming the valid range.
 
 ```python
 session.screenshot(path=".verify/screen.png")  # open it and find the element
@@ -237,8 +237,8 @@ size = session.screen_size()  # the screenshot's size: x is 0 to size.width - 1
 
 | Call | Web | iOS | Android | Mac computer |
 | --- | --- | --- | --- | --- |
-| `tap(Point(x, y))`, `screen_size` | Yes | Yes | Yes | Yes |
-| `tap("description")`, `locate` | Yes | Yes | Yes | No, read the point off `screenshot()` and pass it to `tap(Point(x, y))` |
+| `tap(Point(x, y))`, `tap("description")`, `screen_size` | Yes | Yes | Yes | Yes |
+| `locate` | Yes | Yes | Yes | No, use `tap("description")`, which returns the point it clicked, or read the point off `screenshot()` |
 | `double_tap`, `long_press`, `type`, `swipe`, `drag` | Yes | Yes | Yes | No |
 | `press_key(key, modifiers)` | Yes: `"enter"`, `"backspace"`, `"tab"`, `"escape"`, arrows and more, with modifiers | `"enter"` and `"backspace"` only | `"enter"` and `"backspace"` only | Yes: the Web keys and modifiers, where `"meta"` is Command |
 | `type_focused(text, clear)` | Yes, types into the focused field | No, use `type(location, text)` | No, use `type(location, text)` | Yes, with `clear=False` |
@@ -431,7 +431,7 @@ Use an empty `dist/` before building; the package checker rejects stale or extra
 
 ## Troubleshooting
 
-- **`NOT_AVAILABLE_ON_PLATFORM`:** computers do not support instruction/validation, your own model, or exact actions other than `tap(Point(x, y))`, `screen_size()`, `type_focused(text, clear=False)` and `press_key`; devices do not support commands, files, processes or recording metadata; iOS has no `back()`, Web has no `launch_app()` or `go_home()`, and iOS and Android have no `type_focused()` and no keys other than Enter and Backspace.
+- **`NOT_AVAILABLE_ON_PLATFORM`:** computers do not support instruction/validation, your own model, or exact actions other than `tap`, `screen_size()`, `type_focused(text, clear=False)` and `press_key`; devices do not support commands, files, processes or recording metadata; iOS has no `back()`, Web has no `launch_app()` or `go_home()`, and iOS and Android have no `type_focused()` and no keys other than Enter and Backspace.
 - **`MODEL_KEY_MISSING`:** the provider's key variable named in the message is not set. Set it, or pass `CustomModel(id, base_url, api_key=...)`.
 - **`MODEL_ERROR`:** the model's endpoint refused the request or the model misbehaved. The message names the host, the HTTP status and the next step: a rejected key and the variable it came from, an unknown model, the path Verify added on a 404, a rate limit after retries, a text-only model, no tool support, a reply cut off at its output cap, or three turns without a tool call.
 - **Blank initial screen:** first-frame observation is best effort. Start with an instruction; a transport-level connection does not prove rendered readiness.

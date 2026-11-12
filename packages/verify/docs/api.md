@@ -84,12 +84,12 @@ Web only, hosted or normal. Sends one deterministic `open_url` action and checks
 
 ## Exact actions
 
-**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. On a Mac computer's screen, `tap({ x, y })`, `screenSize`, `typeFocused` and `pressKey` are new in TypeScript 0.6.0, Python 0.4.0 and Go v0.5.0. The [Python](https://github.com/RevylAI/verify/blob/v0.6.0/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.6.0/go/README.md#exact-actions) READMEs show them with each language's names. Web, iOS and Android sessions, and a Mac computer's screen, take device actions that need no agent.
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. On a Mac computer's screen, `tap` (by point or by description), `screenSize`, `typeFocused` and `pressKey` are new in TypeScript 0.6.0, Python 0.4.0 and Go v0.5.0. The [Python](https://github.com/RevylAI/verify/blob/v0.6.0/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.6.0/go/README.md#exact-actions) READMEs show them with each language's names. Web, iOS and Android sessions, and a Mac computer's screen, take device actions that need no agent.
 
 | Call | Web | iOS | Android | Mac computer |
 | --- | --- | --- | --- | --- |
-| `tap({ x, y })`, `screenSize` | Yes | Yes | Yes | Yes |
-| `tap({ target })`, `locate` | Yes | Yes | Yes | No, read the point off `screenshot()` and pass it to `tap({ x, y })` |
+| `tap({ x, y })`, `tap({ target })`, `screenSize` | Yes | Yes | Yes | Yes |
+| `locate` | Yes | Yes | Yes | No, use `tap({ target })`, which returns the point it clicked, or read the point off `screenshot()` |
 | `doubleTap`, `longPress`, `type`, `swipe`, `drag` | Yes | Yes | Yes | No |
 | `pressKey(key, { modifiers })` | Yes: `'enter'`, `'backspace'`, `'tab'`, `'escape'`, arrows and more, with modifiers | `'enter'` and `'backspace'` only | `'enter'` and `'backspace'` only | Yes: the Web keys and modifiers, where `'meta'` is Command |
 | `typeFocused(text, { clear })` | Yes, types into the focused field | No, use `type(location, text)` | No, use `type(location, text)` | Yes, with `{ clear: false }` |
@@ -108,7 +108,7 @@ A location is `{ x, y }` in screenshot pixels (see [Coordinates](#coordinates)) 
 
 | Call | What it does |
 | --- | --- |
-| `tap(at)` | Taps (clicks on Web and Mac computers) and resolves with the point tapped. A Mac computer takes only a point |
+| `tap(at)` | Taps (clicks on Web and Mac computers) and resolves with the point tapped. On a Mac computer a described tap takes several seconds, can click a look-alike, and can click something else when the target isn't on the screen, so check the point or a screenshot afterwards; see [computers.md](computers.md#screen) |
 | `doubleTap(at)` | Double-taps (double-clicks on Web) and resolves with the point |
 | `longPress(at, { duration })` | Presses and holds for `duration` milliseconds, 1 to 5000 (default 1500), and resolves with the point |
 | `type(at, text, { clear })` | Taps a text field and types into it, clearing it first unless `clear` is `false` |
@@ -129,7 +129,7 @@ Exact actions return when Revyl has accepted them, not when the screen has finis
 
 ### Coordinates
 
-Prefer a description, such as `tap({ target: 'Sign in button' })`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `{ x, y }` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `screenshot()` returns. So a position you read off a screenshot goes to `tap()`, `type()`, `swipe()` and every other exact action unchanged. `screenSize()` returns the screenshot's width and height, and `locate()` and the points `tap()`, `doubleTap()`, `longPress()` and `type()` return use the same pixels. A point outside the screenshot is refused with `INVALID_ARGUMENT` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they equal CSS pixels at the default device scale factor of 1, and you still pass screenshot pixels at any other. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points. On a Mac computer only a position `{ x, y }` works, not a description, so read it off `screenshot()`; it is in screenshot pixels, as on every other platform. Verify refuses a negative or fractional point before sending it, and Revyl refuses one past the screen's edge without clicking; both throw `INVALID_ARGUMENT` naming the valid range.
+Prefer a description, such as `tap({ target: 'Sign in button' })`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `{ x, y }` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `screenshot()` returns. So a position you read off a screenshot goes to `tap()`, `type()`, `swipe()` and every other exact action unchanged. `screenSize()` returns the screenshot's width and height, and `locate()` and the points `tap()`, `doubleTap()`, `longPress()` and `type()` return use the same pixels. A point outside the screenshot is refused with `INVALID_ARGUMENT` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they equal CSS pixels at the default device scale factor of 1, and you still pass screenshot pixels at any other. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points. On a Mac computer a point is in screenshot pixels too, and `tap({ target })` returns the point it clicked in the same pixels. Verify refuses a negative or fractional point before sending it, and Revyl refuses one past the screen's edge without clicking; both throw `INVALID_ARGUMENT` naming the valid range.
 
 ```ts
 await session.screenshot({ path: '.verify/screen.png' });  // open it and find the element

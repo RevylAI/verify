@@ -81,6 +81,8 @@ _ERRORS = {
     "screen_input_uncertain",
     "screen_key_unsupported",
     "screen_text_unsupported",
+    "screen_target_not_found",
+    "screen_target_unavailable",
 }
 _AVAILABILITY = "Computers are early access. Ask support@revyl.ai about access."
 _COMPUTER_KEYS: dict[str, str] = {
@@ -100,13 +102,26 @@ _COMPUTER_KEYS: dict[str, str] = {
     "pagedown": "Page_Down",
 }
 _SCREEN_CALLS = (
-    "For the screen, use screenshot(), tap(Point(x, y)), type_focused(text, clear=False) "
-    "and press_key(); for commands, use exec()."
+    'For the screen, use screenshot(), tap(Point(x, y)) or tap("description"), '
+    "type_focused(text, clear=False) and press_key(); for commands, use exec()."
 )
 _CONTROL_CHARACTER = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f\ud800-\udfff]")
 
 
 def _screen_error(status: int, detail: str | None) -> tuple[str, str] | None:
+    if detail == "screen_target_not_found":
+        return (
+            "ACTION_FAILED",
+            "Nothing was clicked: Revyl could not find the described target on the screen "
+            "(screen_target_not_found). Take a screenshot() and pass a point to "
+            "tap(Point(x, y)).",
+        )
+    if detail == "screen_target_unavailable":
+        return (
+            "API_ERROR",
+            "Nothing was clicked: Revyl could not look up the described target just now "
+            "(screen_target_unavailable). It is safe to try again.",
+        )
     if detail == "screen_control_held":
         return (
             "SESSION_BUSY",
@@ -114,7 +129,7 @@ def _screen_error(status: int, detail: str | None) -> tuple[str, str] | None:
             "viewer (screen_control_held). Try again after they release it; control frees "
             "itself after 2 minutes without input.",
         )
-    if status == 409 and detail in {
+    if detail in {
         "screen_input_uncertain",
         "screen_unavailable",
         "screen_input_unavailable",
@@ -144,15 +159,6 @@ def _screen_error(status: int, detail: str | None) -> tuple[str, str] | None:
             "(screen_text_unsupported).",
         )
     return None
-
-
-def _described_unavailable(method: str) -> NoReturn:
-    raise VerifyError(
-        "NOT_AVAILABLE_ON_PLATFORM",
-        ("Described taps aren't" if method == "tap" else "locate() isn't")
-        + " available on computers yet. Read the point off screenshot() and pass it to "
-        "tap(Point(x, y)).",
-    )
 
 
 def _invalid() -> VerifyError:
@@ -432,7 +438,9 @@ class ComputerSession(Session):
                 raise error from None
             raise
 
-    def _request(self, method: str, suffix: str, body: Json, deadline: Deadline) -> Response:
+    def _request(
+        self, method: str, suffix: str, body: Json, deadline: Deadline, timeout: float | None = None
+    ) -> Response:
         path = "/api/v1/computer-runs" + (f"/{self.id}{suffix}" if suffix else "")
         try:
             response = self._client.request(
@@ -440,7 +448,8 @@ class ComputerSession(Session):
                 path,
                 body,
                 deadline=deadline,
-                timeout=310 if suffix == "/stop" or suffix.startswith("/operations") else 30,
+                timeout=timeout
+                or (310 if suffix == "/stop" or suffix.startswith("/operations") else 30),
                 retry=method == "GET" and suffix != "/screen/screenshot",
             )
         except VerifyError as error:
@@ -489,6 +498,8 @@ class ComputerSession(Session):
         if suffix == "/screen/actions":
             if response.status == 422 and detail == "screen_point_outside":
                 return response
+            if response.status == 409 and detail == "screen_starting":
+                return response
             screen = _screen_error(response.status, detail)
             if screen is not None:
                 raise VerifyError(
@@ -524,14 +535,39 @@ class ComputerSession(Session):
             http_status=response.status,
         )
 
-    def _screen_action(self, action: dict[str, Json]) -> Response:
+    def _screen_action(self, action: dict[str, Json], timeout: float = 30) -> Response:
         self._assert_computer_open()
-        return self._request(
-            "POST",
-            "/screen/actions",
-            {"action": action, "screenshot": False},
-            self._observation_deadline(30),
-        )
+        deadline = self._observation_deadline(timeout)
+        until = time.monotonic() + 30
+        while True:
+            response = self._request(
+                "POST",
+                "/screen/actions",
+                {"action": action, "screenshot": False},
+                deadline,
+                timeout,
+            )
+            if response.status != 409:
+                return response
+            try:
+                retry_after = float(response.headers.get("retry-after", ""))
+            except ValueError:
+                retry_after = 0.0
+            wait: float = min(retry_after, 60.0) if 0 < retry_after < math.inf else 1.0
+            starting = VerifyError(
+                "SESSION_BUSY",
+                "Nothing happened: the computer's screen is still starting (screen_starting). "
+                f"Try again in {math.ceil(wait)} seconds. See {self.viewer_url}",
+                http_status=409,
+            )
+            if time.monotonic() + wait >= until:
+                raise starting
+            try:
+                deadline.pause(wait)
+            except VerifyError:
+                self._assert_computer_open()
+                raise starting from None
+            self._assert_computer_open()
 
     def _report(self, response: Response) -> dict[str, Json]:
         raw = obj(response.json())
@@ -919,10 +955,13 @@ class ComputerSession(Session):
         self._unavailable("validation")
 
     def tap(self, at: Location) -> Point:
-        """Clicks a point in screenshot pixels with the left button. Returns the point."""
+        """Clicks a point in screenshot pixels, or an element Revyl finds from a description.
+
+        Returns the point clicked, in screenshot pixels.
+        """
         point = _location(at)
         if isinstance(point, str):
-            _described_unavailable("tap")
+            return self._tap_target(point)
         if self._screen_action({"action": "click", "x": point.x, "y": point.y}).status == 422:
             size = self.screen_size()
             raise VerifyError(
@@ -932,6 +971,32 @@ class ComputerSession(Session):
                 "screenshot() returns.",
             )
         return point
+
+    def _tap_target(self, target: str) -> Point:
+        try:
+            response = self._screen_action({"action": "click", "target": target}, 90)
+        except VerifyError as error:
+            if error.code == "INVALID_ARGUMENT" and error.http_status == 422:
+                raise VerifyError(
+                    "NOT_AVAILABLE_ON_PLATFORM",
+                    "Nothing was clicked: this Revyl backend can't click a described target on "
+                    "a computer yet (invalid_request). Read the point off screenshot() and pass "
+                    f"it to tap(Point(x, y)). See {self.viewer_url}",
+                    http_status=422,
+                ) from error
+            raise
+        try:
+            point = obj(obj(response.json()).get("point"))
+        except VerifyError:
+            point = {}
+        x, y = point.get("x"), point.get("y")
+        if type(x) is not int or type(y) is not int or x < 0 or y < 0:
+            raise VerifyError(
+                "ACTION_UNCERTAIN",
+                "Revyl answered the described click without the point it clicked, so where it "
+                f"landed is unknown. Take a screenshot() to check. See {self.viewer_url}",
+            )
+        return Point(x, y)
 
     def type(self, at: Location, text: str, *, clear: bool = True) -> NoReturn:
         self._unavailable("type")
@@ -1025,7 +1090,13 @@ class ComputerSession(Session):
         self._unavailable("launch_app")
 
     def locate(self, target: str) -> NoReturn:
-        _described_unavailable("locate")
+        raise VerifyError(
+            "NOT_AVAILABLE_ON_PLATFORM",
+            "locate() isn't available on computers, because Revyl can't find a point there "
+            'without clicking it. tap("description") clicks a description and returns the point '
+            "it clicked; to choose the point yourself, read it off screenshot() and pass it to "
+            "tap(Point(x, y)).",
+        )
 
     def screen_size(self) -> ScreenSize:
         """The screenshot's size in pixels, the space tap() uses."""

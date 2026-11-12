@@ -67,20 +67,24 @@ Computer operations use `TIMEOUT` for bounded runtime with confirmed termination
 
 ### Computer screen actions
 
-Clicks, typing and keys on a Mac computer's screen map Revyl's answers to these codes. Verify never repeats a screen action. See [computers.md](computers.md#screen).
+Clicks, typing and keys on a Mac computer's screen map Revyl's answers to these codes, read from the answer's `detail`, never from its HTTP status alone. Verify never repeats a screen action, except after `screen_starting`, which it tries again for up to 30 seconds. See [computers.md](computers.md#screen).
 
 | Revyl's answer | `code` | What it means |
 | --- | --- | --- |
 | 409 `screen_control_held` | `SESSION_BUSY` | Nothing happened: someone controls the screen in the viewer. Try again after they release it; control frees itself after 2 minutes without input |
+| 409 `screen_starting` for more than 30 seconds | `SESSION_BUSY` | Nothing happened: the screen is still starting. Try again after the number of seconds the message names |
+| 422 `screen_target_not_found` | `ACTION_FAILED` | Nothing was clicked: Revyl didn't find the described target. A target that isn't there can also be clicked as a look-alike, so check the point `tap({ target })` returns |
+| 503 `screen_target_unavailable` | `API_ERROR` | Nothing was clicked: Revyl couldn't look the target up just then. It is safe to try again |
+| 422 `invalid_request` on a described tap | `NOT_AVAILABLE_ON_PLATFORM` | Nothing was clicked: this backend doesn't have described clicks yet. Pass a point |
 | 422 `screen_point_outside` | `INVALID_ARGUMENT` | Nothing was clicked: the point is past the screen's edge. The message names the valid range |
 | `screen_text_unsupported` | `INVALID_ARGUMENT` | Nothing was typed: the computer can't type some of the characters |
-| 409 `screen_input_uncertain`, or `screen_unavailable` or `screen_input_unavailable` on an action | `ACTION_UNCERTAIN` | The action may have happened. Take a `screenshot()` before you do it again |
+| `screen_input_uncertain`, `screen_unavailable` or `screen_input_unavailable` on an action (409 or 503) | `ACTION_UNCERTAIN` | The action may have happened. Take a `screenshot()` before you do it again |
 | 403 | `AUTH_REJECTED` | The key's owner needs the Member role or above; CI runner keys can't control the screen yet |
 | 503 `authentication_unavailable` | `API_ERROR` | Nothing happened: Revyl couldn't check the key. It is safe to try again |
 
 ## Troubleshooting
 
-- **`NOT_AVAILABLE_ON_PLATFORM`:** the requested method is not available for that target. Computer targets do not run instruction or validation steps or described taps; Web and mobile targets do not expose computer commands or files.
+- **`NOT_AVAILABLE_ON_PLATFORM`:** the requested method is not available for that target. Computer targets do not run instruction or validation steps or `locate()`; Web and mobile targets do not expose computer commands or files.
 - **`COMPUTER_LIMIT`:** computer admission was refused because of queued work or a concurrency limit. Verify does not retry creation or stop a definitely refused start.
 - **Blank first screen:** mobile startup uses a bounded, best-effort blank-frame observation, not a rendered-readiness guarantee. Begin with an instruction that reaches the screen your workflow needs. See [mobile.md](mobile.md#steps).
 - **A validation report looks successful but the assertion failed:** inspect each step's `effective_status` and `validation_result`, and compare `validations_passed` with `total_validations` rather than transport counters. See [reading the verdict](end-to-end.md#reading-the-verdict).

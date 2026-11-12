@@ -155,7 +155,7 @@ export interface OpenedSession extends Session {
   report(): Promise<Record<string, unknown>>;
   navigate(url: string): Promise<void>;
   open(target: HostedTargetConfig): Promise<OpenedSession>;
-  /** Taps a point in screenshot pixels, or an element Revyl locates from a description. Returns the point tapped, in screenshot pixels. A Mac computer takes only a point. */
+  /** Taps a point in screenshot pixels, or an element Revyl locates from a description. Returns the point tapped, in screenshot pixels. */
   tap(at: Location): Promise<Point>;
   /** Taps a text field and types into it, clearing it first unless clear is false. Returns the point tapped. Browsers and devices only. */
   type(at: Location, text: string, options?: { clear?: boolean }): Promise<Point>;
