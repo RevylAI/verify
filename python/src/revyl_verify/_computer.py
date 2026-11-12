@@ -6,13 +6,13 @@ import re
 import threading
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal, NoReturn
+from typing import NoReturn
 from urllib.parse import quote, urlsplit
 
-from ._agent import LocalAgent, Location, ModelOption, SwipeDirection
+from ._agent import Key, KeyModifier, LocalAgent, Location, ModelOption, SwipeDirection
 from ._cleanup import track, untrack
 from ._models import (
     ComputerProcess,
@@ -816,14 +816,29 @@ class ComputerSession(Session):
     def type(self, at: Location, text: str, *, clear: bool = True) -> NoReturn:
         self._unavailable("type")
 
+    def type_focused(self, text: str, *, clear: bool = True) -> NoReturn:
+        self._unavailable("type_focused")
+
+    def double_tap(self, at: Location) -> NoReturn:
+        self._unavailable("double_tap")
+
+    def long_press(self, at: Location, *, duration: float | None = None) -> NoReturn:
+        self._unavailable("long_press")
+
     def swipe(self, direction: SwipeDirection, *, from_: Location | None = None) -> NoReturn:
         self._unavailable("swipe")
 
-    def press_key(self, key: Literal["enter", "backspace"]) -> NoReturn:
+    def drag(self, start: Location, end: Location) -> NoReturn:
+        self._unavailable("drag")
+
+    def press_key(self, key: Key | str, *, modifiers: Sequence[KeyModifier] = ()) -> NoReturn:
         self._unavailable("press_key")
 
     def back(self) -> NoReturn:
         self._unavailable("back")
+
+    def go_home(self) -> NoReturn:
+        self._unavailable("go_home")
 
     def open_url(self, url: str) -> NoReturn:
         self._unavailable("open_url")

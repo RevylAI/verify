@@ -9,10 +9,10 @@ Use Go 1.26.9 or later and a Revyl account. Set `REVYL_API_KEY` through your she
 The module lives in the repository's `go/` subdirectory. Install the tagged release with:
 
 ```sh
-go get github.com/RevylAI/verify/go@v0.3.1
+go get github.com/RevylAI/verify/go@v0.4.0
 ```
 
-Go releases use independent repository tags such as `go/v0.3.1`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
+Go releases use independent repository tags such as `go/v0.4.0`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
 
 ## Quick start: iOS Settings
 
@@ -21,7 +21,7 @@ This program opens the iOS Settings app on a cloud simulator, which every accoun
 ```sh
 mkdir verify-go && cd verify-go
 go mod init example.com/verify-go
-go get github.com/RevylAI/verify/go@v0.3.1
+go get github.com/RevylAI/verify/go@v0.4.0
 ```
 
 Save this as `main.go`:
@@ -164,8 +164,11 @@ The Go SDK does not read `verify.config.ts`, resolve named targets, or provide a
 
 | Call | Web | iOS | Android | Mac computer |
 | --- | --- | --- | --- | --- |
-| `Tap`, `Type`, `Swipe`, `PressKey`, `Locate`, `ScreenSize` | Yes | Yes | Yes | No, use `Exec` and files |
+| `Tap`, `DoubleTap`, `LongPress`, `Type`, `Swipe`, `Drag`, `Locate`, `ScreenSize` | Yes | Yes | Yes | No, use `Exec` and files |
+| `PressKey(ctx, key, KeyOptions{Modifiers})` | Yes: `KeyEnter`, `KeyBackspace`, `KeyTab`, `KeyEscape`, arrows and more, with modifiers | `KeyEnter` and `KeyBackspace` only | `KeyEnter` and `KeyBackspace` only | No |
+| `TypeFocused` | Yes, types into the focused field | No, use `Type(ctx, location, text)` | No, use `Type(ctx, location, text)` | No |
 | `Back` | Yes, browser history | No, tap the on-screen back control | Yes, the system back button | No |
+| `GoHome` | No, use `OpenURL` or `Navigate` | Yes, the home screen | Yes, the home screen | No |
 | `OpenURL` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No |
 | `LaunchApp` | No, use `OpenURL` or `Navigate` | Yes | Yes | No |
 | `Navigate` | Yes | No, use `OpenURL` | No, use `OpenURL` | No |
@@ -177,7 +180,7 @@ Coordinates follow the rule in [Exact actions](#exact-actions). A call a platfor
 
 ## Exact actions
 
-**Since Go `v0.3.0`. Early access.** Web, iOS and Android sessions take device actions that need no agent. A location is a `verify.Point{X, Y}` in whole, non-negative screenshot pixels from the top-left corner, or a `verify.Element("Login button")` that Revyl's grounding model finds on the current screen.
+**Since Go `v0.3.0`. Early access.** Web, iOS and Android sessions take device actions that need no agent. `DoubleTap`, `LongPress`, `Drag`, `TypeFocused`, `GoHome`, and Web keys and modifiers in `PressKey`, are new in `v0.4.0`. A location is a `verify.Point{X, Y}` in whole, non-negative screenshot pixels from the top-left corner, or a `verify.Element("Login button")` that Revyl's grounding model finds on the current screen.
 
 ```go
 if _, err := s.Tap(ctx, verify.Element("General")); err != nil {
@@ -190,15 +193,52 @@ if err := s.Swipe(ctx, verify.SwipeUp); err != nil {
 	return err
 }
 point, err := s.Locate(ctx, "Wi-Fi row")
+if err != nil {
+	return err
+}
+if _, err := s.LongPress(ctx, point, verify.LongPressOptions{Duration: 800 * time.Millisecond}); err != nil { // 1.5 s by default
+	return err
+}
+if err := s.Drag(ctx, verify.Element("General row"), verify.Element("Search field")); err != nil { // the list follows the finger
+	return err
+}
+if err := s.GoHome(ctx); err != nil { // the home screen, on iOS and Android
+	return err
+}
+```
+
+On Web, type where the focus is and press more keys:
+
+```go
+if _, err := s.Tap(ctx, verify.Element("Username field")); err != nil {
+	return err
+}
+if err := s.TypeFocused(ctx, "standard_user"); err != nil { // replaces the focused field's text unless Clear points to false
+	return err
+}
+if err := s.PressKey(ctx, verify.KeyTab); err != nil { // focus moves to the password field
+	return err
+}
+if err := s.PressKey(ctx, verify.Key("a"), verify.KeyOptions{Modifiers: []verify.KeyModifier{verify.ModifierCtrl}}); err != nil { // a chord
+	return err
+}
+if err := s.PressKey(ctx, verify.KeyEscape); err != nil {
+	return err
+}
 ```
 
 | Method | What it does |
 | --- | --- |
 | `Tap(ctx, at)` | Taps and returns the `Point` tapped |
+| `DoubleTap(ctx, at)` | Double-taps (double-clicks on Web) and returns the `Point` |
+| `LongPress(ctx, at, LongPressOptions{Duration})` | Presses and holds for `Duration`, whole milliseconds from 1 millisecond to 5 seconds (zero means 1.5 seconds), and returns the `Point` |
 | `Type(ctx, at, text, TypeOptions{Clear})` | Taps a text field and types into it, clearing it first unless `Clear` points to `false` |
+| `TypeFocused(ctx, text, TypeOptions{Clear})` | Web only: types into the field that already has focus, without clicking, replacing its text unless `Clear` points to `false`. Focus the field first, for example with `Tap` or `PressKey(ctx, verify.KeyTab)`. With no field focused nothing is typed and no error is returned, so check the result. On iOS and Android it returns `ErrNotAvailableOnPlatform`; use `Type(ctx, location, text)` |
 | `Swipe(ctx, direction, SwipeOptions{From})` | Swipes from a location or the screen's center; `SwipeUp` moves the finger up, which scrolls content down |
-| `PressKey(ctx, verify.KeyEnter)` | Presses `KeyEnter` or `KeyBackspace` on the focused field |
+| `Drag(ctx, from, to)` | Presses at one location, moves to the other and releases, for example to reorder a list, move a slider or select text |
+| `PressKey(ctx, key, KeyOptions{Modifiers})` | Presses a key on the focused element. Every platform takes `KeyEnter` and `KeyBackspace`. Web also takes `KeyTab`, `KeyEscape`, `KeyDelete`, `KeySpace`, `KeyArrowUp`, `KeyArrowDown`, `KeyArrowLeft`, `KeyArrowRight`, `KeyHome`, `KeyEnd`, `KeyPageUp` and `KeyPageDown`, and `Modifiers`: up to four of `ModifierCtrl`, `ModifierShift`, `ModifierAlt` and `ModifierMeta`, held while the key is pressed. With modifiers a lowercase letter or digit works too, such as `verify.Key("a")`. Other keys and any modifiers return `ErrNotAvailableOnPlatform` on iOS and Android |
 | `Back(ctx)` | Browser history on Web, the back button on Android; iOS returns `ErrNotAvailableOnPlatform` |
+| `GoHome(ctx)` | Goes to the home screen on iOS and Android; Web returns `ErrNotAvailableOnPlatform` |
 | `OpenURL(ctx, url)` | Opens a URL or deep link on a device, or loads an http(s) URL in a browser |
 | `LaunchApp(ctx, bundleID)` | Launches an installed app on a device |
 | `Locate(ctx, description)` | Returns Revyl's best match on the current screen, without acting |
@@ -206,9 +246,9 @@ point, err := s.Locate(ctx, "Wi-Fi row")
 
 A failed action returns `ErrActionFailed`, including when Revyl cannot find an element or nothing at a point can take the action. Actions are sent once and never repeated: one cut off by the context's deadline, or whose outcome Revyl can't confirm, returns `ErrActionUncertain`, so check the session before acting again. If Verify can't reach Revyl, the action returns `ErrAPI` and isn't resent either, so check the session before trying it again. Each request is bounded at 30 seconds even on `context.Background()`.
 
-Exact actions return when Revyl has accepted them, not when the screen has finished changing. After `Swipe`, `OpenURL` or `LaunchApp`, let the screen settle or check it before you `Locate` or tap coordinates. `Locate` returns Revyl's best match on the current screen and can return a point for an element that is off screen, so bring the element on screen first. A point outside `ScreenSize` is off screen, and an action at it is refused.
+Exact actions return when Revyl has accepted them, not when the screen has finished changing. After `Swipe`, `Drag`, `GoHome`, `OpenURL` or `LaunchApp`, let the screen settle or check it before you `Locate` or tap coordinates. `Locate` returns Revyl's best match on the current screen and can return a point for an element that is off screen, so bring the element on screen first. A point outside `ScreenSize` is off screen, and an action at it is refused.
 
-**Coordinates.** Prefer a description, such as `Tap(ctx, verify.Element("Sign in button"))`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `verify.Point{X, Y}` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `Screenshot` returns. So a position you read off a screenshot goes to `Tap`, `Type` and `Swipe` unchanged. `ScreenSize` returns the screenshot's width and height, and `Locate` and the points `Tap` and `Type` return use the same pixels. A point outside the screenshot is refused with `ErrInvalidArgument` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they equal CSS pixels at the default device scale factor of 1, and you still pass screenshot pixels at any other. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points.
+**Coordinates.** Prefer a description, such as `Tap(ctx, verify.Element("Sign in button"))`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `verify.Point{X, Y}` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `Screenshot` returns. So a position you read off a screenshot goes to `Tap`, `Type`, `Swipe` and every other exact action unchanged. `ScreenSize` returns the screenshot's width and height, and `Locate` and the points `Tap`, `DoubleTap`, `LongPress` and `Type` return use the same pixels. A point outside the screenshot is refused with `ErrInvalidArgument` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they equal CSS pixels at the default device scale factor of 1, and you still pass screenshot pixels at any other. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points.
 
 ```go
 if _, err := s.Screenshot(ctx, ".verify/screen.png"); err != nil { // open it and find the element

@@ -142,7 +142,7 @@ For async code use `async with await async_attach(computer_id) as computer`, the
 
 ## Exact actions
 
-**Since 0.2.0. Early access.** Web, iOS and Android sessions take device actions that need no agent. They match the TypeScript SDK's exact actions in snake_case, and `AsyncSession` has the same methods to await.
+**Since 0.2.0. Early access.** Web, iOS and Android sessions take device actions that need no agent. They match the TypeScript SDK's exact actions in snake_case, and `AsyncSession` has the same methods to await. `double_tap`, `long_press`, `drag`, `type_focused`, `go_home`, and Web keys and modifiers in `press_key`, are new in 0.3.0.
 
 ```python
 from revyl_verify import Point, Target, open
@@ -157,6 +157,29 @@ with open(Target(platform="ios", bundle_id="com.apple.Preferences")) as session:
     session.launch_app("com.apple.Preferences")
     where = session.locate("About")  # a Point, without acting
     size = session.screen_size()  # the screenshot's ScreenSize(width, height)
+    session.long_press("General", duration=0.8)  # press and hold, in seconds; 1.5 by default
+    session.double_tap("Settings title")
+    session.drag("General", "Search")  # press, move, release: the list follows the finger
+    session.go_home()  # the home screen, on iOS and Android
+```
+
+On Web, type where the focus is and press more keys:
+
+```python
+import os
+
+from revyl_verify import Target, open
+
+web = Target(platform="web", app_id=os.environ["REVYL_WEB_APP_ID"], url="https://www.saucedemo.com")
+with open(web) as session:
+    session.tap("Username field")
+    session.type_focused("standard_user")  # replaces the focused field's text unless clear=False
+    session.press_key("tab")  # focus moves to the password field
+    session.type_focused("secret_sauce")
+    session.press_key("enter")
+    session.tap("Open Menu button")
+    session.press_key("escape")  # closes the menu
+    session.press_key("a", modifiers=["ctrl"])  # a chord: a letter or digit with modifiers
 ```
 
 A location is a `Point(x, y)` in whole, non-negative screenshot pixels from the top-left corner, or a string describing the element, such as `"Login button"`, which Revyl's grounding model finds on the current screen.
@@ -164,10 +187,15 @@ A location is a `Point(x, y)` in whole, non-negative screenshot pixels from the 
 | Call | What it does |
 | --- | --- |
 | `tap(at)` | Taps and returns the `Point` tapped |
+| `double_tap(at)` | Double-taps (double-clicks on Web) and returns the `Point` |
+| `long_press(at, duration=None)` | Presses and holds for `duration` seconds, 0.001 to 5 in whole milliseconds (1.5 by default), and returns the `Point` |
 | `type(at, text, clear=True)` | Taps a text field and types into it, clearing it first unless `clear` is `False`; returns the `Point` tapped |
+| `type_focused(text, clear=True)` | Web only: types into the field that already has focus, without clicking, replacing its text unless `clear` is `False`. Focus the field first, for example with `tap` or `press_key("tab")`. With no field focused nothing is typed and nothing is raised, so check the result. On iOS and Android it raises `NOT_AVAILABLE_ON_PLATFORM`; use `type(location, text)` |
 | `swipe(direction, from_=None)` | Swipes from a location or the screen's center; `"up"` moves the finger up, which scrolls content down |
-| `press_key("enter" \| "backspace")` | Presses a key on the focused field |
+| `drag(start, end)` | Presses at one location, moves to the other and releases, for example to reorder a list, move a slider or select text |
+| `press_key(key, modifiers=())` | Presses a key on the focused element. Every platform takes `"enter"` and `"backspace"`. Web also takes `"tab"`, `"escape"`, `"delete"`, `"space"`, `"arrowup"`, `"arrowdown"`, `"arrowleft"`, `"arrowright"`, `"home"`, `"end"`, `"pageup"` and `"pagedown"`, and `modifiers`: up to four of `"ctrl"`, `"shift"`, `"alt"` and `"meta"`, held while the key is pressed. With modifiers a lowercase letter or digit works too, such as `press_key("a", modifiers=["ctrl"])`. Other keys and any modifiers raise `NOT_AVAILABLE_ON_PLATFORM` on iOS and Android |
 | `back()` | Browser history on Web, the back button on Android; iOS raises `NOT_AVAILABLE_ON_PLATFORM` |
+| `go_home()` | Goes to the home screen on iOS and Android; Web raises `NOT_AVAILABLE_ON_PLATFORM` |
 | `open_url(url)` | Opens a URL or deep link on a device, or loads an http(s) URL in a browser |
 | `launch_app(bundle_id)` | Launches an installed app on a device |
 | `locate(target)` | Returns Revyl's best match on the current screen, without acting |
@@ -175,9 +203,9 @@ A location is a `Point(x, y)` in whole, non-negative screenshot pixels from the 
 
 A failed action raises `ACTION_FAILED`, including when Revyl cannot find a target or nothing at a point can take the action. One whose outcome Revyl can't confirm raises `ACTION_UNCERTAIN` or `TIMEOUT`, so check the session before acting again. Actions are never repeated. If Verify can't reach Revyl, the action fails with `API_ERROR` and isn't resent either, so check the session before trying it again.
 
-Exact actions return when Revyl has accepted them, not when the screen has finished changing. After `swipe`, `open_url` or `launch_app`, let the screen settle or check it before you `locate` or tap coordinates. `locate` returns Revyl's best match on the current screen and can return a point for an element that is off screen, so bring the element on screen first. A point outside `screen_size()` is off screen, and an action at it is refused.
+Exact actions return when Revyl has accepted them, not when the screen has finished changing. After `swipe`, `drag`, `go_home`, `open_url` or `launch_app`, let the screen settle or check it before you `locate` or tap coordinates. `locate` returns Revyl's best match on the current screen and can return a point for an element that is off screen, so bring the element on screen first. A point outside `screen_size()` is off screen, and an action at it is refused.
 
-**Coordinates.** Prefer a description, such as `tap("Sign in button")`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `Point(x, y)` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `screenshot()` returns. So a position you read off a screenshot goes to `tap()`, `type()` and `swipe()` unchanged. `screen_size()` returns the screenshot's width and height, and `locate()` and the points `tap()` and `type()` return use the same pixels. A point outside the screenshot is refused with `INVALID_ARGUMENT` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they equal CSS pixels at the default device scale factor of 1, and you still pass screenshot pixels at any other. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points.
+**Coordinates.** Prefer a description, such as `tap("Sign in button")`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `Point(x, y)` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `screenshot()` returns. So a position you read off a screenshot goes to `tap()`, `type()`, `swipe()` and every other exact action unchanged. `screen_size()` returns the screenshot's width and height, and `locate()` and the points `tap()`, `double_tap()`, `long_press()` and `type()` return use the same pixels. A point outside the screenshot is refused with `INVALID_ARGUMENT` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they equal CSS pixels at the default device scale factor of 1, and you still pass screenshot pixels at any other. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points.
 
 ```python
 session.screenshot(path=".verify/screen.png")  # open it and find the element
@@ -189,8 +217,11 @@ size = session.screen_size()  # the screenshot's size: x is 0 to size.width - 1
 
 | Call | Web | iOS | Android | Mac computer |
 | --- | --- | --- | --- | --- |
-| `tap`, `type`, `swipe`, `press_key`, `locate`, `screen_size` | Yes | Yes | Yes | No, use `exec()` and files |
+| `tap`, `double_tap`, `long_press`, `type`, `swipe`, `drag`, `locate`, `screen_size` | Yes | Yes | Yes | No, use `exec()` and files |
+| `press_key(key, modifiers)` | Yes: `"enter"`, `"backspace"`, `"tab"`, `"escape"`, arrows and more, with modifiers | `"enter"` and `"backspace"` only | `"enter"` and `"backspace"` only | No |
+| `type_focused(text)` | Yes, types into the focused field | No, use `type(location, text)` | No, use `type(location, text)` | No |
 | `back()` | Yes, browser history | No, tap the on-screen back control | Yes, the system back button | No |
+| `go_home()` | No, use `open_url` or `navigate` | Yes, the home screen | Yes, the home screen | No |
 | `open_url(url)` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No |
 | `launch_app(bundle_id)` | No, use `open_url` or `navigate` | Yes | Yes | No |
 | `navigate(url)` | Yes | No, use `open_url` | No, use `open_url` | No |
@@ -378,7 +409,7 @@ Use an empty `dist/` before building; the package checker rejects stale or extra
 
 ## Troubleshooting
 
-- **`NOT_AVAILABLE_ON_PLATFORM`:** computers do not support instruction/validation, your own model or exact actions; devices do not support commands, files, processes or recording metadata; iOS has no `back()` and Web no `launch_app()`.
+- **`NOT_AVAILABLE_ON_PLATFORM`:** computers do not support instruction/validation, your own model or exact actions; devices do not support commands, files, processes or recording metadata; iOS has no `back()`, Web has no `launch_app()` or `go_home()`, and iOS and Android have no `type_focused()` and no keys other than Enter and Backspace.
 - **`MODEL_KEY_MISSING`:** the provider's key variable named in the message is not set. Set it, or pass `CustomModel(id, base_url, api_key=...)`.
 - **`MODEL_ERROR`:** the model's endpoint refused the request or the model misbehaved. The message names the host, the HTTP status and the next step: a rejected key and the variable it came from, an unknown model, the path Verify added on a 404, a rate limit after retries, a text-only model, no tool support, a reply cut off at its output cap, or three turns without a tool call.
 - **Blank initial screen:** first-frame observation is best effort. Start with an instruction; a transport-level connection does not prove rendered readiness.

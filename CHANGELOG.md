@@ -1,6 +1,34 @@
 # Changelog
 
-## 0.4.1 (unreleased)
+## 0.5.0 (unreleased)
+
+- Early access: more exact actions on Web, iOS and Android. `doubleTap(at)` double-taps (double-clicks on Web), `longPress(at, { duration })` presses and holds for `duration` milliseconds (1 to 5000, 1500 by default), and `drag(from, to)` presses at one location, moves to the other and releases. They take a description or screenshot pixels like `tap`, and `doubleTap` and `longPress` resolve with the point.
+- Web: `typeFocused(text, { clear })` types into the field that already has focus, without clicking, and replaces its text unless `clear` is `false`, the same default as `type()`. `pressKey` also takes `'tab'`, `'escape'`, `'delete'`, `'space'`, `'arrowup'`, `'arrowdown'`, `'arrowleft'`, `'arrowright'`, `'home'`, `'end'`, `'pageup'` and `'pagedown'`, and `{ modifiers }`: up to four of `'ctrl'`, `'shift'`, `'alt'` and `'meta'`, with which a lowercase letter or digit works too, as in `pressKey('a', { modifiers: ['ctrl'] })`. The `Key` and `KeyModifier` types are exported.
+- iOS and Android: `goHome()` goes to the home screen.
+- A call the platform lacks throws `NOT_AVAILABLE_ON_PLATFORM` before anything is sent, and the message names what to use: `typeFocused` on iOS and Android (use `type(location, text)`), keys other than `'enter'` and `'backspace'` or any modifiers on iOS and Android, and `goHome` on Web. Computers refuse all of them, like the other exact actions.
+- Your own model can choose `double_tap`, `long_press` and `drag` on every platform, `type_focused` and the wider `press_key` on Web, and `go_home` on iOS and Android, with both groundings. The model sees these extra tools in its tool list; the tools it had before send the same requests as 0.4.1.
+- Every existing call sends the same requests as 0.4.1. Your own model choosing `open_url` with a deep link on Web gets the `openUrl()` wording.
+- Docs: the platform table, `api.md`, the web and mobile guides with a script for the new calls, `agents.md` and `llms.txt`.
+
+## Go 0.4.0 (unreleased)
+
+Published as the `go/v0.4.0` tag.
+
+- Early access: more exact actions on Web, iOS and Android, as in TypeScript 0.5.0. `DoubleTap(ctx, at)` and `LongPress(ctx, at, LongPressOptions{Duration})` return the point; `Duration` is whole milliseconds from 1 millisecond to 5 seconds, and zero leaves Revyl's 1.5 seconds. `Drag(ctx, from, to)` presses, moves and releases.
+- Web: `TypeFocused(ctx, text, TypeOptions{Clear})` types into the field that already has focus and replaces its text unless `Clear` points to `false`. `PressKey(ctx, key, KeyOptions{Modifiers})` adds `KeyTab`, `KeyEscape`, `KeyDelete`, `KeySpace`, `KeyArrowUp`, `KeyArrowDown`, `KeyArrowLeft`, `KeyArrowRight`, `KeyHome`, `KeyEnd`, `KeyPageUp` and `KeyPageDown`, and modifiers (`ModifierCtrl`, `ModifierShift`, `ModifierAlt`, `ModifierMeta`), with which `Key("a")` and other lowercase letters and digits work too. Existing `PressKey(ctx, key)` calls compile unchanged.
+- iOS and Android: `GoHome(ctx)`.
+- A call the platform lacks returns `ErrNotAvailableOnPlatform` before anything is sent, naming the alternative. Your own model can choose the new actions with both groundings, so it sees more tools; the tools it had send the same requests as v0.3.1, as does every existing call.
+- `ErrInstructionFailed` names the step and the reason, as TypeScript does: `Instruction failed: "<text>". <reason> See <link>`. The uncertain-action message says "The step deadline passed". Your own model choosing `open_url` with a deep link on Web gets the `OpenURL` wording.
+
+## Python 0.3.0 (unreleased)
+
+- Early access: more exact actions on Web, iOS and Android, as in TypeScript 0.5.0. `double_tap(at)` and `long_press(at, duration=None)` return the point; `duration` is seconds, 0.001 to 5 in whole milliseconds, 1.5 by default. `drag(start, end)` presses, moves and releases.
+- Web: `type_focused(text, clear=True)` types into the field that already has focus and replaces its text unless `clear` is `False`. `press_key(key, modifiers=())` adds `"tab"`, `"escape"`, `"delete"`, `"space"`, the arrows, `"home"`, `"end"`, `"pageup"` and `"pagedown"`, and modifiers (`"ctrl"`, `"shift"`, `"alt"`, `"meta"`), with which a lowercase letter or digit works too. `Key` and `KeyModifier` are exported.
+- iOS and Android: `go_home()`. `AsyncSession` has every new method.
+- A call the platform lacks raises `NOT_AVAILABLE_ON_PLATFORM` before anything is sent, naming the alternative. Your own model can choose the new actions with both groundings, so it sees more tools; the tools it had send the same requests as 0.2.1, as does every existing call.
+- `INSTRUCTION_FAILED` names the step and the reason, as TypeScript does: `Instruction failed: "<text>". <reason> See <link>`, and the progress line for a failed step on your own model ends with the reason. Your own model choosing `open_url` with a deep link on Web gets the `open_url()` wording.
+
+## 0.4.1 (2026-11-12)
 
 - **Breaking for iOS exact actions (early access):** coordinates are now screenshot pixels on every platform. On iOS, `tap`, `type`, `swipe`'s `from`, `locate`, `screenSize` and the points `tap` and `type` return used the screen's points (440 × 956 on an iPhone whose screenshots are 1320 × 2868); they now use the screenshot's pixels, and Verify converts them to points for you. A script that passed iOS points must pass screenshot pixels instead: multiply by the screenshot's width over 0.4.0's `screenSize()` width (3 on that iPhone). Android and Web coordinates are unchanged, because their screenshots already match the screen.
 - A point outside the screenshot is refused with `INVALID_ARGUMENT` before any action is sent, and the message names the valid range. The first call in a session that takes or returns a point reads the screen size once (on iOS, plus one screenshot), and later calls reuse it. Before refusing a point, Verify reads the size again, so a rotated device or a resized Web viewport doesn't get a valid point refused. On Android and Web, if the size can't be read, the action is sent as in 0.4.0; on iOS the call fails, because the scale is needed. Calls by description send the same requests as 0.4.0 on Android and Web.
@@ -8,7 +36,7 @@
 - `instruction()` and `validation()` on your own model are unchanged: the model still sees screenshots, and Verify still maps its answers to the device.
 - Docs: one coordinate rule in the same words for TypeScript, Python and Go, in the README, `api.md`, the web and mobile guides, `agents.md` and `llms.txt`. Web coordinates are screenshot pixels, which are CSS pixels at the default device scale factor of 1.
 
-## Go 0.3.1 (unreleased)
+## Go 0.3.1 (2026-11-12)
 
 Published as the `go/v0.3.1` tag.
 
@@ -16,7 +44,7 @@ Published as the `go/v0.3.1` tag.
 - A point outside the screenshot returns `ErrInvalidArgument` before any action is sent, naming the valid range, after Verify reads the size again in case the screen rotated. The screen size is read once per session. On Android and Web a failed size read skips the check and sends the action as before; on iOS it returns the error.
 - README: the same coordinate rule as TypeScript and Python.
 
-## Python 0.2.1 (unreleased)
+## Python 0.2.1 (2026-11-12)
 
 - **Breaking for iOS exact actions (early access):** coordinates are now screenshot pixels on every platform, as in TypeScript 0.4.1. On iOS, `tap`, `type`, `swipe`'s `from_`, `locate`, `screen_size` and the points `tap` and `type` return used the screen's points; they now use the screenshot's pixels, and Verify converts them to points for you. Android and Web coordinates are unchanged. `AsyncSession` behaves the same.
 - A point outside the screenshot raises `INVALID_ARGUMENT` before any action is sent, naming the valid range, after Verify reads the size again in case the screen rotated. The screen size is read once per session. On Android and Web a failed size read skips the check and sends the action as before; on iOS it raises.

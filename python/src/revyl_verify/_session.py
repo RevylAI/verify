@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import io
+import math
 import re
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from types import TracebackType
@@ -15,19 +16,28 @@ from uuid import uuid4
 from PIL import Image, UnidentifiedImageError
 
 from ._agent import (
+    WEB_KEYS,
     AgentControls,
     Back,
     DeviceAction,
     DevicePlatform,
+    DoubleTap,
+    Drag,
+    GoHome,
+    Key,
+    KeyModifier,
     LocalAgent,
     Location,
+    LongPress,
     ModelOption,
     OpenUrl,
     PressKey,
     Swipe,
     SwipeDirection,
     Tap,
+    TypeFocused,
     TypeText,
+    check_key,
     choose_agent,
     is_number,
     js_round,
@@ -648,6 +658,45 @@ class Session:
             self._read_screenshot_size()
         return self._to_screenshot(cast(Point, self._perform(TypeText(location, text, clear))))
 
+    def type_focused(self, text: str, *, clear: bool = True) -> None:
+        if self.platform != "web":
+            raise VerifyError(
+                "NOT_AVAILABLE_ON_PLATFORM",
+                "type_focused() is available only on web sessions; on iOS and Android, "
+                "use type(location, text), which taps the field first.",
+            )
+        if not isinstance(text, str) or text_length(text) > 16_384:
+            raise VerifyError(
+                "INVALID_ARGUMENT", "type_focused() takes text of at most 16384 characters."
+            )
+        if not isinstance(clear, bool):
+            raise VerifyError("INVALID_ARGUMENT", "clear must be a boolean.")
+        self._perform(TypeFocused(text, clear))
+
+    def double_tap(self, at: Location) -> Point:
+        location = self._to_device(_location(at))
+        if self.platform == "ios":
+            self._read_screenshot_size()
+        return self._to_screenshot(cast(Point, self._perform(DoubleTap(location))))
+
+    def long_press(self, at: Location, *, duration: float | None = None) -> Point:
+        if duration is not None and (
+            isinstance(duration, bool)
+            or not isinstance(duration, (int, float))
+            or not math.isfinite(duration)
+            or not 1 <= round(duration * 1000) <= 5000
+            or abs(duration * 1000 - round(duration * 1000)) > 1e-6
+        ):
+            raise VerifyError(
+                "INVALID_ARGUMENT",
+                "long_press() duration is 0.001 to 5 seconds, in whole milliseconds.",
+            )
+        duration_ms = None if duration is None else round(duration * 1000)
+        location = self._to_device(_location(at))
+        if self.platform == "ios":
+            self._read_screenshot_size()
+        return self._to_screenshot(cast(Point, self._perform(LongPress(location, duration_ms))))
+
     def swipe(self, direction: SwipeDirection, *, from_: Location | None = None) -> None:
         if direction not in ("up", "down", "left", "right"):
             raise VerifyError("INVALID_ARGUMENT", "swipe() takes 'up', 'down', 'left' or 'right'.")
@@ -655,13 +704,24 @@ class Session:
             Swipe(direction, None if from_ is None else self._to_device(_location(from_)))
         )
 
-    def press_key(self, key: Literal["enter", "backspace"]) -> None:
-        if key not in ("enter", "backspace"):
-            raise VerifyError("INVALID_ARGUMENT", "press_key() takes 'enter' or 'backspace'.")
-        self._perform(PressKey(key))
+    def drag(self, start: Location, end: Location) -> None:
+        start_at, end_at = _location(start), _location(end)
+        self._perform(Drag(self._to_device(start_at), self._to_device(end_at)))
+
+    def press_key(self, key: Key | str, *, modifiers: Sequence[KeyModifier] = ()) -> None:
+        self._perform(PressKey(*check_key(self.platform, key, modifiers)))
 
     def back(self) -> None:
         self._perform(Back())
+
+    def go_home(self) -> None:
+        if self.platform == "web":
+            raise VerifyError(
+                "NOT_AVAILABLE_ON_PLATFORM",
+                "go_home() is available only on iOS and Android sessions; "
+                "on web, use open_url() or navigate() to load a page.",
+            )
+        self._perform(GoHome())
 
     def open_url(self, url: str) -> None:
         if not isinstance(url, str) or not url or text_length(url) > 8192:
@@ -846,12 +906,38 @@ class Session:
             point, token = self._resolve(action.at, screen_token, deadline)
             self._act("tap", _point_body(point, token, action.at), deadline, uncertain)
             return point
+        if isinstance(action, DoubleTap):
+            point, token = self._resolve(action.at, screen_token, deadline)
+            self._act("double_tap", _point_body(point, token, action.at), deadline, uncertain)
+            return point
+        if isinstance(action, LongPress):
+            point, token = self._resolve(action.at, screen_token, deadline)
+            body = _point_body(point, token, action.at)
+            if action.duration_ms is not None:
+                body["duration_ms"] = action.duration_ms
+            self._act("longpress", body, deadline, uncertain)
+            return point
         if isinstance(action, TypeText):
             point, token = self._resolve(action.at, screen_token, deadline)
             body = _point_body(point, token, action.at)
             body.update(text=action.text, clear_first=action.clear)
             self._act("input", body, deadline, uncertain)
             return point
+        if isinstance(action, TypeFocused):
+            self._act(
+                "input", {"text": action.text, "clear_first": action.clear}, deadline, uncertain
+            )
+            return None
+        if isinstance(action, Drag):
+            start, _ = self._resolve(action.start, screen_token, deadline)
+            end, _ = self._resolve(action.end, screen_token, deadline)
+            self._act(
+                "drag",
+                {"start_x": start.x, "start_y": start.y, "end_x": end.x, "end_y": end.y},
+                deadline,
+                uncertain,
+            )
+            return None
         if isinstance(action, Swipe):
             if action.start is None:
                 size = self._read_screen_size(deadline)
@@ -868,12 +954,17 @@ class Session:
             self._act("swipe", body, deadline, uncertain)
             return None
         if isinstance(action, PressKey):
-            key = (
-                ("Enter" if action.key == "enter" else "Backspace")
+            body = {
+                "key": WEB_KEYS.get(action.key, action.key)
                 if self.platform == "web"
                 else action.key.upper()
-            )
-            self._act("key", {"key": key}, deadline, uncertain)
+            }
+            if action.modifiers:
+                body["modifiers"] = list(action.modifiers)
+            self._act("key", body, deadline, uncertain)
+            return None
+        if isinstance(action, GoHome):
+            self._act("go_home", {}, deadline, uncertain)
             return None
         if isinstance(action, Back):
             if self.platform == "ios":

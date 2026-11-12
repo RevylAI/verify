@@ -3,13 +3,13 @@ from __future__ import annotations
 import asyncio
 import functools
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
 from types import TracebackType
 from typing import Literal, TypeVar
 
-from ._agent import LocalAgent, Location, ModelOption, SwipeDirection
+from ._agent import Key, KeyModifier, LocalAgent, Location, ModelOption, SwipeDirection
 from ._cleanup import _close, install_signal_cleanup
 from ._models import (
     ComputerProcess,
@@ -118,14 +118,29 @@ class AsyncSession:
     async def type(self, at: Location, text: str, *, clear: bool = True) -> Point:
         return await self._call(functools.partial(self._session.type, at, text, clear=clear))
 
+    async def type_focused(self, text: str, *, clear: bool = True) -> None:
+        await self._call(functools.partial(self._session.type_focused, text, clear=clear))
+
+    async def double_tap(self, at: Location) -> Point:
+        return await self._call(functools.partial(self._session.double_tap, at))
+
+    async def long_press(self, at: Location, *, duration: float | None = None) -> Point:
+        return await self._call(functools.partial(self._session.long_press, at, duration=duration))
+
     async def swipe(self, direction: SwipeDirection, *, from_: Location | None = None) -> None:
         await self._call(functools.partial(self._session.swipe, direction, from_=from_))
 
-    async def press_key(self, key: Literal["enter", "backspace"]) -> None:
-        await self._call(functools.partial(self._session.press_key, key))
+    async def drag(self, start: Location, end: Location) -> None:
+        await self._call(functools.partial(self._session.drag, start, end))
+
+    async def press_key(self, key: Key | str, *, modifiers: Sequence[KeyModifier] = ()) -> None:
+        await self._call(functools.partial(self._session.press_key, key, modifiers=modifiers))
 
     async def back(self) -> None:
         await self._call(self._session.back)
+
+    async def go_home(self) -> None:
+        await self._call(self._session.go_home)
 
     async def open_url(self, url: str) -> None:
         await self._call(functools.partial(self._session.open_url, url))

@@ -28,7 +28,7 @@ import { trackSession, untrackSession } from './cleanup.js';
 import type { HostedTargetConfig, ResolvedDeviceTarget } from './config.js';
 import { VerifyError, errorMessage, isVerifyError } from './errors.js';
 import { screenHasContent } from './screen-readiness.js';
-import { runLocalStep, type DeviceAction, type LocalAgent, type Location, type ModelRun, type Point, type SwipeDirection } from './agent/loop.js';
+import { WEB_KEYS, checkKey, runLocalStep, type DeviceAction, type Key, type KeyModifier, type LocalAgent, type Location, type ModelRun, type Point, type SwipeDirection } from './agent/loop.js';
 import { chooseAgent, type ModelOption } from './agent/providers.js';
 
 const POLL_INTERVAL_MS = 2_000;
@@ -159,12 +159,22 @@ export interface OpenedSession extends Session {
   tap(at: Location): Promise<Point>;
   /** Taps a text field and types into it, clearing it first unless clear is false. Returns the point tapped. Browsers and devices only. */
   type(at: Location, text: string, options?: { clear?: boolean }): Promise<Point>;
+  /** Types into the field that already has focus, without tapping, replacing its content unless clear is false. Web only; on iOS and Android, use type(location, text). */
+  typeFocused(text: string, options?: { clear?: boolean }): Promise<void>;
+  /** Double-taps a point in screenshot pixels, or an element Revyl locates from a description. Returns the point, in screenshot pixels. Browsers and devices only. */
+  doubleTap(at: Location): Promise<Point>;
+  /** Presses and holds a point or element for duration milliseconds (1 to 5000, default 1500). Returns the point, in screenshot pixels. Browsers and devices only. */
+  longPress(at: Location, options?: { duration?: number }): Promise<Point>;
   /** Swipes from a point or the screen's center. 'up' moves the finger up, which scrolls content down. Browsers and devices only. */
   swipe(direction: SwipeDirection, options?: { from?: Location }): Promise<void>;
-  /** Presses Enter or Backspace on the focused field. Browsers and devices only. */
-  pressKey(key: 'enter' | 'backspace'): Promise<void>;
+  /** Presses at one point or element, moves to another and releases. Browsers and devices only. */
+  drag(from: Location, to: Location): Promise<void>;
+  /** Presses a key on the focused element. iOS and Android take 'enter' and 'backspace'; Web also takes the other Key names, and modifiers, with which a lowercase letter or digit also works. */
+  pressKey(key: Key | string, options?: { modifiers?: KeyModifier[] }): Promise<void>;
   /** Goes back: browser history on Web, the back button on Android. Not on iOS. */
   back(): Promise<void>;
+  /** Goes to the home screen on iOS and Android. Not on Web. */
+  goHome(): Promise<void>;
   /** Opens a URL or deep link on a device, or loads a URL in a browser. */
   openUrl(url: string): Promise<void>;
   /** Launches an installed app by bundle ID or package name. Devices only. */
@@ -612,21 +622,56 @@ export class DeviceSession implements Session {
     return this.toScreenshot((await this.perform({ kind: 'type', at: location, text, clear: options.clear !== false }))!);
   }
 
+  /** Types into the field that already has focus, without tapping, replacing its content unless clear is false. Web only. */
+  async typeFocused(text: string, options: { clear?: boolean } = {}): Promise<void> {
+    if (this.platform !== 'web') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'typeFocused() is available only on web sessions; on iOS and Android, use type(location, text), which taps the field first.');
+    if (typeof text !== 'string' || text.length > 16_384) throw new VerifyError('INVALID_ARGUMENT', 'typeFocused() takes text of at most 16384 characters.');
+    await this.perform({ kind: 'type_focused', text, clear: options.clear !== false });
+  }
+
+  /** Double-taps a point in screenshot pixels, or an element Revyl locates from a description. Returns the point, in screenshot pixels. */
+  async doubleTap(at: Location): Promise<Point> {
+    const location = await this.toDevice(checkLocation(at));
+    if (this.platform === 'ios') await this.readScreenshotSize();
+    return this.toScreenshot((await this.perform({ kind: 'double_tap', at: location }))!);
+  }
+
+  /** Presses and holds a point or element for duration milliseconds (1 to 5000, default 1500). Returns the point, in screenshot pixels. */
+  async longPress(at: Location, options: { duration?: number } = {}): Promise<Point> {
+    const { duration } = options;
+    if (duration !== undefined && (!Number.isInteger(duration) || duration < 1 || duration > 5_000)) throw new VerifyError('INVALID_ARGUMENT', 'longPress() duration is whole milliseconds from 1 to 5000.');
+    const location = await this.toDevice(checkLocation(at));
+    if (this.platform === 'ios') await this.readScreenshotSize();
+    return this.toScreenshot((await this.perform({ kind: 'long_press', at: location, ...(duration !== undefined ? { durationMs: duration } : {}) }))!);
+  }
+
   /** Swipes from a point or the screen's center. 'up' moves the finger up, which scrolls content down. */
   async swipe(direction: SwipeDirection, options: { from?: Location } = {}): Promise<void> {
     if (!['up', 'down', 'left', 'right'].includes(direction)) throw new VerifyError('INVALID_ARGUMENT', "swipe() takes 'up', 'down', 'left' or 'right'.");
     await this.perform({ kind: 'swipe', direction, ...(options.from ? { from: await this.toDevice(checkLocation(options.from)) } : {}) });
   }
 
-  /** Presses Enter or Backspace on the focused field. */
-  async pressKey(key: 'enter' | 'backspace'): Promise<void> {
-    if (key !== 'enter' && key !== 'backspace') throw new VerifyError('INVALID_ARGUMENT', "pressKey() takes 'enter' or 'backspace'.");
-    await this.perform({ kind: 'key', key });
+  /** Presses at one point or element, moves to another and releases. */
+  async drag(from: Location, to: Location): Promise<void> {
+    const [start, end] = [checkLocation(from), checkLocation(to)];
+    await this.perform({ kind: 'drag', from: await this.toDevice(start), to: await this.toDevice(end) });
+  }
+
+  /** Presses a key on the focused element, with modifiers held on Web. */
+  async pressKey(key: Key | string, options: { modifiers?: KeyModifier[] } = {}): Promise<void> {
+    const checked = checkKey(this.platform, key, options.modifiers ?? []);
+    await this.perform({ kind: 'key', key: checked.key, ...(checked.modifiers.length ? { modifiers: checked.modifiers } : {}) });
   }
 
   /** Goes back: browser history on Web, the back button on Android. Not on iOS. */
   async back(): Promise<void> {
     await this.perform({ kind: 'back' });
+  }
+
+  /** Goes to the home screen on iOS and Android. */
+  async goHome(): Promise<void> {
+    if (this.platform === 'web') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'goHome() is available only on iOS and Android sessions; on web, use openUrl() or navigate() to load a page.');
+    await this.perform({ kind: 'go_home' });
   }
 
   /** Opens a URL or deep link on a device, or loads a URL in a browser. */
@@ -742,10 +787,29 @@ export class DeviceSession implements Session {
         await this.act('tap', pointBody(point, action.at), signal);
         return { x: point.x, y: point.y };
       }
+      case 'double_tap': {
+        const point = await this.resolve(action.at, screenToken, signal);
+        await this.act('double_tap', pointBody(point, action.at), signal);
+        return { x: point.x, y: point.y };
+      }
+      case 'long_press': {
+        const point = await this.resolve(action.at, screenToken, signal);
+        await this.act('longpress', { ...pointBody(point, action.at), ...(action.durationMs !== undefined ? { duration_ms: action.durationMs } : {}) }, signal);
+        return { x: point.x, y: point.y };
+      }
       case 'type': {
         const point = await this.resolve(action.at, screenToken, signal);
         await this.act('input', { ...pointBody(point, action.at), text: action.text, clear_first: action.clear }, signal);
         return { x: point.x, y: point.y };
+      }
+      case 'type_focused':
+        await this.act('input', { text: action.text, clear_first: action.clear }, signal);
+        return undefined;
+      case 'drag': {
+        const from = await this.resolve(action.from, screenToken, signal);
+        const to = await this.resolve(action.to, screenToken, signal);
+        await this.act('drag', { start_x: from.x, start_y: from.y, end_x: to.x, end_y: to.y }, signal);
+        return undefined;
       }
       case 'swipe': {
         const point = action.from ? await this.resolve(action.from, screenToken, signal) : await this.readScreenSize(signal).then((size) => ({ x: Math.floor(size.width / 2), y: Math.floor(size.height / 2) }));
@@ -754,7 +818,10 @@ export class DeviceSession implements Session {
         return undefined;
       }
       case 'key':
-        await this.act('key', { key: this.platform === 'web' ? (action.key === 'enter' ? 'Enter' : 'Backspace') : action.key.toUpperCase() }, signal);
+        await this.act('key', { key: this.platform === 'web' ? (WEB_KEYS[action.key as Key] ?? action.key) : action.key.toUpperCase(), ...(action.modifiers?.length ? { modifiers: action.modifiers } : {}) }, signal);
+        return undefined;
+      case 'go_home':
+        await this.act('go_home', undefined, signal);
         return undefined;
       case 'back':
         if (this.platform === 'ios') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'back() is not available on iOS; tap the on-screen back control.');

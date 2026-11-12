@@ -18,13 +18,56 @@ export type Location = Point | Target;
 
 export type SwipeDirection = 'up' | 'down' | 'left' | 'right';
 
+/** Keys pressKey() takes on Web. iOS and Android take only 'enter' and 'backspace'. */
+export const WEB_KEYS = {
+  enter: 'Enter',
+  backspace: 'Backspace',
+  tab: 'Tab',
+  escape: 'Escape',
+  delete: 'Delete',
+  space: 'Space',
+  arrowup: 'ArrowUp',
+  arrowdown: 'ArrowDown',
+  arrowleft: 'ArrowLeft',
+  arrowright: 'ArrowRight',
+  home: 'Home',
+  end: 'End',
+  pageup: 'PageUp',
+  pagedown: 'PageDown',
+} as const;
+
+export type Key = keyof typeof WEB_KEYS;
+
+export type KeyModifier = 'ctrl' | 'shift' | 'alt' | 'meta';
+
 export type DeviceAction =
   | { kind: 'tap'; at: Location }
+  | { kind: 'double_tap'; at: Location }
+  | { kind: 'long_press'; at: Location; durationMs?: number }
   | { kind: 'type'; at: Location; text: string; clear: boolean }
+  | { kind: 'type_focused'; text: string; clear: boolean }
   | { kind: 'swipe'; direction: SwipeDirection; from?: Location }
-  | { kind: 'key'; key: 'enter' | 'backspace' }
+  | { kind: 'drag'; from: Location; to: Location }
+  | { kind: 'key'; key: string; modifiers?: KeyModifier[] }
   | { kind: 'back' }
+  | { kind: 'go_home' }
   | { kind: 'open_url'; url: string };
+
+/** Checks a key and its modifiers for the platform, before any request. */
+export function checkKey(platform: string, key: unknown, modifiers: unknown = []): { key: string; modifiers: KeyModifier[] } {
+  if (!Array.isArray(modifiers) || modifiers.length > 4 || !modifiers.every((modifier) => ['ctrl', 'shift', 'alt', 'meta'].includes(modifier))) {
+    throw new VerifyError('INVALID_ARGUMENT', "pressKey() modifiers are up to four of 'ctrl', 'shift', 'alt' and 'meta'.");
+  }
+  if (platform !== 'web') {
+    if ((key === 'enter' || key === 'backspace') && !modifiers.length) return { key, modifiers: [] };
+    if (modifiers.length || (typeof key === 'string' && key in WEB_KEYS)) {
+      throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', "On iOS and Android, pressKey() takes only 'enter' or 'backspace', with no modifiers; tap the on-screen control instead.");
+    }
+    throw new VerifyError('INVALID_ARGUMENT', "pressKey() takes 'enter' or 'backspace'.");
+  }
+  if (typeof key === 'string' && (key in WEB_KEYS || (/^[a-z0-9]$/.test(key) && modifiers.length))) return { key, modifiers: [...modifiers] };
+  throw new VerifyError('INVALID_ARGUMENT', `pressKey() takes one of ${Object.keys(WEB_KEYS).map((name) => `'${name}'`).join(', ')}, or a lowercase letter or digit with modifiers, such as pressKey('a', { modifiers: ['ctrl'] }).`);
+}
 
 /** What the agent loop needs from a session. DeviceSession provides it. */
 export interface AgentControls {
@@ -182,38 +225,57 @@ export async function runLocalStep(
 
 function toAction(call: ModelToolCall, platform: AgentControls['platform'], grounding: Grounding, image: { width: number; height: number }, size: { width: number; height: number }): DeviceAction {
   const args = call.arguments;
-  const location = (required: boolean): Location | undefined => {
+  const location = (required: boolean, prefix = ''): Location | undefined => {
+    const [target, x, y] = [args[`${prefix}target`], args[`${prefix}x`], args[`${prefix}y`]];
     if (grounding === 'revyl') {
-      if (typeof args.target === 'string' && args.target.trim()) return { target: args.target.trim().slice(0, 500) };
-      if (required) throw new VerifyError('INVALID_ARGUMENT', 'target is required: describe the element by its visible text or appearance.');
+      if (typeof target === 'string' && target.trim()) return { target: target.trim().slice(0, 500) };
+      if (required) throw new VerifyError('INVALID_ARGUMENT', `${prefix}target is required: describe the element by its visible text or appearance.`);
       return undefined;
     }
-    if (typeof args.x !== 'number' || typeof args.y !== 'number') {
-      if (required) throw new VerifyError('INVALID_ARGUMENT', 'x and y are required.');
+    if (typeof x !== 'number' || typeof y !== 'number') {
+      if (required) throw new VerifyError('INVALID_ARGUMENT', `${prefix}x and ${prefix}y are required.`);
       return undefined;
     }
-    if (args.x < 0 || args.y < 0 || args.x >= image.width || args.y >= image.height) {
-      throw new VerifyError('INVALID_ARGUMENT', `(${args.x}, ${args.y}) is outside the ${image.width}x${image.height} screenshot.`);
+    if (x < 0 || y < 0 || x >= image.width || y >= image.height) {
+      throw new VerifyError('INVALID_ARGUMENT', `(${x}, ${y}) is outside the ${image.width}x${image.height} screenshot.`);
     }
-    return { x: Math.round((args.x * size.width) / image.width), y: Math.round((args.y * size.height) / image.height) };
+    return { x: Math.round((x * size.width) / image.width), y: Math.round((y * size.height) / image.height) };
   };
   switch (call.name) {
     case 'tap':
       return { kind: 'tap', at: location(true)! };
+    case 'double_tap':
+      return { kind: 'double_tap', at: location(true)! };
+    case 'long_press':
+      return { kind: 'long_press', at: location(true)! };
     case 'type':
       if (typeof args.text !== 'string') throw new VerifyError('INVALID_ARGUMENT', 'text is required.');
       return { kind: 'type', at: location(true)!, text: args.text, clear: args.clear !== false };
+    case 'type_focused':
+      if (platform !== 'web') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'type_focused is available only in a web browser; use type, which taps the field first.');
+      if (typeof args.text !== 'string') throw new VerifyError('INVALID_ARGUMENT', 'text is required.');
+      return { kind: 'type_focused', text: args.text, clear: args.clear !== false };
+    case 'drag':
+      return { kind: 'drag', from: location(true, 'from_')!, to: location(true, 'to_')! };
     case 'swipe': {
       if (!['up', 'down', 'left', 'right'].includes(String(args.direction))) throw new VerifyError('INVALID_ARGUMENT', 'direction must be up, down, left or right.');
       const from = location(false);
       return { kind: 'swipe', direction: args.direction as SwipeDirection, ...(from ? { from } : {}) };
     }
-    case 'press_key':
-      if (args.key !== 'enter' && args.key !== 'backspace') throw new VerifyError('INVALID_ARGUMENT', 'key must be enter or backspace.');
-      return { kind: 'key', key: args.key };
+    case 'press_key': {
+      if (platform !== 'web') {
+        if (args.key !== 'enter' && args.key !== 'backspace') throw new VerifyError('INVALID_ARGUMENT', 'key must be enter or backspace.');
+        return { kind: 'key', key: args.key };
+      }
+      const { key, modifiers } = checkKey(platform, args.key, args.modifiers ?? []);
+      return { kind: 'key', key, ...(modifiers.length ? { modifiers } : {}) };
+    }
     case 'back':
       if (platform === 'ios') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'iOS has no back button; tap the on-screen back control.');
       return { kind: 'back' };
+    case 'go_home':
+      if (platform === 'web') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'A web browser has no home screen; use open_url to load a page.');
+      return { kind: 'go_home' };
     case 'open_url':
       if (typeof args.url !== 'string' || !args.url) throw new VerifyError('INVALID_ARGUMENT', 'url is required.');
       return { kind: 'open_url', url: args.url };
@@ -227,14 +289,24 @@ function describe(action: DeviceAction): string {
   switch (action.kind) {
     case 'tap':
       return `tap${where(action.at)}`;
+    case 'double_tap':
+      return `double tap${where(action.at)}`;
+    case 'long_press':
+      return `long press${where(action.at)}`;
     case 'type':
       return `type ${JSON.stringify(action.text.length > 40 ? `${action.text.slice(0, 40)}…` : action.text)} into${where(action.at)}`;
+    case 'type_focused':
+      return `type ${JSON.stringify(action.text.length > 40 ? `${action.text.slice(0, 40)}…` : action.text)} into the focused field`;
     case 'swipe':
       return `swipe ${action.direction}${action.from ? ` from${where(action.from)}` : ''}`;
+    case 'drag':
+      return `drag from${where(action.from)} to${where(action.to)}`;
     case 'key':
-      return `press ${action.key}`;
+      return `press ${[...(action.modifiers ?? []), action.key].join('+')}`;
     case 'back':
       return 'back';
+    case 'go_home':
+      return 'home';
     case 'open_url':
       return `open ${action.url}`;
   }
@@ -274,24 +346,57 @@ function instructionTools(platform: AgentControls['platform'], grounding: Ground
   const at = grounding === 'revyl'
     ? { properties: { target: { type: 'string', description: 'The element, by its visible text or look.' } }, required: ['target'] }
     : { properties: { x: { type: 'integer', description: 'Screenshot pixel x.' }, y: { type: 'integer', description: 'Screenshot pixel y.' } }, required: ['x', 'y'] };
-  const tools: ModelTool[] = [
+  const prefixed = (prefix: string) => ({
+    properties: Object.fromEntries(Object.entries(at.properties).map(([name, schema]) => [`${prefix}${name}`, schema])),
+    required: at.required.map((name) => `${prefix}${name}`),
+  });
+  const [from, to] = [prefixed('from_'), prefixed('to_')];
+  const web = platform === 'web';
+  return [
     { name: 'tap', description: 'Tap an element.', parameters: { type: 'object', ...at } },
+    { name: 'double_tap', description: 'Double-tap an element.', parameters: { type: 'object', ...at } },
+    { name: 'long_press', description: 'Press and hold an element, for example to open a context menu.', parameters: { type: 'object', ...at } },
     {
       name: 'type',
       description: 'Tap a text field and type into it. Clears the field first unless clear is false.',
       parameters: { type: 'object', properties: { ...at.properties, text: { type: 'string' }, clear: { type: 'boolean' } }, required: [...at.required, 'text'] },
     },
+    ...(web
+      ? [{
+          name: 'type_focused',
+          description: 'Type into the field that already has focus, without tapping. Clears the field first unless clear is false.',
+          parameters: { type: 'object', properties: { text: { type: 'string' }, clear: { type: 'boolean' } }, required: ['text'] },
+        }]
+      : []),
     {
       name: 'swipe',
       description: "Swipe from a point, or from the screen's center. up moves the finger up, which scrolls content down.",
       parameters: { type: 'object', properties: { direction: { type: 'string', enum: ['up', 'down', 'left', 'right'] }, ...at.properties }, required: ['direction'] },
     },
-    { name: 'press_key', description: 'Press a key on the focused field.', parameters: { type: 'object', properties: { key: { type: 'string', enum: ['enter', 'backspace'] } }, required: ['key'] } },
-    { name: 'open_url', description: platform === 'web' ? 'Load a URL in the current tab.' : 'Open a URL or deep link on the device.', parameters: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] } },
+    {
+      name: 'drag',
+      description: 'Press an element, move it to another place and release, for example to reorder a list or move a slider.',
+      parameters: { type: 'object', properties: { ...from.properties, ...to.properties }, required: [...from.required, ...to.required] },
+    },
+    web
+      ? {
+          name: 'press_key',
+          description: 'Press a key on the focused element, optionally with modifiers held, such as escape, tab, arrowdown, or a with ctrl.',
+          parameters: {
+            type: 'object',
+            properties: {
+              key: { type: 'string', description: `One of ${Object.keys(WEB_KEYS).join(', ')}, or a lowercase letter or digit when modifiers are given.` },
+              modifiers: { type: 'array', items: { type: 'string', enum: ['ctrl', 'shift', 'alt', 'meta'] } },
+            },
+            required: ['key'],
+          },
+        }
+      : { name: 'press_key', description: 'Press a key on the focused field.', parameters: { type: 'object', properties: { key: { type: 'string', enum: ['enter', 'backspace'] } }, required: ['key'] } },
+    ...(platform !== 'ios' ? [{ name: 'back', description: web ? 'Go back in browser history.' : 'Press the Android back button.', parameters: { type: 'object', properties: {} } }] : []),
+    ...(!web ? [{ name: 'go_home', description: 'Go to the home screen.', parameters: { type: 'object', properties: {} } }] : []),
+    { name: 'open_url', description: web ? 'Load a URL in the current tab.' : 'Open a URL or deep link on the device.', parameters: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] } },
     { name: 'done', description: 'Finish the task.', parameters: { type: 'object', properties: { success: { type: 'boolean' }, reason: { type: 'string' } }, required: ['success', 'reason'] } },
   ];
-  if (platform !== 'ios') tools.splice(4, 0, { name: 'back', description: platform === 'web' ? 'Go back in browser history.' : 'Press the Android back button.', parameters: { type: 'object', properties: {} } });
-  return tools;
 }
 
 function bounded(value: number, min: number, max: number, name: string): number {

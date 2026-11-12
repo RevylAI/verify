@@ -125,8 +125,24 @@ export class ComputerSession implements Session {
     return this.unavailable('type');
   }
 
+  typeFocused(): Promise<never> {
+    return this.unavailable('typeFocused');
+  }
+
+  doubleTap(): Promise<never> {
+    return this.unavailable('doubleTap');
+  }
+
+  longPress(): Promise<never> {
+    return this.unavailable('longPress');
+  }
+
   swipe(): Promise<never> {
     return this.unavailable('swipe');
+  }
+
+  drag(): Promise<never> {
+    return this.unavailable('drag');
   }
 
   pressKey(): Promise<never> {
@@ -135,6 +151,10 @@ export class ComputerSession implements Session {
 
   back(): Promise<never> {
     return this.unavailable('back');
+  }
+
+  goHome(): Promise<never> {
+    return this.unavailable('goHome');
   }
 
   openUrl(): Promise<never> {

@@ -24,11 +24,11 @@ This page is for AI coding agents (Claude Code, Cursor, Codex, and others) that 
 
 ## Exact actions and coordinates
 
-Use `instruction()` when the step needs judgement, and exact actions (`tap`, `type`, `swipe`, `pressKey`, `locate`, `screenSize`) when you know exactly what to press. They work on Web, iOS and Android, not on computers.
+Use `instruction()` when the step needs judgement, and exact actions (`tap`, `doubleTap`, `longPress`, `type`, `swipe`, `drag`, `pressKey`, `locate`, `screenSize`) when you know exactly what to press. They work on Web, iOS and Android, not on computers. On Web, `typeFocused(text)` types into the field that has focus, and `pressKey` also takes keys such as `'escape'`, `'tab'` and arrows, with `modifiers`. On iOS and Android, `goHome()` goes to the home screen, `pressKey` takes only `'enter'` and `'backspace'`, and you type with `type(location, text)`. A call the platform lacks throws `NOT_AVAILABLE_ON_PLATFORM` before anything is sent, and the message names what to use instead.
 
-Prefer a description, such as `tap({ target: 'Sign in button' })`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `{ x, y }` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `screenshot()` returns. So a position you read off a screenshot goes to `tap()`, `type()` and `swipe()` unchanged. `screenSize()` returns the screenshot's width and height, and `locate()` and the points `tap()` and `type()` return use the same pixels. A point outside the screenshot is refused with `INVALID_ARGUMENT` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they equal CSS pixels at the default device scale factor of 1, and you still pass screenshot pixels at any other. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points.
+Prefer a description, such as `tap({ target: 'Sign in button' })`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `{ x, y }` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `screenshot()` returns. So a position you read off a screenshot goes to `tap()`, `type()`, `swipe()` and every other exact action unchanged. `screenSize()` returns the screenshot's width and height, and `locate()` and the points `tap()`, `doubleTap()`, `longPress()` and `type()` return use the same pixels. A point outside the screenshot is refused with `INVALID_ARGUMENT` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they equal CSS pixels at the default device scale factor of 1, and you still pass screenshot pixels at any other. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points.
 
-`swipe('up')` moves the finger up, so content scrolls down, on every platform. Actions return once Revyl accepts them, so after a swipe, `openUrl` or `launchApp`, wait for the screen to settle before you `locate` or tap by coordinates.
+`swipe('up')` moves the finger up, so content scrolls down, on every platform. Actions return once Revyl accepts them, so after a swipe, drag, `goHome`, `openUrl` or `launchApp`, wait for the screen to settle before you `locate` or tap by coordinates.
 
 ```ts
 import { open } from '@revyl/verify';
@@ -44,12 +44,16 @@ try {
   await session.swipe('up', { from: { x: 660, y: 2000 } }); // swipe from a screenshot position too
   const { width, height } = await session.screenSize();     // the screenshot's size
   console.log(`x is 0 to ${width - 1}, y is 0 to ${height - 1}`);
+
+  await session.longPress({ target: 'Wi-Fi row' });          // press and hold, 1.5 s by default
+  await session.drag({ x: 660, y: 2000 }, { x: 660, y: 800 }); // press, move, release: the list follows the finger
+  await session.goHome();                                   // the home screen, on iOS and Android
 } finally {
   await session.close();
 }
 ```
 
-The [Python](https://github.com/RevylAI/verify/blob/v0.4.1/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.4.1/go/README.md#exact-actions) READMEs state the same rule with each language's names. [api.md](api.md#exact-actions) lists every call and its errors.
+The [Python](https://github.com/RevylAI/verify/blob/v0.5.0/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.5.0/go/README.md#exact-actions) READMEs state the same rule with each language's names. [api.md](api.md#exact-actions) lists every call and its errors.
 
 ## Rules
 

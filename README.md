@@ -47,18 +47,20 @@ For finished projects, see [`examples/`](examples/): a [web store](examples/web-
 
 ## Exact actions
 
-Tap, type, swipe and press keys yourself, by a description Revyl locates on screen or by coordinates, in the same script as your steps:
+Tap, double-tap, long-press, drag, type, swipe and press keys yourself, by a description Revyl locates on screen or by coordinates, in the same script as your steps:
 
 ```ts
 await session.type({ target: 'Email field' }, 'demo@example.com');   // Revyl finds the element you describe
 await session.pressKey('enter');
 await session.swipe('up');                                            // scrolls the content down
 await session.tap({ x: 196, y: 640 });                                // or a point in screenshot pixels
+await session.longPress({ target: 'First message row' });             // press and hold, 1.5 s by default
+await session.drag({ target: 'Third item handle' }, { target: 'First item' });  // press, move, release
 await session.instruction('Accept the terms if they are shown');      // the agent where it's fuzzy
 await session.validation('The welcome screen is shown');
 ```
 
-`back`, `openUrl`, `launchApp`, `locate` and `screenSize` round them out; [which call works where](#which-call-works-where) shows the platform limits. Early access. In TypeScript (`@revyl/verify` 0.4.0), Python (`revyl-verify` 0.2.0) and Go (v0.3.0); the [Python](https://github.com/RevylAI/verify/blob/v0.4.1/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.4.1/go/README.md#exact-actions) READMEs show them with each language's names. The [web](packages/verify/docs/web.md#exact-actions) and [mobile](packages/verify/docs/mobile.md#exact-actions) guides have runnable scripts, and [api.md](packages/verify/docs/api.md#exact-actions) lists every call.
+`doubleTap`, `typeFocused`, `back`, `goHome`, `openUrl`, `launchApp`, `locate` and `screenSize` round them out; [which call works where](#which-call-works-where) shows the platform limits. Early access. In TypeScript (`@revyl/verify` 0.4.0), Python (`revyl-verify` 0.2.0) and Go (v0.3.0). `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. The [Python](https://github.com/RevylAI/verify/blob/v0.5.0/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.5.0/go/README.md#exact-actions) READMEs show them with each language's names. The [web](packages/verify/docs/web.md#exact-actions) and [mobile](packages/verify/docs/mobile.md#exact-actions) guides have runnable scripts, and [api.md](packages/verify/docs/api.md#exact-actions) lists every call.
 
 ## Your own model
 
@@ -72,7 +74,7 @@ await session.instruction('Open Privacy', { model: 'openai/gpt-5.5' });         
 await open('ios', { model: { id: 'qwen-3.8-27b', baseURL: 'https://api.cerebras.ai/v1', apiKey: process.env.CEREBRAS_API_KEY } });
 ```
 
-In TypeScript (`@revyl/verify` 0.4.0), Python (`revyl-verify` 0.2.0) and Go (v0.3.0); the [Python](https://github.com/RevylAI/verify/blob/v0.4.1/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.4.1/go/README.md#your-own-model) READMEs show them with each language's names. Built in: `anthropic`, `openai`, `google`, `openrouter`, `groq`, `cerebras`, `xai` and `ollama`; anything OpenAI-compatible works through `baseURL`. Early access; [Use your own model](packages/verify/docs/own-model.md) covers the providers, picking a model, what Revyl still sees, limits and troubleshooting.
+In TypeScript (`@revyl/verify` 0.4.0), Python (`revyl-verify` 0.2.0) and Go (v0.3.0); the [Python](https://github.com/RevylAI/verify/blob/v0.5.0/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.5.0/go/README.md#your-own-model) READMEs show them with each language's names. Built in: `anthropic`, `openai`, `google`, `openrouter`, `groq`, `cerebras`, `xai` and `ollama`; anything OpenAI-compatible works through `baseURL`. Early access; [Use your own model](packages/verify/docs/own-model.md) covers the providers, picking a model, what Revyl still sees, limits and troubleshooting.
 
 ## Packages
 
@@ -80,7 +82,7 @@ In TypeScript (`@revyl/verify` 0.4.0), Python (`revyl-verify` 0.2.0) and Go (v0.
 | --- | --- | --- |
 | [`@revyl/verify`](https://www.npmjs.com/package/@revyl/verify) | `npm install @revyl/verify` | TypeScript SDK and the `verify` CLI (`init`, `login`, `logout`, `whoami`). Published on npm, Node.js 22.18 or later. |
 | [`revyl-verify`](https://www.npmjs.com/package/revyl-verify) (npm) | `npm install revyl-verify` | Alias of `@revyl/verify` at the same version. |
-| [Go module](https://github.com/RevylAI/verify/tree/go/v0.3.1/go) | `go get github.com/RevylAI/verify/go@v0.3.1` | Published as the `go/v0.3.1` tag, Go 1.26.9 or later. Calls return errors instead of throwing. |
+| [Go module](https://github.com/RevylAI/verify/tree/go/v0.4.0/go) | `go get github.com/RevylAI/verify/go@v0.4.0` | Published as the `go/v0.4.0` tag, Go 1.26.9 or later. Calls return errors instead of throwing. |
 | [`revyl-verify`](https://pypi.org/project/revyl-verify/) (PyPI) | `pip install revyl-verify` or `uv add revyl-verify` | Python SDK, published on PyPI. Python 3.10 or later, sync and asyncio APIs, no CLI; see the [Python guide](python/README.md). |
 
 ## Platforms
@@ -96,8 +98,11 @@ In TypeScript (`@revyl/verify` 0.4.0), Python (`revyl-verify` 0.2.0) and Go (v0.
 
 | Call | Web | iOS | Android | Mac computer |
 | --- | --- | --- | --- | --- |
-| `tap`, `type`, `swipe`, `pressKey`, `locate`, `screenSize` | Yes | Yes | Yes | No, use `exec()` and files |
+| `tap`, `doubleTap`, `longPress`, `type`, `swipe`, `drag`, `locate`, `screenSize` | Yes | Yes | Yes | No, use `exec()` and files |
+| `pressKey(key, { modifiers })` | Yes: `'enter'`, `'backspace'`, `'tab'`, `'escape'`, arrows and more, with modifiers | `'enter'` and `'backspace'` only | `'enter'` and `'backspace'` only | No |
+| `typeFocused(text)` | Yes, types into the focused field | No, use `type(location, text)` | No, use `type(location, text)` | No |
 | `back()` | Yes, browser history | No, tap the on-screen back control | Yes, the system back button | No |
+| `goHome()` | No, use `openUrl` or `navigate` | Yes, the home screen | Yes, the home screen | No |
 | `openUrl(url)` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No |
 | `launchApp(bundleId)` | No, use `openUrl` or `navigate` | Yes | Yes | No |
 | `navigate(url)` | Yes | No, use `openUrl` | No, use `openUrl` | No |
@@ -105,7 +110,7 @@ In TypeScript (`@revyl/verify` 0.4.0), Python (`revyl-verify` 0.2.0) and Go (v0.
 | `screenshot()` | Yes | Yes | Yes | Yes |
 | `exec`, files, processes | No, open a Mac computer | No, open a Mac computer | No, open a Mac computer | Yes |
 
-**Coordinates.** Prefer a description, such as `tap({ target: 'Sign in button' })`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `{ x, y }` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `screenshot()` returns. So a position you read off a screenshot goes to `tap()`, `type()` and `swipe()` unchanged. `screenSize()` returns the screenshot's width and height, and `locate()` and the points `tap()` and `type()` return use the same pixels. A point outside the screenshot is refused with `INVALID_ARGUMENT` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they equal CSS pixels at the default device scale factor of 1, and you still pass screenshot pixels at any other. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points.
+**Coordinates.** Prefer a description, such as `tap({ target: 'Sign in button' })`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `{ x, y }` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `screenshot()` returns. So a position you read off a screenshot goes to `tap()`, `type()`, `swipe()` and every other exact action unchanged. `screenSize()` returns the screenshot's width and height, and `locate()` and the points `tap()`, `doubleTap()`, `longPress()` and `type()` return use the same pixels. A point outside the screenshot is refused with `INVALID_ARGUMENT` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they equal CSS pixels at the default device scale factor of 1, and you still pass screenshot pixels at any other. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points.
 
 A call a platform doesn't support throws `NOT_AVAILABLE_ON_PLATFORM`, and its message names the alternative.
 

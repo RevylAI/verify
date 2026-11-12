@@ -1,10 +1,10 @@
 # Use your own model
 
-**Since 0.4.0. Early access.** In TypeScript (`@revyl/verify` 0.4.0), Python (`revyl-verify` 0.2.0) and Go (v0.3.0); the [Python](https://github.com/RevylAI/verify/blob/v0.4.1/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.4.1/go/README.md#your-own-model) READMEs show them with each language's names. Verify normally runs `instruction()` and `validation()` on Revyl's agent. Pass a `model` and the agent loop runs in your process instead, on a model you choose, with your own key. Revyl still provides the cloud browser or device and, by default, finds the elements your model names on screen.
+**Since 0.4.0. Early access.** In TypeScript (`@revyl/verify` 0.4.0), Python (`revyl-verify` 0.2.0) and Go (v0.3.0); the [Python](https://github.com/RevylAI/verify/blob/v0.5.0/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.5.0/go/README.md#your-own-model) READMEs show them with each language's names. Verify normally runs `instruction()` and `validation()` on Revyl's agent. Pass a `model` and the agent loop runs in your process instead, on a model you choose, with your own key. Revyl still provides the cloud browser or device and, by default, finds the elements your model names on screen.
 
 Use it when you want a specific model, your own prompts and key, or faster steps on a cheap model. Leave `model` out and nothing changes.
 
-Your model uses the same [exact actions](api.md#exact-actions) you can call yourself: `tap`, `type`, `swipe`, `pressKey`, `openUrl` and, where the platform has it, `back`. So a script can mix your own actions, steps on your model and steps on Revyl's agent.
+Your model uses the same [exact actions](api.md#exact-actions) you can call yourself: `tap`, `doubleTap`, `longPress`, `type`, `swipe`, `drag`, `pressKey`, `openUrl` and, where the platform has them, `typeFocused` and Web keys with modifiers (Web), `back` (Web and Android) and `goHome` (iOS and Android). So a script can mix your own actions, steps on your model and steps on Revyl's agent.
 
 ## The one-line form
 
@@ -52,7 +52,7 @@ log.Println(step.Model.ID, len(step.Model.Turns), step.Model.InputTokens, step.M
 _, err = s.Validation(ctx, "The screen shows the iOS version")
 ```
 
-The [Python](https://github.com/RevylAI/verify/blob/v0.4.1/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.4.1/go/README.md#your-own-model) READMEs have the full reference for each.
+The [Python](https://github.com/RevylAI/verify/blob/v0.5.0/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.5.0/go/README.md#your-own-model) READMEs have the full reference for each.
 
 Set `model` on `open()` to run every step on it, or on one step to override it:
 
@@ -169,7 +169,7 @@ const session = await open('ios', { agent }); // or session.instruction(text, { 
 
 **Your model sees** the system prompt, the step text, a short log of the actions it took so far and whether they worked, and the current screenshot, downscaled so its longest side is at most 1280 pixels (`maxImageSide`).
 
-**Revyl sees** what it always sees for a session it hosts: the device and its screen. On top of that it receives each device action (taps, typed text, swipes, key presses, URLs), the element descriptions your model writes, such as "General row" (not with `grounding: 'model'`), and the model's name, such as `anthropic/claude-sonnet-5-5`, for the session report.
+**Revyl sees** what it always sees for a session it hosts: the device and its screen. On top of that it receives each device action (taps, long presses, drags, typed text, swipes, key presses, URLs), the element descriptions your model writes, such as "General row" (not with `grounding: 'model'`), and the model's name, such as `anthropic/claude-sonnet-5-5`, for the session report.
 
 **Revyl does not receive** the step text, the prompts, your model's output or reasoning, or your key. Keys go only to the provider's endpoint, are never logged, and are replaced with `[redacted]` in error messages, as are custom header values. A custom endpoint's address is never sent to Revyl.
 

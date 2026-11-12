@@ -7,7 +7,7 @@ export type { Platform, ComputerPlatform, MobilePlatform } from './api/types.js'
 export { VerifyError, isVerifyError } from './errors.js';
 export type { RefusalReason, VerifyErrorCode } from './errors.js';
 export { localAgent } from './agent/loop.js';
-export type { Grounding, LocalAgent, LocalAgentOptions, Location, ModelRun, ModelTurn, Point, SwipeDirection, Target } from './agent/loop.js';
+export type { Grounding, Key, KeyModifier, LocalAgent, LocalAgentOptions, Location, ModelRun, ModelTurn, Point, SwipeDirection, Target } from './agent/loop.js';
 export type { CustomModel, ModelOption } from './agent/providers.js';
 export { anthropic, openaiCompatible } from './agent/model.js';
 export type { AnthropicOptions, JsonSchema, ModelAdapter, ModelReply, ModelRequest, ModelTool, ModelToolCall, ModelUsage, OpenAICompatibleOptions } from './agent/model.js';
