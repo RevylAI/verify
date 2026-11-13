@@ -2,7 +2,7 @@
 
 Opens a Revyl Mac computer, checks `uname`, writes and reads a file, checks its size, and reads it through a command. It closes the computer in `finally`. No app id is needed.
 
-Mac computers are **early access**. Ask support@revyl.ai about access before running this example:
+Mac computers are available to organizations on a current paid Revyl plan. If yours can't start one, ask support@revyl.ai. To run this example:
 
 ```bash
 export REVYL_API_KEY=...            # or: revyl auth login

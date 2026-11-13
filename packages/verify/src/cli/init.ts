@@ -117,9 +117,9 @@ ${target}
 `;
 }
 
-function scriptTemplate({ platform, appId }: InitAnswers): string {
+function scriptTemplate({ platform, appId, url }: InitAnswers): string {
   if (platform === 'mac') {
-    return `// Mac computers are in early access; ask support@revyl.ai to enable your organization.
+    return `// Mac computers need a current paid Revyl plan; if yours can't start one, ask support@revyl.ai.
 import assert from 'node:assert/strict';
 import { open } from '@revyl/verify';
 
@@ -136,9 +136,12 @@ try {
 `;
   }
   const steps =
-    platform === 'web'
+    platform === 'web' && (url === undefined || /^https:\/\/example\.com\/?$/.test(url))
       ? `await session.instruction('Follow the link on the page');
 await session.validation('A page about domains reserved for documentation is shown');`
+      : platform === 'web'
+      ? `// Checks only that ${url} loads. Replace it with steps for your app, such as an instruction followed by a validation.
+await session.validation('The page has finished loading and shows its content, not an error page');`
       : !appId && platform === 'ios'
       ? `await session.instruction('Open General, then About');
 await session.validation('The screen shows the operating system version');`

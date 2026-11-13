@@ -130,7 +130,7 @@ async function initCommand(args: string[]): Promise<number> {
   await signInAndCheck(interactive);
   const steps =
     answers.platform === 'mac'
-      ? ['Mac computers are early access. Ask support@revyl.ai about access.', 'Once your organization has Mac access, run: node verify/example.mts']
+      ? ["Mac computers need a current paid Revyl plan; if yours can't start one, ask support@revyl.ai.", 'Run: node verify/example.mts']
       : answers.appId
         ? ['Run: node verify/example.mts']
         : ['Run: node verify/example.mts', 'To test your own app, put its Revyl app id in verify.config.ts in place of the Settings bundle id.'];

@@ -316,9 +316,12 @@ class Session:
             )
             if not 200 <= response.status < 300:
                 refused = response.status in (400, 401, 403, 404, 405, 422, 429)
-                from ._transport import http_error
+                from ._transport import http_error, start_refusal
 
-                error = http_error(response, hosted=hosted)
+                mobile = not hosted and target.platform != "web"
+                error = (start_refusal(response) if mobile else None) or http_error(
+                    response, hosted=hosted
+                )
                 if (
                     target.platform == "web"
                     and response.status == 409
@@ -1054,8 +1057,13 @@ class Session:
             raise VerifyError("INVALID_ARGUMENT", "soft must be a boolean.")
         result = self._step("validation", text, timeout, model, agent)
         if not result.passed and not soft:
+            reason = (result.reason or "").strip() or "Revyl gave no reason."
+            if reason[-1] not in ".!?":
+                reason += "."
             raise VerifyError(
-                "VALIDATION_FAILED", "Validation failed. See " + self.viewer_url, result=result
+                "VALIDATION_FAILED",
+                f'Validation failed: "{result.text}". {reason} See {self.viewer_url}',
+                result=result,
             )
         return result
 

@@ -83,8 +83,11 @@ export class RevylClient {
     return parseJson<T>(response, `${method} ${path}`);
   }
 
-  startDevice(request: StartDeviceRequest, signal?: AbortSignal): Promise<StartDeviceResponse> {
-    return this.json('POST', '/api/v1/execution/start_device', { body: request, retry: false, timeoutMs: 120_000, signal });
+  async startDevice(request: StartDeviceRequest, signal?: AbortSignal): Promise<StartDeviceResponse> {
+    const path = '/api/v1/execution/start_device';
+    const response = await this.send('POST', path, { body: request, retry: false, timeoutMs: 120_000, signal });
+    if (response.status < 200 || response.status >= 300) throw (request.platform !== 'web' && mobileStartRefusal(response)) || apiError('POST', path, response);
+    return parseJson<StartDeviceResponse>(response, `POST ${path}`);
   }
 
   getDeviceSession(sessionId: string, signal?: AbortSignal): Promise<DeviceSessionDetail> {
@@ -278,6 +281,23 @@ const START_ERROR_DETAILS = new Set<string>([
 
 export function responseRefusalReason(response: RawResponse): RefusalReason | undefined {
   return responseKnownDetail(response, REFUSAL_REASONS);
+}
+
+function mobileStartRefusal(response: RawResponse): VerifyError | undefined {
+  if (response.status !== 400 && response.status !== 422 || edgeBlockedError(response)) return undefined;
+  let detail: unknown;
+  try {
+    detail = (JSON.parse(new TextDecoder().decode(response.body)) as { detail?: unknown } | null)?.detail;
+  } catch {
+    return undefined;
+  }
+  if (typeof detail !== 'string' || /^[a-z0-9_]*$/.test(detail.trim())) return undefined;
+  const message = detail.trim().slice(0, 500);
+  return new VerifyError(
+    'INVALID_ARGUMENT',
+    `Revyl refused to start the session (HTTP ${response.status}): ${/[.!?]$/.test(message) ? message : `${message}.`} Change the target to a value Revyl accepts and run again.`,
+    { httpStatus: response.status },
+  );
 }
 
 function responseKnownDetail<T extends string>(response: RawResponse, codes: ReadonlySet<T>): T | undefined {

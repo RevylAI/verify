@@ -3,8 +3,8 @@
 An `ios` or `android` target opens your app on a Revyl cloud simulator or emulator.
 
 ```ts
-{ platform: 'ios', app: { appId: '…' }, device: { model: 'iPhone 16', osVersion: '18.5' } }
-{ platform: 'android', app: { buildId: '…' }, device: { model: 'Pixel 8' } }
+{ platform: 'ios', app: { appId: '…' }, device: { model: 'iPhone 16', osVersion: 'iOS 18.5' } }
+{ platform: 'android', app: { buildId: '…' }, device: { model: 'Pixel 7', osVersion: 'Android 14' } }
 { platform: 'android', app: { artifactUrl: 'https://ci.example.com/app-release.apk' } }
 { platform: 'ios', app: { bundleId: 'com.apple.Preferences' } }   // an app already on the device
 ```
@@ -18,17 +18,17 @@ An `ios` or `android` target opens your app on a Revyl cloud simulator or emulat
 
 ## Devices
 
-`device.model` and `device.osVersion` pick the simulator or emulator. Without them, Revyl picks its default for the platform. To run the same script on several devices, give each its own target and open them one after another or in parallel:
+`device.model` and `device.osVersion` pick the simulator or emulator. Write them as Revyl names them: `'iOS 18.5'` and `'Android 14'`, not `'18.5'` or `'14'`. Without them, Revyl picks its default for the platform, and with only a model, its default OS version, which that model must support. A value Revyl doesn't offer throws `INVALID_ARGUMENT` before any session starts, and the message lists the models or versions it accepts. To run the same script on several devices, give each its own target and open them one after another or in parallel:
 
 ```ts
 targets: {
-  'iphone-se': { platform: 'ios', app: { appId }, device: { model: 'iPhone SE (3rd generation)' } },
-  'iphone-16': { platform: 'ios', app: { appId }, device: { model: 'iPhone 16' } },
+  'iphone-air': { platform: 'ios', app: { appId }, device: { model: 'iPhone Air' } },
+  'iphone-16': { platform: 'ios', app: { appId }, device: { model: 'iPhone 16', osVersion: 'iOS 18.5' } },
 },
 ```
 
 ```ts
-for (const name of ['iphone-se', 'iphone-16']) {
+for (const name of ['iphone-air', 'iphone-16']) {
   const session = await open(name);
   try {
     await session.validation('The onboarding screen fits without overlapping text');
@@ -46,11 +46,11 @@ After connection and any explicit bundle launch, `open()` makes a best-effort fi
 
 The generated mobile example starts with an instruction to wait for the first screen before validating it. For your own scripts, make the first instruction describe the screen or action you actually need; a screenshot with content can still show a loading screen or another app.
 
-For Android Settings, instruct the agent to scroll or navigate until the OS version is visible before validating it. Opening About alone can leave the version offscreen.
+For Android Settings (`bundleId: 'com.android.settings'`), instruct the agent to scroll or navigate until the OS version is visible before validating it, as in `instruction('Open About phone, then scroll or navigate until the Android version is visible')`. Opening About alone can leave the version offscreen.
 
 ## Exact actions
 
-**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. The [Python](https://github.com/RevylAI/verify/blob/v0.6.0/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.6.0/go/README.md#exact-actions) READMEs show them with each language's names. When you know exactly what to press, skip the agent. Exact actions run on the device as given, with no model, and mix freely with `instruction()` and `validation()` in one script:
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. The [Python](https://github.com/RevylAI/verify/blob/v0.6.1/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.6.1/go/README.md#exact-actions) READMEs show them with each language's names. When you know exactly what to press, skip the agent. Exact actions run on the device as given, with no model, and mix freely with `instruction()` and `validation()` in one script:
 
 ```ts
 import { open } from '@revyl/verify';
@@ -66,10 +66,10 @@ try {
   await session.swipe('down');                                   // the finger moves down, so the list scrolls to the top
   const search = await session.locate('Search field');           // a point in screenshot pixels
   await session.tap(search);                                     // a tap by coordinates
-  await session.type(search, 'Wallpaper');
+  await session.type(search, 'Accessibility');
   await session.pressKey('enter');
-  await session.instruction('Open the Wallpaper result');        // hand the fuzzy part to the agent
-  await session.validation('The Wallpaper settings are shown');
+  await session.instruction('Open the Accessibility result');    // hand the fuzzy part to the agent
+  await session.validation('The Accessibility settings are shown');
 } finally {
   await session.close();
 }

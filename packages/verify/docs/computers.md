@@ -1,6 +1,6 @@
-# Mac computers (early access)
+# Mac computers
 
-Verify opens a Revyl cloud macOS computer for commands, files, processes, screenshots, and clicks and keys on its screen. It does not open an assigned physical computer. Mac computers are **early access**. Ask [support@revyl.ai](mailto:support@revyl.ai) about access.
+Verify opens a Revyl cloud macOS computer for commands, files, processes, screenshots, and clicks and keys on its screen. It does not open an assigned physical computer. Mac computers are available to organizations on a current paid Revyl plan. If yours can't start one, ask [support@revyl.ai](mailto:support@revyl.ai).
 
 ```bash
 export REVYL_API_KEY=...
@@ -124,7 +124,7 @@ The HTTPS URL is signed and short-lived. Keep it private, including its query st
 
 ## Availability and errors
 
-Mac computers are early access. A `503 runtime_unavailable` or typed `computer_not_enabled` becomes `NOT_AVAILABLE_ON_PLATFORM` with this availability guidance. A `429 computer_limit` becomes `COMPUTER_LIMIT`: queued work (including iOS) or the concurrency limit can cause it, and the response does not identify which. Verify does not retry the create or send a stop after these definite admission refusals. `operation_limit` remains `SESSION_BUSY`. Availability is determined by the server.
+Mac computers are available to organizations on a current paid Revyl plan. A `503 runtime_unavailable` or typed `computer_not_enabled` becomes `NOT_AVAILABLE_ON_PLATFORM` with this availability guidance. A `429 computer_limit` becomes `COMPUTER_LIMIT`: queued work (including iOS) or the concurrency limit can cause it, and the response does not identify which. Verify does not retry the create or send a stop after these definite admission refusals. `operation_limit` remains `SESSION_BUSY`. Availability is determined by the server.
 
 The default `startTimeout` remains 600000 ms; override it explicitly if needed. An unclaimed start can transition to `failed` with `failure_reason: 'no_host'` after 120 seconds from create. Verify stops readiness polling and throws `SESSION_START_FAILED` with that context, then attempts bounded cleanup. This is not a 120-second timeout for every start: claimed guests may take longer. `device_limit` also yields `SESSION_START_FAILED`, with queued-work/concurrency context. A start timeout or unconfirmed close does not prove resources were released. Inspect the session and contact support rather than blindly repeating a start or stop.
 

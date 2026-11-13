@@ -19,7 +19,7 @@ import (
 const (
 	backendURL = "https://backend.revyl.ai"
 	appURL     = "https://app.revyl.ai"
-	Version    = "0.5.0"
+	Version    = "0.5.1"
 )
 
 type client struct {
@@ -227,6 +227,30 @@ func httpError(r response) error {
 		code = ErrAuthRejected
 	}
 	return responseFailure(r, code, fmt.Sprintf("Revyl request failed (HTTP %d).", r.status))
+}
+
+func startRefusal(r response) error {
+	if r.status != 400 && r.status != 422 {
+		return nil
+	}
+	var body struct {
+		Detail json.RawMessage `json:"detail"`
+	}
+	var detail string
+	if json.Unmarshal(r.body, &body) != nil || json.Unmarshal(body.Detail, &detail) != nil {
+		return nil
+	}
+	detail = strings.TrimSpace(detail)
+	if strings.Trim(detail, "abcdefghijklmnopqrstuvwxyz0123456789_") == "" {
+		return nil
+	}
+	if len(detail) > 500 {
+		detail = strings.ToValidUTF8(detail[:500], "")
+	}
+	if !strings.ContainsAny(detail[len(detail)-1:], ".!?") {
+		detail += "."
+	}
+	return &Error{Code: ErrInvalidArgument, HTTPStatus: r.status, Message: fmt.Sprintf("Revyl refused to start the session (HTTP %d): %s Change the target to a value Revyl accepts and run again.", r.status, detail)}
 }
 
 func (c *client) json(ctx context.Context, method, path string, body any, retry bool, timeout time.Duration, into any) error {

@@ -19,7 +19,7 @@ This page is for AI coding agents (Claude Code, Cursor, Codex, and others) that 
      await session.close();
    }
    ```
-4. Run it with `node path/to/script.ts`. Share the session link from the first `[verify]` line with the user, so they can watch.
+4. Name it `.mts` and run it with `node path/to/script.mts`; Node runs a `.mts` file as an ES module whatever `package.json` says, while a `.ts` file fails to import in a CommonJS project. Share the session link from the first `[verify]` line with the user, so they can watch.
 5. Read the outcome from the exit code and stderr. Each step prints `✓` or `✗` with its text; a failure prints `CODE: message`, ending with the session link. Look at any screenshot you saved before changing the script or the app.
 
 ## Exact actions and coordinates
@@ -53,11 +53,11 @@ try {
 }
 ```
 
-The [Python](https://github.com/RevylAI/verify/blob/v0.6.0/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.6.0/go/README.md#exact-actions) READMEs state the same rule with each language's names. [api.md](api.md#exact-actions) lists every call and its errors.
+The [Python](https://github.com/RevylAI/verify/blob/v0.6.1/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.6.1/go/README.md#exact-actions) READMEs state the same rule with each language's names. [api.md](api.md#exact-actions) lists every call and its errors.
 
 ## Rules
 
-Mac computers are early access. Ask support@revyl.ai about access before starting a computer; do not repeat an uncertain start/stop to probe availability.
+Mac computers are available to organizations on a current paid Revyl plan. Ask before starting a computer, as for a device; do not repeat an uncertain start/stop to probe availability.
 
 For computer work, use structured `exec(['program', 'arg'])`, `readFile`, `writeFile`, `stat`, and run-owned handles from `processes()`/`terminate(id)`. Check command output with ordinary assertions and close in `finally`; screenshots are supported, but instruction/validation are not. To use the screen, read a point off `screenshot()` and `tap({ x, y })` it, or describe it with `tap({ target })`, and type with `typeFocused(text, { clear: false })`. A described click takes several seconds, because Revyl takes a screenshot and finds the element first. It can pick a look-alike, and when the target isn't on the screen it can still click something else instead of failing. So check the point it returns or take a screenshot afterwards, and for anything that's hard to undo, read the point off `screenshot()` and use `tap({ x, y })`. After `ACTION_UNCERTAIN`, take a screenshot before you act again. Do not fall back to agent steps on computers or shell/file methods on mobile/web. See [computers.md](computers.md) for limits. Starting a computer is a paid external action and needs the same approval as starting a device.
 

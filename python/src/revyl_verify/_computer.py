@@ -84,7 +84,10 @@ _ERRORS = {
     "screen_target_not_found",
     "screen_target_unavailable",
 }
-_AVAILABILITY = "Computers are early access. Ask support@revyl.ai about access."
+_AVAILABILITY = (
+    "Mac computers need a current paid Revyl plan, and Linux computers are not generally "
+    "available. Ask support@revyl.ai about access."
+)
 _COMPUTER_KEYS: dict[str, str] = {
     "enter": "Return",
     "backspace": "BackSpace",

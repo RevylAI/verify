@@ -4,7 +4,7 @@ Verify is a library, so it runs wherever your code runs. Browsers, devices, and 
 
 ## A script in GitHub Actions
 
-Add `REVYL_API_KEY` as a repository secret, then run your script with `node`. A failed instruction or validation makes the script exit non-zero, which fails the job.
+Add `REVYL_API_KEY` as a repository secret, then run your script with `node`. Name it `.mts`, as `init` does, so Node runs it as an ES module whatever your `package.json` says. A failed instruction or validation makes the script exit non-zero, which fails the job.
 
 ```yaml
 name: Verify
@@ -22,7 +22,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: node verify/checkout.ts
+      - run: node verify/checkout.mts
         env:
           REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
       - if: ${{ !cancelled() }}

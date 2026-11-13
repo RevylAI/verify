@@ -28,7 +28,7 @@ describe('initProject', () => {
     const entry = fileURLToPath(new URL('../src/cli/main.ts', import.meta.url));
     const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: dir, USERPROFILE: dir, REVYL_API_KEY: 'test-token', CI: '1' };
     const output = execFileSync(process.execPath, ['--input-type=module', '-e', `import { createJiti } from ${JSON.stringify(jiti)}; globalThis.fetch = async () => Response.json({ email: 'dev@example.test', org_name: 'Example' }); process.argv = ['node', 'verify', 'init', '--platform', 'mac', '--no-install']; await createJiti(import.meta.url).import(${JSON.stringify(entry)});`], { cwd: dir, env, encoding: 'utf8' });
-    expect(output.match(/Mac computers are early access/g)).toHaveLength(1);
+    expect(output.match(/Mac computers need a current paid Revyl plan/g)).toHaveLength(1);
     expect(output).toContain('support@revyl.ai');
   });
   it('writes a web config, an example script, and ignores screenshots', async () => {
@@ -42,7 +42,7 @@ describe('initProject', () => {
     expect(config).toContain("url: 'https://shop.example.com'");
     const script = await readFile(join(dir, 'verify/example.mts'), 'utf8');
     expect(script).toContain("await open('web')");
-    expect(script).toContain('session.instruction(');
+    expect(script).not.toContain('session.instruction(');
     expect(script).toContain('session.validation(');
     expect(script).toContain('session.close()');
     expect(await readFile(join(dir, '.gitignore'), 'utf8')).toBe('node_modules\n.verify/\n');

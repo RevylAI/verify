@@ -90,9 +90,9 @@ asyncio.run(main())
 
 `async_open` returns an `AsyncSession`. Its async methods adapt the synchronous implementation through worker threads, rather than introducing another HTTP stack. Cancelling a method schedules best-effort session close; cancelling open interrupts startup and attempts cleanup as soon as an identity is known. Cancellation does not forcibly terminate an in-flight thread or undo a remote operation; do not replay an uncertain mutation. Always close explicitly or use `async with await async_open(...)`.
 
-### Mac computer (early access)
+### Mac computer
 
-Ask support@revyl.ai about computer access before running:
+Mac computers are available to organizations on a current paid Revyl plan. If yours can't start one, ask support@revyl.ai:
 
 ```python
 from revyl_verify import Target, open
@@ -138,7 +138,7 @@ Attach to an existing active computer with `attach(computer_id)`, or create one 
 ```python
 from revyl_verify import Target, attach
 
-with attach("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee") as computer:
+with attach("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", stop_on_close=False) as computer:
     with computer.open(
         Target(
             platform="web",
@@ -146,11 +146,11 @@ with attach("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee") as computer:
             build_id="66666666-7777-4888-8999-aaaaaaaaaaaa",
         )
     ) as browser:
-        browser.navigate("http://localhost:3000")
-        browser.validation("The application home page is visible")
+        browser.navigate("https://www.saucedemo.com")
+        browser.validation("The Swag Labs login form is shown")
 ```
 
-Use real IDs from the same authorized environment; these are placeholders. The existing Web build must point to a supported HTTPS source. After startup, `navigate(url)` sends a single deterministic navigation request and accepts HTTP or HTTPS, including localhost, on every Web session. A cold development server may need a warm-up request before navigation succeeds. For hosted browsers localhost means the hosting computer; for ordinary cloud browsers it means that browser's runtime, not your own computer. If navigation times out uncertainly, it may still commit and the session remains usable; re-navigating is your choice. The server runtime owns navigation network policy. The SDK rejects credentials, control characters and backslashes; it never logs the URL. Navigation is unavailable on mobile and computer sessions and returns `None` after a confirmed response.
+Use real IDs from the same authorized environment; these are placeholders. `stop_on_close=False` leaves a computer you don't own running when the context exits; leave it out only for a computer your script owns. To reach `http://localhost:<port>` on the computer, a service must already be listening there, such as one an earlier step of a `revyl-macos` job started: Verify has no call that starts one, and a process started through `exec()` ends when the command returns. The existing Web build must point to a supported HTTPS source. After startup, `navigate(url)` sends a single deterministic navigation request and accepts HTTP or HTTPS, including localhost, on every Web session. A cold development server may need a warm-up request before navigation succeeds. For hosted browsers localhost means the hosting computer; for ordinary cloud browsers it means that browser's runtime, not your own computer. If navigation times out uncertainly, it may still commit and the session remains usable; re-navigating is your choice. The server runtime owns navigation network policy. The SDK rejects credentials, control characters and backslashes; it never logs the URL. Navigation is unavailable on mobile and computer sessions and returns `None` after a confirmed response.
 
 `computer.open(target)` requires **both** `app_id` and `build_id` UUIDs. Hosted Web accepts `viewport`, `sign_in`, `idle_timeout_seconds` and `start_timeout`, but no `url` or `branch`; the server currently accepts external Web builds, not bundled Web artifacts. Hosted iOS/Android use the selected build and fixed simulator/emulator configuration, so `bundle_id`, `artifact_url`, `device_model`, `os_version`, `url`, `branch`, `viewport` and `sign_in` are unavailable. Mac hosts Web/iOS. All hosting depends on server capability and capacity.
 
@@ -162,7 +162,7 @@ For async code use `async with await async_attach(computer_id) as computer`, the
 
 ## Exact actions
 
-**Since 0.2.0. Early access.** Web, iOS and Android sessions take device actions that need no agent. They match the TypeScript SDK's exact actions in snake_case, and `AsyncSession` has the same methods to await. `double_tap`, `long_press`, `drag`, `type_focused`, `go_home`, and Web keys and modifiers in `press_key`, are new in 0.3.0. `tap` (by point or description), `screen_size`, `type_focused` and `press_key` on a Mac computer's screen are new in 0.4.0; see [Mac computer](#mac-computer-early-access).
+**Since 0.2.0. Early access.** Web, iOS and Android sessions take device actions that need no agent. They match the TypeScript SDK's exact actions in snake_case, and `AsyncSession` has the same methods to await. `double_tap`, `long_press`, `drag`, `type_focused`, `go_home`, and Web keys and modifiers in `press_key`, are new in 0.3.0. `tap` (by point or description), `screen_size`, `type_focused` and `press_key` on a Mac computer's screen are new in 0.4.0; see [Mac computer](#mac-computer).
 
 ```python
 from revyl_verify import Point, Target, open
@@ -170,10 +170,10 @@ from revyl_verify import Point, Target, open
 with open(Target(platform="ios", bundle_id="com.apple.Preferences")) as session:
     session.tap("General")  # Revyl's grounding model finds the element
     session.tap(Point(220, 480))  # or a point in screenshot pixels
-    session.type("Search", "Bluetooth")  # clears the field first unless clear=False
+    session.type("Search", "Accessibility")  # clears the field first unless clear=False
     session.swipe("up")  # from the screen's center, or from_=location
     session.press_key("enter")
-    session.open_url("prefs:root=General")  # a URL or deep link on devices
+    session.open_url("https://example.com")  # a URL or an app's deep link on devices
     session.launch_app("com.apple.Preferences")
     where = session.locate("About")  # a Point, without acting
     size = session.screen_size()  # the screenshot's ScreenSize(width, height)
@@ -361,7 +361,7 @@ cd python && uv run python examples/byo_model.py
 Construct a frozen `Target(platform=...)`:
 
 - **Web:** `app_id` (Revyl UUID) is required. Supply `url` for a public HTTPS site, `build_id` for a specific build, or `branch` for the selected app's latest build. `build_id` cannot be combined with `url` or `branch`. Optional `Viewport(width, height, device_scale_factor=...)` and `SignIn(path, secret, persona=...)` configure the browser and saved sign-in secret reference, not a raw credential.
-- **iOS / Android:** provide exactly one of `app_id`, `build_id`, HTTPS `artifact_url` or installed-app `bundle_id`. Optional `device_model` and `os_version` select the device. Do not combine mobile app sources.
+- **iOS / Android:** provide exactly one of `app_id`, `build_id`, HTTPS `artifact_url` or installed-app `bundle_id`. Optional `device_model` and `os_version` select the device, written as Revyl names them, such as `device_model="iPhone 16", os_version="iOS 18.5"` or `device_model="Pixel 7", os_version="Android 14"`. A value Revyl doesn't offer raises `INVALID_ARGUMENT` listing the values it accepts, and no session starts. Do not combine mobile app sources.
 - **Mac:** only `platform` and `start_timeout` are accepted; app/browser/device fields are unavailable.
 
 `start_timeout` defaults to 600 seconds (allowed range 10–1800). Web/mobile also accept `idle_timeout_seconds` (60–3600). `open`, `async_open`, `attach` and `async_attach` accept default `step_timeout` in seconds.
@@ -398,7 +398,7 @@ Session properties include `id`, `platform`, `viewer_url`, `expires_at` and `clo
 | iOS simulator / Android emulator | Yes | — | Yes |
 | Mac computer | — | Yes | Yes |
 
-Mac computers are early access; ask support@revyl.ai about access. Computer admission may return `COMPUTER_LIMIT`; the SDK does not retry creation. Computer sessions have a hard lifetime from creation (two hours today); `expires_at` is the authoritative deadline. Screenshot observation retries structured startup screen-not-ready errors within a bounded window; other errors are not silently replayed.
+Mac computers are available to organizations on a current paid Revyl plan. Computer admission may return `COMPUTER_LIMIT`; the SDK does not retry creation. Computer sessions have a hard lifetime from creation (two hours today); `expires_at` is the authoritative deadline. Screenshot observation retries structured startup screen-not-ready errors within a bounded window; other errors are not silently replayed.
 
 Context-manager exit calls `close()`. Device close acknowledges a stop request; computer close requires terminal state **and confirmed resource release**. Close submits its stop mutation once; repeated calls share the first outcome, including an unconfirmed failure. Interpreter-exit cleanup is best effort and cannot replace explicit close, especially with asyncio. A failed close is not proof the resource was released; investigate it rather than starting replacement sessions blindly.
 

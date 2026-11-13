@@ -1,6 +1,6 @@
 # Use your own model
 
-**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0; the [Python](https://github.com/RevylAI/verify/blob/v0.6.0/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.6.0/go/README.md#your-own-model) READMEs show them with each language's names. Verify normally runs `instruction()` and `validation()` on Revyl's agent. Pass a `model` and the agent loop runs in your process instead, on a model you choose, with your own key. Revyl still provides the cloud browser or device and, by default, finds the elements your model names on screen.
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0; the [Python](https://github.com/RevylAI/verify/blob/v0.6.1/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.6.1/go/README.md#your-own-model) READMEs show them with each language's names. Verify normally runs `instruction()` and `validation()` on Revyl's agent. Pass a `model` and the agent loop runs in your process instead, on a model you choose, with your own key. Revyl still provides the cloud browser or device and, by default, finds the elements your model names on screen.
 
 Use it when you want a specific model, your own prompts and key, or faster steps on a cheap model. Leave `model` out and nothing changes.
 
@@ -52,7 +52,7 @@ log.Println(step.Model.ID, len(step.Model.Turns), step.Model.InputTokens, step.M
 _, err = s.Validation(ctx, "The screen shows the iOS version")
 ```
 
-The [Python](https://github.com/RevylAI/verify/blob/v0.6.0/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.6.0/go/README.md#your-own-model) READMEs have the full reference for each.
+The [Python](https://github.com/RevylAI/verify/blob/v0.6.1/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.6.1/go/README.md#your-own-model) READMEs have the full reference for each.
 
 Set `model` on `open()` to run every step on it, or on one step to override it:
 
@@ -67,7 +67,7 @@ The string is `'provider/model'`. Everything after the first slash is the provid
 
 | Prefix | Key variable | Endpoint | Status |
 | --- | --- | --- | --- |
-| `anthropic/` | `ANTHROPIC_API_KEY` | Anthropic Messages API | The one-line form run live against an Anthropic-compatible proxy with Claude Sonnet 5.5, real screenshots and tool schemas; the run on a Revyl device is pending |
+| `anthropic/` | `ANTHROPIC_API_KEY` | Anthropic Messages API | Run live with Claude Sonnet 5.5 on Revyl iOS, Android and Web sessions in TypeScript, Python and Go, including `grounding: 'model'` on iOS |
 | `openai/` | `OPENAI_API_KEY` | `https://api.openai.com/v1` | Request shape checked; not yet run live |
 | `google/` | `GOOGLE_API_KEY`, or `GEMINI_API_KEY` when it is unset | `https://generativelanguage.googleapis.com/v1beta/openai/` | Request shape checked; not yet run live |
 | `openrouter/` | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` | Request shape checked; not yet run live |
@@ -97,7 +97,7 @@ Measured in production on Cerebras `qwen-3.8-27b`, a fast vision model (about 0.
 | | your model, `grounding: 'revyl'` | pass, 21.2 s | pass, 1.3 s | 4 + 1 | 7,854/355 + 1,380/136 |
 | | your model, `grounding: 'model'` | fail after 20 turns, 64.4 s | | 20 | 52,726 total |
 
-Each local turn costs one model call plus one device action: about 3.7 s per turn on iOS and 5.3 s on Web here, most of it the device action and the screen settling. These are two short flows on one model, so treat them as a direction, not a benchmark. Claude, GPT and Gemini have not been measured yet, and `grounding: 'model'` has not yet been shown to pass with any model.
+Each local turn costs one model call plus one device action: about 3.7 s per turn on iOS and 5.3 s on Web here, most of it the device action and the screen settling. These are two short flows on one model, so treat them as a direction, not a benchmark. GPT and Gemini have not been measured yet. Claude Sonnet 5.5 passed with `grounding: 'model'` on iOS Settings in 3 turns; that is one run, so treat `grounding: 'model'` as dependent on the model.
 
 Start with the default grounding and the cheapest vision model your provider has. Move to a stronger model if steps run out of turns or pick the wrong elements.
 

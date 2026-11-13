@@ -53,7 +53,7 @@ Revyl runs one step at a time on a session. A step sent while another is still r
 
 ## Exact actions
 
-**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. The [Python](https://github.com/RevylAI/verify/blob/v0.6.0/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.6.0/go/README.md#exact-actions) READMEs show them with each language's names. When you know exactly what to click, skip the agent. Exact actions run in the browser as given, with no model, and mix freely with `instruction()` and `validation()`:
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. The [Python](https://github.com/RevylAI/verify/blob/v0.6.1/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.6.1/go/README.md#exact-actions) READMEs show them with each language's names. When you know exactly what to click, skip the agent. Exact actions run in the browser as given, with no model, and mix freely with `instruction()` and `validation()`:
 
 ```ts
 import { open } from '@revyl/verify';
@@ -66,6 +66,7 @@ try {
   await session.validation('A list of products is shown');
   await session.swipe('up');                                     // the finger moves up, so the page scrolls down
   await session.instruction('Add the Sauce Labs Onesie to the cart');  // hand the fuzzy part to the agent
+  await session.swipe('down');                                   // back to the top, so the cart icon is on screen
   const cart = await session.locate('Shopping cart icon');      // a point in screenshot pixels
   await session.tap(cart);                                       // a tap by coordinates
   await session.validation('The cart lists the Sauce Labs Onesie');
