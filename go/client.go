@@ -41,9 +41,16 @@ type response struct {
 type attributionKey struct{}
 
 func newClient(options OpenOptions) (*client, string, error) {
-	token, err := credentials()
-	if err != nil {
-		return nil, "", err
+	return newTokenClient(options, "")
+}
+
+// newTokenClient uses token, or the configured credentials when token is empty.
+func newTokenClient(options OpenOptions, token string) (*client, string, error) {
+	var err error
+	if token == "" {
+		if token, err = credentials(); err != nil {
+			return nil, "", err
+		}
 	}
 	base := options.BackendURL
 	if base == "" {
@@ -135,6 +142,10 @@ func pause(ctx context.Context, duration time.Duration) error {
 }
 
 func (c *client) send(ctx context.Context, method, path string, body any, retry bool, timeout time.Duration, worker bool) (response, error) {
+	return c.sendWithHeaders(ctx, method, path, body, retry, timeout, worker, nil)
+}
+
+func (c *client) sendWithHeaders(ctx context.Context, method, path string, body any, retry bool, timeout time.Duration, worker bool, headers map[string]string) (response, error) {
 	var encoded []byte
 	if body != nil {
 		var err error
@@ -147,7 +158,7 @@ func (c *client) send(ctx context.Context, method, path string, body any, retry 
 		if ctx.Err() != nil {
 			return response{}, contextError(ctx)
 		}
-		result, err := c.sendOnce(ctx, method, path, encoded, timeout, worker)
+		result, err := c.sendOnce(ctx, method, path, encoded, timeout, worker, headers)
 		transient := err != nil || result.status == 502 || result.status == 503 || result.status == 504
 		if !retry || !transient || attempt >= 2 || ctx.Err() != nil {
 			return result, err
@@ -162,7 +173,7 @@ func (c *client) send(ctx context.Context, method, path string, body any, retry 
 	}
 }
 
-func (c *client) sendOnce(ctx context.Context, method, path string, body []byte, timeout time.Duration, worker bool) (response, error) {
+func (c *client) sendOnce(ctx context.Context, method, path string, body []byte, timeout time.Duration, worker bool, headers map[string]string) (response, error) {
 	requestCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(requestCtx, method, c.base+path, bytes.NewReader(body))
@@ -173,6 +184,9 @@ func (c *client) sendOnce(ctx context.Context, method, path string, body []byte,
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "revyl-verify/"+Version+" "+runtime.Version())
 	req.Header.Set("X-Revyl-Client", "verify")
+	for name, value := range headers {
+		req.Header.Set(name, value)
+	}
 	if worker {
 		req.Header.Set("X-Revyl-Agent", "Verify")
 		if agent, ok := ctx.Value(attributionKey{}).([2]string); ok {

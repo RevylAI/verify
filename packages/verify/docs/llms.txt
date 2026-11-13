@@ -15,6 +15,8 @@ Mac computers are available to organizations on a current paid Revyl plan. See c
 - [Verify working end to end](end-to-end.md): live verification scope, observed outcomes, and limits of the evidence
 - [CI and test runners](ci.md): GitHub Actions, node:test, Vitest, Jest, Playwright Test
 - [Use your own model](own-model.md): run instructions and validations on Claude, GPT, Gemini, a local model or any OpenAI-compatible endpoint; providers, limits, privacy and troubleshooting
+- [Proof of Changes from your CI](proof-of-changes.md): verify upload and uploadBuild(); verify proof and proof() without a Revyl config, the exit-code gate, launch environment, Web URL lifetime, and their errors
+- [Per-PR environments](environments.md): environment() and verify env, public quick-tunnel URLs for a pull request's stack, readiness, teardown
 - [Errors](errors.md): every error code and what to do about it
 - [For coding agents](agents.md): the workflow and rules for agents using Verify, and the coordinate rule for exact actions
 

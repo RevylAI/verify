@@ -81,6 +81,9 @@ Use the explicitly scoped package command below. Installing `@revyl/verify` prov
 npx @revyl/verify init [--platform ios|android|web|mac] [--app-id <id>] [--url <https-url>] [--force] [--yes] [--no-install]
 npx @revyl/verify login
 npx @revyl/verify logout
+npx @revyl/verify upload <artifact> --app-id <id> [--platform ios|android] [--version <label>] [--repo <owner/name> --commit <sha> [--pr <number>]] [--json]
+npx @revyl/verify proof <artifact> | --url <https-url> --app-id <id> | --target <app-id>=<artifact-or-https-url>... [--guidance <text>] [--env NAME[=value]]... [--env-secret NAME]... [--auth-deep-link <template>]... [--timeout <minutes>] [--no-wait] [--summary-file <path>] [--no-scm [--review-key <key>] [--base-sha <sha>] [--head-sha <sha>] [--title <text>] [--source-url <https-url>]] [--json]
+npx @revyl/verify env [--start <command>] --expose NAME=port... [--ready NAME=/path]... [--stop <command>] [--seed <command>] [--ready-timeout <seconds>] [--show-urls] -- <command> [args...]
 npx @revyl/verify whoami
 npx @revyl/verify --help
 npx @revyl/verify --version
@@ -92,6 +95,9 @@ npx @revyl/verify --version
 - `init` installs Verify from the project's lockfile when needed and signs in through Revyl's browser approval flow when no credentials are available. Use `--yes` or `--no-install` to control installation. Non-interactive runs do not prompt or open a browser and require `REVYL_API_KEY`.
 - `login` signs in through Revyl's browser approval flow and saves the login to `~/.revyl/credentials.json`, which the Revyl CLI shares. It needs a terminal; in CI, set `REVYL_API_KEY`.
 - `logout` deletes `~/.revyl/credentials.json`. The API key it held keeps working until you delete it in Revyl under Settings → API keys, and a `REVYL_API_KEY` in the environment still applies.
+- `upload` sends a build with its pull request identity. See [Proof of Changes from your CI](proof-of-changes.md).
+- `proof` proves a pull request without a Revyl config, or with `--no-scm` the checkout's diff for a source host Revyl can't read, and exits `0` only when the overall verdict is `passed`. See [Prove a pull request without a Revyl config](proof-of-changes.md#prove-a-pull-request-without-a-revyl-config-verify-proof).
+- `env` runs a stack with a public URL per port around a command; see [environments.md](environments.md).
 - `whoami` prints the Revyl account and organization your credentials belong to.
 
 Exit codes: `0` success, `1` a Revyl or file error, `2` a usage or authentication problem.

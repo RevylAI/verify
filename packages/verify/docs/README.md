@@ -13,6 +13,8 @@ These files ship inside the npm package at `node_modules/@revyl/verify/docs/`, s
 | [computers.md](computers.md) | Open a Mac computer for commands, files, processes, screenshots, clicks and keys on its screen, and optional recording metadata |
 | [ci.md](ci.md) | Call Verify from CI or from a test runner you already use |
 | [own-model.md](own-model.md) | Run instructions and validations on your own model, such as Claude, GPT or a local model |
+| [proof-of-changes.md](proof-of-changes.md) | Upload your CI's builds for Revyl Proof of Changes, or prove a pull request without a Revyl config |
+| [environments.md](environments.md) | Run a pull request's stack on the CI runner with public URLs for Proof of Changes |
 | [errors.md](errors.md) | Understand an error code and fix it, or troubleshoot a common problem |
 | [agents.md](agents.md) | Use Verify as a coding agent |
 
