@@ -8,8 +8,8 @@ import { defineConfig } from '@revyl/verify';
 export default defineConfig({
   targets: {
     web: { platform: 'web', app: { appId: '…', url: 'https://example.com' }, viewport: { width: 1280, height: 800 } },
-    ios: { platform: 'ios', app: { appId: '…' }, device: { model: 'iPhone 16', osVersion: '18.5' } },
-    pixel: { platform: 'android', app: { buildId: '…' }, device: { model: 'Pixel 8' } },
+    ios: { platform: 'ios', app: { appId: '…' }, device: { model: 'iPhone 16', osVersion: 'iOS 18.5' } },
+    pixel: { platform: 'android', app: { buildId: '…' }, device: { model: 'Pixel 7', osVersion: 'Android 14' } },
     mac: { platform: 'mac' },
   },
   stepTimeout: 240_000,
@@ -20,7 +20,7 @@ Unknown keys are rejected, so a typo fails loudly instead of being ignored.
 
 ## Top-level options
 
-Mac targets are early access. Ask support@revyl.ai about access. See [computer availability](computers.md#availability-and-errors).
+Mac computers are available to organizations on a current paid Revyl plan. See [computer availability](computers.md#availability-and-errors).
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -50,7 +50,7 @@ Mac targets are early access. Ask support@revyl.ai about access. See [computer a
 | `app.buildId` | An exact Revyl build to install. |
 | `app.artifactUrl` | An HTTPS URL of an `.apk`, `.app.zip`, or `.ipa` to install. |
 | `app.bundleId` | An app already on the device to launch instead, such as a system app. |
-| `device` | `{ model?, osVersion? }`, for example `{ model: 'Pixel 8', osVersion: '15' }` |
+| `device` | `{ model?, osVersion? }`, written as Revyl names them, for example `{ model: 'iPhone 16', osVersion: 'iOS 18.5' }` or `{ model: 'Pixel 7', osVersion: 'Android 14' }`. Revyl picks its default for a value you leave out. A model or OS version Revyl doesn't offer, or a pair that doesn't go together, throws `INVALID_ARGUMENT` listing the values it accepts, and no session starts |
 | `startTimeout` | Milliseconds to wait for the device. Default 600000. |
 | `idleTimeoutSeconds` | Default 600. |
 

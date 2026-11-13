@@ -358,6 +358,26 @@ def refusal_reason(response: Response) -> RefusalReason | None:
     return None
 
 
+def start_refusal(response: Response) -> VerifyError | None:
+    if response.status not in (400, 422) or edge_blocked_error(response) is not None:
+        return None
+    try:
+        detail = obj(response.json()).get("detail")
+    except VerifyError:
+        return None
+    if not isinstance(detail, str) or re.fullmatch(r"[a-z0-9_]*", detail.strip()):
+        return None
+    message = detail.strip()[:500]
+    if message[-1] not in ".!?":
+        message += "."
+    return VerifyError(
+        "INVALID_ARGUMENT",
+        f"Revyl refused to start the session (HTTP {response.status}): {message} "
+        "Change the target to a value Revyl accepts and run again.",
+        http_status=response.status,
+    )
+
+
 def edge_blocked_error(response: Response) -> VerifyError | None:
     if (
         response.status != 403
@@ -545,7 +565,7 @@ class Client:
         headers = {
             "Authorization": f"Bearer {self._token}",
             "Accept": "application/json",
-            "User-Agent": "revyl-verify/0.4.0 python",
+            "User-Agent": "revyl-verify/0.4.1 python",
             "X-Revyl-Client": "verify",
         }
         if worker:

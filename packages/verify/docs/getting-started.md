@@ -86,7 +86,7 @@ The generated iOS and Android targets open Settings. To test your own app, repla
 
 - **Web:** create a Web app in Revyl (see [web.md](web.md#create-the-web-app)) and set `app.url` to a public HTTPS URL. Revyl's cloud browser cannot reach `localhost`.
 - **iOS and Android:** upload a build to the app in Revyl, for example with `revyl build upload`; each session installs the newest one. See [mobile.md](mobile.md).
-- **Mac:** computers are early access; ask support@revyl.ai about access. Agent instruction/validation are unavailable. See [computers.md](computers.md#availability-and-errors).
+- **Mac:** computers are available to organizations on a current paid Revyl plan. Agent instruction/validation are unavailable. See [computers.md](computers.md#availability-and-errors).
 
 ## Run the script
 

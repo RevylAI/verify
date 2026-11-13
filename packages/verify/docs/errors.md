@@ -18,7 +18,7 @@
 
 `web_runtime_unavailable` does not distinguish full capacity from an unavailable runtime. `computer_limit` does not distinguish queued work from concurrency exhaustion. Inspect these fields to classify refusal without parsing prose; do not infer a specific cause or automatically start a replacement session.
 
-Ordinary start errors retain recognized safe server diagnostic codes such as `web_app_required` in the message even when they are not typed refusal reasons. Arbitrary server messages and payloads are not copied into startup diagnostics.
+Ordinary start errors retain recognized safe server diagnostic codes such as `web_app_required` in the message even when they are not typed refusal reasons. An iOS or Android start that Revyl refuses as invalid (HTTP 400 or 422), such as a device model or OS version it doesn't offer, throws `INVALID_ARGUMENT` with Revyl's explanation, which lists the values it accepts; nothing was started. Other server messages and payloads, including every Web and hosted start's, are not copied into startup diagnostics.
 
 Web navigation timeouts expose `reason: 'request_timeout'` with HTTP 504 and `code: 'ACTION_UNCERTAIN'`: the action budget expired before navigation was confirmed, but the request may still commit and the session remains open. A normalized `protocol_error` also preserves uncertainty and its HTTP status. Neither error causes Verify to replay navigation or close the session. Inspect the live page before deciding whether to navigate again.
 
@@ -37,7 +37,7 @@ try {
 
 | Code | What happened | What to do |
 | --- | --- | --- |
-| `INVALID_ARGUMENT` | A call got a bad value: an unknown target name, an empty step, two steps at once on one session, a point outside the screenshot, `typeFocused` on a computer without `{ clear: false }` | The message names the argument |
+| `INVALID_ARGUMENT` | A call got a bad value: an unknown target name, an empty step, two steps at once on one session, a point outside the screenshot, `typeFocused` on a computer without `{ clear: false }`, or a device model or OS version Revyl doesn't offer | The message names the argument, and for a device, the values Revyl accepts |
 | `CONFIG_NOT_FOUND` | `open('name')` found no `verify.config.ts` at or above the current folder | Run `npx @revyl/verify init`, pass `options.config`, or pass a target object |
 | `CONFIG_INVALID` | The config failed validation or did not load | The message names the exact option and the rule |
 | `AUTH_MISSING` | No `REVYL_API_KEY` and no saved login | Run `npx @revyl/verify login` in a terminal, or set `REVYL_API_KEY` |

@@ -163,7 +163,17 @@ func Open(ctx context.Context, target Target, options ...OpenOption) (*Session, 
 		SessionID string `json:"session_id"`
 		RunID     string `json:"workflow_run_id"`
 	}
-	if err := c.json(ctx, "POST", "/api/v1/execution/start_device", request, false, 2*time.Minute, &start); err != nil {
+	r, err := c.send(ctx, http.MethodPost, "/api/v1/execution/start_device", request, false, 2*time.Minute, false)
+	if err != nil {
+		return nil, err
+	}
+	if r.status < 200 || r.status >= 300 {
+		if refusal := startRefusal(r); refusal != nil && target.Platform != Web {
+			return nil, refusal
+		}
+		return nil, httpError(r)
+	}
+	if err := decode(r, &start); err != nil {
 		return nil, err
 	}
 	if (target.Platform == Web && start.SessionID != id) || (target.Platform != Web && start.RunID == "") {

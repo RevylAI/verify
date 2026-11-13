@@ -1,5 +1,7 @@
 # Verify working end to end
 
+**Historical record.** This page documents the 0.1.0 and 0.2.0 runs of October 2026 and is kept for its method. It does not describe the current release: the [changelog](https://github.com/RevylAI/verify/blob/main/CHANGELOG.md) and the guides do.
+
 These live runs were made on **2026-10-27**. The baseline uses source commit [`6029513369f13e73914b550d0cd26ece615b4e13`](https://github.com/RevylAI/verify/tree/6029513369f13e73914b550d0cd26ece615b4e13); the separate published-package check used `@revyl/verify@0.1.0`. The [re-verification below](#re-verification-at-061e5cfa) uses `061e5cfa31c5489aa304c2b640bbaf40e3d88561`, including an unpublished packed 0.2.0 tarball. Neither is a publication announcement.
 
 Only reviewed public scripts, sanitized transcripts, result projections, and two reviewed screenshots were used here. No private reports, device identifiers, session links, signed recording URLs, or recordings are published.

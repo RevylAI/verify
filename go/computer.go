@@ -22,7 +22,7 @@ import (
 	"unicode/utf8"
 )
 
-const computerAvailability = "Mac and Linux computers are early access. Ask support@revyl.ai about access."
+const computerAvailability = "Mac computers need a current paid Revyl plan, and Linux computers are not generally available. Ask support@revyl.ai about access."
 
 var computerRefusalNextSteps = map[Code]string{
 	ErrAuthRejected:       "Check that REVYL_API_KEY is a current key and that its owner has the Member role or above in this computer's organization.",

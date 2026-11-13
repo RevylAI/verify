@@ -9,10 +9,10 @@ Use Go 1.26.9 or later and a Revyl account. Set `REVYL_API_KEY` through your she
 The module lives in the repository's `go/` subdirectory. Install the tagged release with:
 
 ```sh
-go get github.com/RevylAI/verify/go@v0.5.0
+go get github.com/RevylAI/verify/go@v0.5.1
 ```
 
-Go releases use independent repository tags such as `go/v0.5.0`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
+Go releases use independent repository tags such as `go/v0.5.1`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
 
 ## Quick start: iOS Settings
 
@@ -21,7 +21,7 @@ This program opens the iOS Settings app on a cloud simulator, which every accoun
 ```sh
 mkdir verify-go && cd verify-go
 go mod init example.com/verify-go
-go get github.com/RevylAI/verify/go@v0.5.0
+go get github.com/RevylAI/verify/go@v0.5.1
 ```
 
 Save this as `main.go`:
@@ -149,8 +149,8 @@ Run with `go test -v -timeout 6m`. `t.Fatal` runs deferred cleanup. The URL and 
 ## Targets and options
 
 - **Web:** `Target{Platform: verify.Web, AppID: "…", URL: "https://…"}` registers a deployed HTTPS URL as a web build. Alternatively supply `BuildID`, or omit URL and build ID to select the latest web build on `Branch` (the app's default branch if omitted). `Viewport` accepts `Width`, `Height`, and optional `DeviceScaleFactor`; `SignIn` accepts `Path`, `Secret` (the stored secret's name, never its value), and optional `Persona`.
-- **iOS and Android:** set `Platform` to `verify.IOS` or `verify.Android` and exactly one of `AppID`, `BuildID`, `ArtifactURL` (HTTPS), or `BundleID` (an app already installed). `DeviceModel` and `OSVersion` are optional. `URL`, `Branch`, `Viewport`, and `SignIn` are web-only.
-- **Mac computers:** `Target{Platform: verify.Mac}` creates a workspace; only `StartTimeout` is accepted alongside the platform. Mac computers are early access; ask support@revyl.ai about access. A 429 `ErrComputerLimit` means queued work or a concurrency limit; Verify does not guess which cause applies or retry creation. See [computer availability](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#availability-and-errors).
+- **iOS and Android:** set `Platform` to `verify.IOS` or `verify.Android` and exactly one of `AppID`, `BuildID`, `ArtifactURL` (HTTPS), or `BundleID` (an app already installed). `DeviceModel` and `OSVersion` are optional and written as Revyl names them, such as `DeviceModel: "iPhone 16", OSVersion: "iOS 18.5"` or `DeviceModel: "Pixel 7", OSVersion: "Android 14"`. A value Revyl doesn't offer returns `ErrInvalidArgument` listing the values it accepts, and no session starts. `URL`, `Branch`, `Viewport`, and `SignIn` are web-only.
+- **Mac computers:** `Target{Platform: verify.Mac}` creates a workspace; only `StartTimeout` is accepted alongside the platform. Mac computers are available to organizations on a current paid Revyl plan. A 429 `ErrComputerLimit` means queued work or a concurrency limit; Verify does not guess which cause applies or retry creation. See [computer availability](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#availability-and-errors).
 - `Target.StartTimeout` bounds startup (default 10 minutes); on web/mobile, `IdleTimeoutSeconds` sets the session's idle timeout (default 600 seconds). All methods also honor the caller's context.
 - `Open` takes at most one `OpenOptions` value, plus `WithModel`, `WithCustomModel` or `WithAgent` to run steps on your own model; `Instruction` and `Validation` take the same options for one step. `OpenOptions{StepTimeout: 3*time.Minute}` changes the default step timeout. Per-call `StepOptions{Timeout: time.Minute}` and `ValidationOptions{Timeout: time.Minute, Soft: true}` override it. Run one step at a time per session.
 - Redirects are rejected, not followed with credentials.
@@ -402,12 +402,13 @@ To attach without taking ownership, set `stop := false` and pass `verify.OpenOpt
 
 Call `computer.Open(ctx, target)` to start a web, iOS, or Android app session inside that computer, rather than on an unrelated worker. It reuses the computer's credentials, backend, viewer, HTTP client, step timeout, and log callback. Both `AppID` and `BuildID` must be exact Revyl UUIDs. Hosted targets cannot select `URL`, `Branch`, `ArtifactURL`, `BundleID`, `DeviceModel`, or `OSVersion`. Web targets allow `Viewport`, `SignIn`, `IdleTimeoutSeconds`, and `StartTimeout`; native targets allow the two timeouts and always request simulation.
 
-Mac computers can host web and iOS. This is a client-side compatibility limit, not a capacity guarantee: the server can refuse any hosted start. Computers remain early access.
+Mac computers can host web and iOS. This is a client-side compatibility limit, not a capacity guarantee: the server can refuse any hosted start.
 
 Inside a function returning `error`, with a computer ID and existing app/build UUIDs supplied by your caller:
 
 ```go
-computer, err := verify.Attach(ctx, computerID)
+stop := false // not yours, so Close leaves it running
+computer, err := verify.Attach(ctx, computerID, verify.OpenOptions{StopOnClose: &stop})
 if err != nil {
 	return err
 }
@@ -424,14 +425,14 @@ browser, err := computer.Open(ctx, verify.Target{
 if err != nil {
 	return err
 }
-if err := browser.Navigate(ctx, "http://localhost:3000"); err != nil {
+if err := browser.Navigate(ctx, "https://www.saucedemo.com"); err != nil {
 	return err
 }
-_, err = browser.Validation(ctx, "The application home page is visible")
+_, err = browser.Validation(ctx, "The Swag Labs login form is shown")
 return err
 ```
 
-Select an existing HTTPS web build for startup, then navigate to a guest-local HTTP service once ready. `Navigate(ctx, url)` is web-only and submits `open_url` once, without retries. HTTP and HTTPS URLs of up to 2048 characters are accepted, including localhost; credentials, whitespace, control characters, backslashes, and invalid ports are rejected. On a hosted child, localhost refers to its parent computer; on an ordinary cloud web session, it refers to that web runtime, not your computer or another Revyl computer. A cold development server may need a warm-up request before navigation succeeds. If navigation returns `ACTION_UNCERTAIN`, the request may still commit; re-navigating is the caller's choice. The runtime is responsible for enforcing its navigation network policy. It checks the success envelope and returns only an error, without logging the URL. Hosted sessions reuse `Instruction`, `Validation`, `Screenshot`, and `Close`.
+Select an existing HTTPS web build for startup. Leave out `StopOnClose` only for a computer your program owns. `Navigate` can also reach a guest-local HTTP service, but only one already listening there, such as one an earlier step of a `revyl-macos` job started: Verify has no call that starts one, and a process started through `Exec` ends when the command returns. `Navigate(ctx, url)` is web-only and submits `open_url` once, without retries. HTTP and HTTPS URLs of up to 2048 characters are accepted, including localhost; credentials, whitespace, control characters, backslashes, and invalid ports are rejected. On a hosted child, localhost refers to its parent computer; on an ordinary cloud web session, it refers to that web runtime, not your computer or another Revyl computer. A cold development server may need a warm-up request before navigation succeeds. If navigation returns `ACTION_UNCERTAIN`, the request may still commit; re-navigating is the caller's choice. The runtime is responsible for enforcing its navigation network policy. It checks the success envelope and returns only an error, without logging the URL. Hosted sessions reuse `Instruction`, `Validation`, `Screenshot`, and `Close`.
 
 Each hosted start gets a distinct preallocated session ID and is never replayed. Ambiguous startup failures attempt cleanup of that child ID; definite refusals do not. Child startup failure never stops the parent. Parent close prevents new child opens and cancels in-flight startup. It spends at most five seconds total waiting for startup cleanup and closing children, or half the caller's remaining deadline if shorter, then requests parent stop with the remaining budget. Prompt child cleanup finishes before parent stop; slow child cleanup cannot consume the whole stop budget. The server's parent stop also stops its children. Confirmed physical parent release completes cleanup even if a child stop failed; the optional log callback reports that failure without response content. Otherwise cleanup errors remain observable. Child readiness is bounded by both `StartTimeout` and the computer's remaining lifetime; older computer reports without an expiry cannot host sessions. Child worker operations also honor the parent's expiry and close cancellation; cleanup and reports remain available afterward. Explicitly closing a child does not close its parent.
 

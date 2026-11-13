@@ -8,7 +8,7 @@ import { attach, open, defineConfig, VerifyError, isVerifyError } from '@revyl/v
 
 Starts a Revyl cloud browser, device, or Mac computer. Mobile first-screen readiness is [best-effort](mobile.md#steps), not a foreground/rendered-readiness guarantee. Computer starts retain a 10-minute default timeout; an unclaimed start may fail after 120 seconds with no-host context.
 
-Mac computers are early access. Ask support@revyl.ai about access.
+Mac computers are available to organizations on a current paid Revyl plan.
 
 ```ts
 const web = await open('web');                                       // a target named in verify.config.ts
@@ -63,20 +63,20 @@ Starts a child app session inside this computer, returning the normal session AP
 Mac supports Web and iOS children. The server remains authoritative for access, capability and capacity. Children require and share the parent's known deadline. Closing a child leaves the parent running; closing the parent cancels pending starts and gives child cleanup at most five seconds total before requesting confirmed computer release. The parent stop also stops any remaining children, so a slow child cannot prevent that request. A failed child start never closes the parent.
 
 ```ts
-const computer = await attach(existingComputerId, { log: false });
+const computer = await attach(existingComputerId, { stopOnClose: false, log: false });   // not yours, so close() leaves it running
 try {
   const web = await computer.open({
     platform: 'web',
     app: { appId: webAppId, buildId: externalBuildId },
   });
-  await web.navigate('http://localhost:3000');
-  await web.validation('The home page is visible');
+  await web.navigate('https://www.saucedemo.com');
+  await web.validation('The Swag Labs login form is shown');
 } finally {
   await computer.close();
 }
 ```
 
-This requires an already-running service on the computer. The initial Web build still uses HTTPS; navigation after start can reach the computer's localhost. No localhost-start option is implied.
+The initial Web build uses HTTPS. After start, `navigate()` can also reach `http://localhost:<port>` on the computer, but only when a service is already listening there, such as one an earlier step of a `revyl-macos` job started. Verify has no call that starts one, and a process started through `exec()` ends when the command returns. Leave out `stopOnClose: false` only for a computer your script owns: then `close()` stops it.
 
 ## session.navigate(url)
 
@@ -84,7 +84,7 @@ Web only, hosted or normal. Sends one deterministic `open_url` action and checks
 
 ## Exact actions
 
-**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. On a Mac computer's screen, `tap` (by point or by description), `screenSize`, `typeFocused` and `pressKey` are new in TypeScript 0.6.0, Python 0.4.0 and Go v0.5.0. The [Python](https://github.com/RevylAI/verify/blob/v0.6.0/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.6.0/go/README.md#exact-actions) READMEs show them with each language's names. Web, iOS and Android sessions, and a Mac computer's screen, take device actions that need no agent.
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. On a Mac computer's screen, `tap` (by point or by description), `screenSize`, `typeFocused` and `pressKey` are new in TypeScript 0.6.0, Python 0.4.0 and Go v0.5.0. The [Python](https://github.com/RevylAI/verify/blob/v0.6.1/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.6.1/go/README.md#exact-actions) READMEs show them with each language's names. Web, iOS and Android sessions, and a Mac computer's screen, take device actions that need no agent.
 
 | Call | Web | iOS | Android | Mac computer |
 | --- | --- | --- | --- | --- |
@@ -182,7 +182,7 @@ When inspecting `revyl device report --session-id <id>`, read validation verdict
 
 ## Your own model
 
-**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0; the [Python](https://github.com/RevylAI/verify/blob/v0.6.0/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.6.0/go/README.md#your-own-model) READMEs show them with each language's names. Runs instructions and validations on a model you choose, in your process, instead of Revyl's agent. Revyl still provides the browser or device. Leave `model` out and Revyl's agent runs the step, as before.
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0; the [Python](https://github.com/RevylAI/verify/blob/v0.6.1/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.6.1/go/README.md#your-own-model) READMEs show them with each language's names. Runs instructions and validations on a model you choose, in your process, instead of Revyl's agent. Revyl still provides the browser or device. Leave `model` out and Revyl's agent runs the step, as before.
 
 ```ts
 const session = await open('ios', { model: 'anthropic/claude-sonnet-5-5' });  // every step on your model

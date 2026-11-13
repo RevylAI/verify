@@ -40,13 +40,7 @@ func (s *Session) Instruction(ctx context.Context, text string, options ...StepO
 	}
 	result, err := s.step(ctx, "instruction", text, timeout, agent)
 	if err == nil && !result.Passed {
-		reason := strings.TrimSpace(result.Reason)
-		if reason == "" {
-			reason = "Revyl gave no reason."
-		} else if !strings.ContainsAny(reason[len(reason)-1:], ".!?") {
-			reason += "."
-		}
-		err = failure(ErrInstructionFailed, "Instruction failed: \""+result.Text+"\". "+reason+" See "+s.viewer)
+		err = failure(ErrInstructionFailed, "Instruction failed: \""+result.Text+"\". "+stepReason(result)+" See "+s.viewer)
 	}
 	return result, err
 }
@@ -68,9 +62,20 @@ func (s *Session) Validation(ctx context.Context, text string, options ...Valida
 	}
 	result, err := s.step(ctx, "validation", text, opt.Timeout, agent)
 	if err == nil && !result.Passed && !opt.Soft {
-		err = failure(ErrValidationFailed, "Validation failed. See "+s.viewer)
+		err = failure(ErrValidationFailed, "Validation failed: \""+result.Text+"\". "+stepReason(result)+" See "+s.viewer)
 	}
 	return result, err
+}
+
+func stepReason(result StepResult) string {
+	reason := strings.TrimSpace(result.Reason)
+	if reason == "" {
+		return "Revyl gave no reason."
+	}
+	if !strings.ContainsAny(reason[len(reason)-1:], ".!?") {
+		reason += "."
+	}
+	return reason
 }
 
 func (s *Session) step(ctx context.Context, kind, text string, timeout time.Duration, agent *agent) (StepResult, error) {

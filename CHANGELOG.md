@@ -1,6 +1,30 @@
 # Changelog
 
-## 0.6.0 (unreleased)
+## 0.6.1 (unreleased)
+
+- An iOS or Android `open()` that Revyl refuses as invalid (HTTP 400 or 422) throws `INVALID_ARGUMENT` with Revyl's explanation instead of a bare `API_ERROR … failed with HTTP 422`. For a device model or OS version Revyl doesn't offer, the message lists the values it accepts, as in `Revyl refused to start the session (HTTP 422): Unsupported ios runtime '18.5'. Available: ['iOS 27.1', …, 'iOS 18.5']. Change the target to a value Revyl accepts and run again.` No session was started. Web and hosted starts keep their safe diagnostic codes and copy no server text.
+- `device.osVersion` is the name Revyl uses, such as `'iOS 18.5'` or `'Android 14'`, as before; Verify sends it unchanged. The docs now show it that way, with models Revyl offers (`iPhone 16`, `iPhone Air`, `Pixel 7`).
+- `verify init --platform web --url <url>` with a URL other than `https://example.com` writes an example with one validation that passes on any page that loads, instead of example.com's steps.
+- Mac computer messages say what Revyl checks: a current paid plan. `init --platform mac` prints that instead of "early access", and computer errors say `Mac computers need a current paid Revyl plan, and Linux computers are not generally available.`
+- Every other call sends the same requests as 0.6.0.
+- Docs: device selectors Revyl accepts, a mobile exact-actions script that searches Settings for Accessibility, a web exact-actions script that scrolls back up before it locates the cart, `node verify/checkout.mts` in CI, non-owning attach examples that navigate to a public page, Mac availability on paid plans, `init --platform` in the README, your own model's Claude results, and `end-to-end.md` marked as a record of the 0.1.0 and 0.2.0 runs.
+
+## Go 0.5.1 (unreleased)
+
+Published as the `go/v0.5.1` tag.
+
+- `ErrValidationFailed` names the step and the reason, as TypeScript does: `Validation failed: "<text>". <reason> See <link>`.
+- An iOS or Android `Open` that Revyl refuses as invalid (HTTP 400 or 422) returns `ErrInvalidArgument` with Revyl's explanation, as in TypeScript 0.6.1, including the device models or OS versions it accepts. No session was started.
+- The computer availability message says Mac computers need a current paid Revyl plan. Every other call sends the same requests as v0.5.0.
+
+## Python 0.4.1 (unreleased)
+
+- `VALIDATION_FAILED` names the step and the reason, as TypeScript does: `Validation failed: "<text>". <reason> See <link>`. `AsyncSession` gets the same message.
+- An iOS or Android `open()` that Revyl refuses as invalid (HTTP 400 or 422) raises `INVALID_ARGUMENT` with Revyl's explanation, as in TypeScript 0.6.1, including the device models or OS versions it accepts. No session was started.
+- The computer availability message says Mac computers need a current paid Revyl plan. Every other call sends the same requests as 0.4.0.
+- Docs: device selectors Revyl accepts, `open_url("https://example.com")` in the exact-actions example, and a non-owning attach example.
+
+## 0.6.0 (2026-11-12)
 
 - Early access: a Mac computer's screen. `tap({ x, y })` clicks a point in screenshot pixels and resolves with it, `screenSize()` returns the screenshot's size, `typeFocused(text, { clear: false })` types where the cursor is, and `pressKey(key, { modifiers })` takes the Web keys and modifiers, where `'meta'` is Command and `'alt'` is Option, as in `pressKey('a', { modifiers: ['meta'] })` to select all.
 - `typeFocused` on a computer requires `{ clear: false }` and throws `INVALID_ARGUMENT` without it, naming the fix. It takes up to 16,384 characters, with line breaks and tabs; other control characters are refused before anything is sent. Text over 500 characters goes in pieces, in order, and a failure part way says how many characters were certainly typed and whether the failed piece may have been.
@@ -12,7 +36,7 @@
 - Error messages on a computer say what happened and what to do next. `screen_control_lost` on a screen action throws `SESSION_BUSY` saying nothing was sent and to try again. `owner_unavailable`, a 5xx or no answer on a screen action throws `ACTION_UNCERTAIN` saying to take a screenshot before repeating it. `invalid_request` on `tap({ x, y })` says nothing was clicked and to pick the point from a new screenshot, and `screen_key_unsupported` says nothing was pressed. Partial typing counts characters as Unicode code points, the same in TypeScript, Python and Go, and a failure in the first piece says nothing was certainly typed. Every other computer refusal adds a next step, and the `screen_starting` message says "1 second" rather than "1 seconds".
 - Docs: a Screen section in `computers.md`, the platform table, `api.md`, `errors.md`, `agents.md` and `llms.txt`. The Web docs say `'meta'` is not the shortcut key there; use `'ctrl'`.
 
-## Go 0.5.0 (unreleased)
+## Go 0.5.0 (2026-11-12)
 
 Published as the `go/v0.5.0` tag.
 
@@ -20,7 +44,7 @@ Published as the `go/v0.5.0` tag.
 - The same limits, errors and refusals as TypeScript 0.6.0: `ErrSessionBusy` for `screen_control_held`, `ErrActionUncertain` for an action Revyl can't confirm, `ErrAuthRejected` for a 403, `ErrActionFailed` for `screen_target_not_found`, a wait of up to 30 seconds on `screen_starting`, and `ErrNotAvailableOnPlatform` before any request for `Locate` and the other exact actions. Every other call sends the same requests as v0.4.0.
 - The same error messages as TypeScript 0.6.0, each with a next step, with partial typing counted in Unicode code points.
 
-## Python 0.4.0 (unreleased)
+## Python 0.4.0 (2026-11-12)
 
 - Early access: a Mac computer's screen, as in TypeScript 0.6.0. `tap(Point(x, y))`, `tap("description")` returning the point it clicked, `screen_size()`, `type_focused(text, clear=False)` and `press_key(key, modifiers=[...])`, where `"meta"` is Command. Leaving `clear` out raises `INVALID_ARGUMENT` naming the fix. `AsyncSession` has the same methods.
 - The same limits, errors and refusals as TypeScript 0.6.0, and every other call sends the same requests as 0.3.0.

@@ -105,7 +105,7 @@ describe('computer lifecycle', () => {
     [503, { error: 'runtime_unavailable' }],
   ])('explains definite admission refusal %s without a stop mutation', async (status, body) => {
     const fake = fakeMac().on('POST', /^\/api\/v1\/computer-runs$/, () => json(body, status));
-    await expect(start(fake)).rejects.toMatchObject({ code: 'NOT_AVAILABLE_ON_PLATFORM', message: expect.stringContaining('Computers are early access') });
+    await expect(start(fake)).rejects.toMatchObject({ code: 'NOT_AVAILABLE_ON_PLATFORM', message: expect.stringContaining('Mac computers need a current paid Revyl plan') });
     expect(fake.requests).toHaveLength(1);
   });
 
@@ -178,7 +178,7 @@ describe('computer lifecycle', () => {
     await expect(session.close()).rejects.toMatchObject({ code: 'ACTION_UNCERTAIN', message: expect.stringContaining('no computer could be assigned') });
     expect(lines).not.toContain('mac: closed');
     expect(lines.at(-1)).toContain('close failed');
-    expect(lines.at(-1)).toContain('Computers are early access');
+    expect(lines.at(-1)).toContain('Mac computers need a current paid Revyl plan');
     await expect(session.close()).rejects.toMatchObject({ code: 'ACTION_UNCERTAIN' });
     expect(fake.calls('POST', /\/stop$/)).toHaveLength(1);
   });
