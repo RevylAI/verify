@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.3 (2026-11-16)
+## 0.6.3 (2026-11-15)
 
 - An iOS or Android `open()` whose app or build Revyl can't find (HTTP 404) throws `INVALID_ARGUMENT` saying what wasn't found and how to fix it, instead of a bare `API_ERROR … failed with HTTP 404`: `Revyl refused to start the session (HTTP 404): App not found: <id>. Check app.appId and app.buildId: copy them from the app's page in Revyl, use an API key from the same organization, and upload a build if the app has none. No session was started.` Web and hosted starts still copy no server text.
 - A bundle id that can't be launched throws `SESSION_START_FAILED` with the session link: `Could not launch <bundle id> on the ios device: <reason> Check that the bundle id names an app installed on the device. See <link>`.
@@ -10,7 +10,7 @@
 - `verify init` that wrote its files but can't confirm a sign-in (no key, a rejected key, or Revyl unreachable) prints `Could not confirm a Revyl sign-in:` with the reason, makes signing in step 1 under "Next:", and exits 0 instead of 1 or 2, because the files are written and need no change.
 - Every other call sends the same requests as 0.6.2. Docs: the npm page shows the new README hero, which landed after 0.6.2 was tagged, and the API, errors, configuration, getting-started, agents and own-model pages describe the changes above.
 
-## Go 0.5.3 (2026-11-16)
+## Go 0.5.3 (2026-11-15)
 
 Published as the `go/v0.5.3` tag.
 
@@ -21,7 +21,7 @@ Published as the `go/v0.5.3` tag.
 - A custom `ModelAdapter` that stops when `ModelTimeout` ends its context returns `ErrTimeout` with the built-in adapters' message, instead of a bare `context deadline exceeded`.
 - `verify.Version` and the `User-Agent` report 0.5.3. Every other call sends the same requests as v0.5.2.
 
-## Python 0.4.3 (2026-11-16)
+## Python 0.4.3 (2026-11-15)
 
 - iOS and Android print `[verify] ios: starting ios session <link>` as soon as the session ID exists, as Web and TypeScript do, instead of `starting session` without a link followed by `assigned session <link>`.
 - An iOS or Android `open()` whose `app_id` or `build_id` Revyl can't find (HTTP 404) raises `INVALID_ARGUMENT` saying what wasn't found and how to fix it, instead of `API_ERROR` with a bare HTTP 404. No session was started.
