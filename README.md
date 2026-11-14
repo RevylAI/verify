@@ -1,6 +1,6 @@
 # Verify
 
-![Terminal output from one Verify script beside a Mac computer's Terminal window showing the macOS version, and the screens the script reached in a cloud browser, an Android emulator, and an iOS simulator](docs/images/verify-hero.webp)
+![Terminal output from one Verify script that opens a Mac computer, an Android emulator, an iOS simulator and a cloud browser. Each device passes one instruction and one validation, then the script clicks into TextEdit on the Mac by description and types the results. Below the terminal are the screens the run ended on: TextEdit on the Mac listing the three passed checks, the Verify page of revyl.com in the cloud browser, the Android version screen on Android and the About screen on iOS](docs/images/verify-hero.webp)
 
 Verify runs end-to-end checks in a cloud browser, iOS simulator, or Android emulator on Revyl. You write what the agent should do and what must be true afterward, in plain sentences, and call it from a script, a coding agent, CI, or the test runner you already use. When you know exactly what to press, you can tap, type and swipe yourself instead. Verify also opens Mac computers for commands, files, screenshots, and clicks and keys on the screen.
 
