@@ -946,8 +946,8 @@ func TestComputerEvidenceLogs(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 			logs := strings.Join(lines, "\n")
-			if !strings.Contains(logs, "report evidence "+evidence) || !strings.Contains(logs, "current paid Revyl plan") {
-				t.Fatalf("missing evidence or availability log: %s", logs)
+			if !strings.Contains(logs, "report evidence "+evidence) || strings.Contains(logs, "current paid Revyl plan") {
+				t.Fatalf("missing evidence log or availability notice on a successful start: %s", logs)
 			}
 		})
 	}

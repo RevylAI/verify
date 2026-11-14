@@ -53,7 +53,7 @@ try {
 }
 ```
 
-The [Python](https://github.com/RevylAI/verify/blob/v0.6.1/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.6.1/go/README.md#exact-actions) READMEs state the same rule with each language's names. [api.md](api.md#exact-actions) lists every call and its errors.
+The [Python](https://github.com/RevylAI/verify/blob/v0.6.2/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.6.2/go/README.md#exact-actions) READMEs state the same rule with each language's names. [api.md](api.md#exact-actions) lists every call and its errors.
 
 ## Rules
 

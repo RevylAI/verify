@@ -111,7 +111,7 @@ func startComputer(ctx context.Context, c *client, viewer string, target Target,
 	}
 	lifetime, stop := context.WithCancel(context.Background())
 	s := &Session{client: c, id: id, platform: target.Platform, viewer: viewer + "/sessions/" + url.PathEscape(id) + "?kind=computer", viewerBase: viewer, lifetime: lifetime, stopLifetime: stop, log: options.Log, stepTimeout: options.StepTimeout}
-	s.logLine("starting " + string(s.platform) + " computer " + s.viewer + ". " + computerAvailability)
+	s.logLine("starting " + string(s.platform) + " computer " + s.viewer)
 	computerOS := "macos"
 	if target.Platform == Linux {
 		computerOS = "linux"
