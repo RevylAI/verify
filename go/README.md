@@ -9,10 +9,10 @@ Use Go 1.26.9 or later and a Revyl account. Set `REVYL_API_KEY` through your she
 The module lives in the repository's `go/` subdirectory. Install the tagged release with:
 
 ```sh
-go get github.com/RevylAI/verify/go@v0.5.1
+go get github.com/RevylAI/verify/go@v0.5.2
 ```
 
-Go releases use independent repository tags such as `go/v0.5.1`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
+Go releases use independent repository tags such as `go/v0.5.2`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
 
 ## Quick start: iOS Settings
 
@@ -21,7 +21,7 @@ This program opens the iOS Settings app on a cloud simulator, which every accoun
 ```sh
 mkdir verify-go && cd verify-go
 go mod init example.com/verify-go
-go get github.com/RevylAI/verify/go@v0.5.1
+go get github.com/RevylAI/verify/go@v0.5.2
 ```
 
 Save this as `main.go`:

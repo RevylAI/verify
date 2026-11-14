@@ -1,6 +1,24 @@
 # Changelog
 
-## 0.6.1 (unreleased)
+## 0.6.2 (unreleased)
+
+- A Mac or Linux computer that starts prints only its start line with the session link, as Web, iOS and Android do: `[verify] mac: starting computer https://app.revyl.ai/sessions/…?kind=computer`. It no longer adds "Mac computers need a current paid Revyl plan, and Linux computers are not generally available. Ask support@revyl.ai about access." That guidance stays on the errors for a computer that doesn't start: a start Revyl refuses (`computer_not_enabled`, or `runtime_unavailable` for Linux), a start that times out, and a release Verify can't confirm.
+- `verify init --platform mac` no longer prints the availability note under "Next:" or writes it at the top of `verify/example.mts`.
+- Every call sends the same requests as 0.6.1.
+
+## Go 0.5.2 (unreleased)
+
+Published as the `go/v0.5.2` tag.
+
+- A computer that starts sends only its start line with the session link to `OpenOptions.Log`, as in TypeScript 0.6.2: `mac: starting mac computer https://app.revyl.ai/sessions/…?kind=computer`. Refusals, timeouts and an unconfirmed release keep the availability guidance in their errors.
+- `verify.Version` and the `User-Agent` report 0.5.2. Every call sends the same requests as v0.5.1.
+
+## Python 0.4.2 (unreleased)
+
+- A computer that starts prints only its start line with the session link, as in TypeScript 0.6.2: `[verify] mac: starting computer https://app.revyl.ai/sessions/…?kind=computer`. Refusals, timeouts and an unconfirmed release keep the availability guidance in their errors.
+- Every call sends the same requests as 0.4.1.
+
+## 0.6.1 (2026-11-13)
 
 - An iOS or Android `open()` that Revyl refuses as invalid (HTTP 400 or 422) throws `INVALID_ARGUMENT` with Revyl's explanation instead of a bare `API_ERROR … failed with HTTP 422`. For a device model or OS version Revyl doesn't offer, the message lists the values it accepts, as in `Revyl refused to start the session (HTTP 422): Unsupported ios runtime '18.5'. Available: ['iOS 27.1', …, 'iOS 18.5']. Change the target to a value Revyl accepts and run again.` No session was started. Web and hosted starts keep their safe diagnostic codes and copy no server text.
 - `device.osVersion` is the name Revyl uses, such as `'iOS 18.5'` or `'Android 14'`, as before; Verify sends it unchanged. The docs now show it that way, with models Revyl offers (`iPhone 16`, `iPhone Air`, `Pixel 7`).
@@ -9,7 +27,7 @@
 - Every other call sends the same requests as 0.6.0.
 - Docs: device selectors Revyl accepts, a mobile exact-actions script that searches Settings for Accessibility, a web exact-actions script that scrolls back up before it locates the cart, `node verify/checkout.mts` in CI, non-owning attach examples that navigate to a public page, Mac availability on paid plans, `init --platform` in the README, your own model's Claude results, and `end-to-end.md` marked as a record of the 0.1.0 and 0.2.0 runs.
 
-## Go 0.5.1 (unreleased)
+## Go 0.5.1 (2026-11-13)
 
 Published as the `go/v0.5.1` tag.
 
@@ -17,7 +35,7 @@ Published as the `go/v0.5.1` tag.
 - An iOS or Android `Open` that Revyl refuses as invalid (HTTP 400 or 422) returns `ErrInvalidArgument` with Revyl's explanation, as in TypeScript 0.6.1, including the device models or OS versions it accepts. No session was started.
 - The computer availability message says Mac computers need a current paid Revyl plan. Every other call sends the same requests as v0.5.0.
 
-## Python 0.4.1 (unreleased)
+## Python 0.4.1 (2026-11-13)
 
 - `VALIDATION_FAILED` names the step and the reason, as TypeScript does: `Validation failed: "<text>". <reason> See <link>`. `AsyncSession` gets the same message.
 - An iOS or Android `open()` that Revyl refuses as invalid (HTTP 400 or 422) raises `INVALID_ARGUMENT` with Revyl's explanation, as in TypeScript 0.6.1, including the device models or OS versions it accepts. No session was started.
@@ -199,7 +217,7 @@ First PyPI release of `revyl-verify` (import `revyl_verify`, Python ≥3.10), pu
 - Add the source-free `revyl-verify` npm alias with matching API, TypeScript types and CLI, pinned to the exact `@revyl/verify` version. Validate and pack both packages; optional CI publication checks each version independently and publishes the scoped package before the alias.
 - Add a standard-library-only Go SDK for web, iOS, Android, and early-access Mac and Linux computers. Computer commands, binary files, process handles, screenshots, recording metadata, and confirmed-release cleanup require computer access through support@revyl.ai. Capacity refusals have a distinct `COMPUTER_LIMIT` code; no start or operation is automatically replayed.
 
-## 0.2.0
+## 0.2.0 (2026-10-27)
 
 Prepared for release; see npm for publication status.
 
@@ -215,7 +233,7 @@ Prepared for release; see npm for publication status.
 
 Regression validation uses fake API responses. The [end-to-end record](https://github.com/RevylAI/verify/blob/v0.2.0/packages/verify/docs/end-to-end.md) distinguishes baseline live runs from startup fixes still awaiting live re-verification.
 
-## 0.1.0
+## 0.1.0 (2026-10-26)
 
 Published manually from a maintainer's Mac without provenance.
 

@@ -129,11 +129,9 @@ async function initCommand(args: string[]): Promise<number> {
   process.stdout.write(`Created ${result.created.join(' and ')}${result.gitignoreUpdated ? ', and added .verify/ to .gitignore' : ''}.\n`);
   await signInAndCheck(interactive);
   const steps =
-    answers.platform === 'mac'
-      ? ["Mac computers need a current paid Revyl plan; if yours can't start one, ask support@revyl.ai.", 'Run: node verify/example.mts']
-      : answers.appId
-        ? ['Run: node verify/example.mts']
-        : ['Run: node verify/example.mts', 'To test your own app, put its Revyl app id in verify.config.ts in place of the Settings bundle id.'];
+    answers.platform === 'mac' || answers.appId
+      ? ['Run: node verify/example.mts']
+      : ['Run: node verify/example.mts', 'To test your own app, put its Revyl app id in verify.config.ts in place of the Settings bundle id.'];
   process.stdout.write(
     [
       'Next:',

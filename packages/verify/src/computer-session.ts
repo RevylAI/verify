@@ -56,7 +56,7 @@ export class ComputerSession implements Session {
     let createAcknowledged = false;
     trackSession(session);
     try {
-      session.log(`starting computer ${session.viewerUrl}. ${COMPUTER_AVAILABILITY}`);
+      session.log(`starting computer ${session.viewerUrl}`);
       const response = await session.request('POST', '', { computer_session_id: session.id, os: target.platform === 'mac' ? 'macos' : 'linux' }, signal);
       createAcknowledged = true;
       let report = session.parseReport(response);

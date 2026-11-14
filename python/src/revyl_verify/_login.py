@@ -179,7 +179,7 @@ def _call(
 ) -> dict[str, Json]:
     headers = {
         "Accept": "application/json",
-        "User-Agent": "revyl-verify/0.4.1 python",
+        "User-Agent": "revyl-verify/0.4.2 python",
         "X-Revyl-Client": "verify",
     }
     data = None

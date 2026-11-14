@@ -84,7 +84,7 @@ Web only, hosted or normal. Sends one deterministic `open_url` action and checks
 
 ## Exact actions
 
-**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. On a Mac computer's screen, `tap` (by point or by description), `screenSize`, `typeFocused` and `pressKey` are new in TypeScript 0.6.0, Python 0.4.0 and Go v0.5.0. The [Python](https://github.com/RevylAI/verify/blob/v0.6.1/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.6.1/go/README.md#exact-actions) READMEs show them with each language's names. Web, iOS and Android sessions, and a Mac computer's screen, take device actions that need no agent.
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. On a Mac computer's screen, `tap` (by point or by description), `screenSize`, `typeFocused` and `pressKey` are new in TypeScript 0.6.0, Python 0.4.0 and Go v0.5.0. The [Python](https://github.com/RevylAI/verify/blob/v0.6.2/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.6.2/go/README.md#exact-actions) READMEs show them with each language's names. Web, iOS and Android sessions, and a Mac computer's screen, take device actions that need no agent.
 
 | Call | Web | iOS | Android | Mac computer |
 | --- | --- | --- | --- | --- |
@@ -182,7 +182,7 @@ When inspecting `revyl device report --session-id <id>`, read validation verdict
 
 ## Your own model
 
-**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0; the [Python](https://github.com/RevylAI/verify/blob/v0.6.1/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.6.1/go/README.md#your-own-model) READMEs show them with each language's names. Runs instructions and validations on a model you choose, in your process, instead of Revyl's agent. Revyl still provides the browser or device. Leave `model` out and Revyl's agent runs the step, as before.
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0; the [Python](https://github.com/RevylAI/verify/blob/v0.6.2/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.6.2/go/README.md#your-own-model) READMEs show them with each language's names. Runs instructions and validations on a model you choose, in your process, instead of Revyl's agent. Revyl still provides the browser or device. Leave `model` out and Revyl's agent runs the step, as before.
 
 ```ts
 const session = await open('ios', { model: 'anthropic/claude-sonnet-5-5' });  // every step on your model

@@ -401,7 +401,7 @@ class ComputerSession(Session):
         acknowledged = False
         try:
             track(session)
-            session._log(f"starting computer {session.viewer_url}. {_AVAILABILITY}")
+            session._log(f"starting computer {session.viewer_url}")
             response = session._request(
                 "POST",
                 "",

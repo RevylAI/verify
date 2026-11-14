@@ -119,8 +119,7 @@ ${target}
 
 function scriptTemplate({ platform, appId, url }: InitAnswers): string {
   if (platform === 'mac') {
-    return `// Mac computers need a current paid Revyl plan; if yours can't start one, ask support@revyl.ai.
-import assert from 'node:assert/strict';
+    return `import assert from 'node:assert/strict';
 import { open } from '@revyl/verify';
 
 const session = await open('mac');

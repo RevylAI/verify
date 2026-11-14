@@ -50,7 +50,7 @@ For Android Settings (`bundleId: 'com.android.settings'`), instruct the agent to
 
 ## Exact actions
 
-**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. The [Python](https://github.com/RevylAI/verify/blob/v0.6.1/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.6.1/go/README.md#exact-actions) READMEs show them with each language's names. When you know exactly what to press, skip the agent. Exact actions run on the device as given, with no model, and mix freely with `instruction()` and `validation()` in one script:
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. The [Python](https://github.com/RevylAI/verify/blob/v0.6.2/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.6.2/go/README.md#exact-actions) READMEs show them with each language's names. When you know exactly what to press, skip the agent. Exact actions run on the device as given, with no model, and mix freely with `instruction()` and `validation()` in one script:
 
 ```ts
 import { open } from '@revyl/verify';
