@@ -84,7 +84,7 @@ Web only, hosted or normal. Sends one deterministic `open_url` action and checks
 
 ## Exact actions
 
-**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. On a Mac computer's screen, `tap` (by point or by description), `screenSize`, `typeFocused` and `pressKey` are new in TypeScript 0.6.0, Python 0.4.0 and Go v0.5.0. The [Python](https://github.com/RevylAI/verify/blob/v0.6.2/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.6.2/go/README.md#exact-actions) READMEs show them with each language's names. Web, iOS and Android sessions, and a Mac computer's screen, take device actions that need no agent.
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. On a Mac computer's screen, `tap` (by point or by description), `screenSize`, `typeFocused` and `pressKey` are new in TypeScript 0.6.0, Python 0.4.0 and Go v0.5.0. The [Python](https://github.com/RevylAI/verify/blob/v0.6.3/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.6.3/go/README.md#exact-actions) READMEs show them with each language's names. Web, iOS and Android sessions, and a Mac computer's screen, take device actions that need no agent.
 
 | Call | Web | iOS | Android | Mac computer |
 | --- | --- | --- | --- | --- |
@@ -139,7 +139,7 @@ const { width, height } = await session.screenSize();      // the screenshot's s
 
 ## session.report()
 
-Returns authenticated JSON metadata: `/execution/device-sessions/{id}` for normal and hosted app sessions, or the computer report for computers. It works after close, but fails locally with `NOT_FOUND` when no session ID is known. It does not download recordings or turn a device stop acknowledgment into proof of physical release. Treat returned metadata as private.
+Returns authenticated JSON metadata: `/execution/device-sessions/{id}` for normal and hosted app sessions, or the computer report for computers. It works after close, but fails locally with `NOT_FOUND` when no session ID is known. Revyl finishes stopping a browser or device about a second after `close()`, so a web, iOS or Android `report()` after `close()` waits up to 5 seconds for a final `status` (`completed`, `failed`, `cancelled` or `timeout`); if Revyl is slower than that, it returns the status Revyl has, such as `stopping`. It does not download recordings or turn a device stop acknowledgment into proof of physical release. Treat returned metadata as private.
 
 ## session.instruction(text, options?)
 
@@ -148,7 +148,7 @@ Available on web/iOS/Android only. Computers throw `NOT_AVAILABLE_ON_PLATFORM` w
 Asks Revyl's agent to do something in the app, described the way you would tell a person: `'Sign in as the demo user and open Settings'`. The agent looks at the screen and acts until it is done or decides it cannot.
 
 - Resolves with a `StepResult` when the agent finishes.
-- Throws `INSTRUCTION_FAILED`, with Revyl's reason and the session link, when it cannot, and `STEP_FAILED` when the step is cancelled on Revyl.
+- Throws `INSTRUCTION_FAILED`, with Revyl's reason and the session link, when it cannot, and `STEP_FAILED` when the step is cancelled on Revyl. The error's `result` is the failed `StepResult`, so `error.result.model` has the turns and tokens of a step that ran on your model.
 - `options.timeout`: milliseconds before the step is cancelled on Revyl (`TIMEOUT`). Defaults to `stepTimeout` in the config, or 180000.
 
 ## session.validation(text, options?)
@@ -158,7 +158,7 @@ Available on web/iOS/Android only, not computers.
 Asks Revyl's agent whether something holds on screen right now: `'The cart shows 2 items and a total of $40'`.
 
 - Resolves with a `StepResult` whose `passed` is `true` when it holds.
-- Throws `VALIDATION_FAILED`, with Revyl's reason and the session link, when it does not. This is what makes a plain script exit non-zero.
+- Throws `VALIDATION_FAILED`, with Revyl's reason and the session link, when it does not. This is what makes a plain script exit non-zero. The error's `result` is the failed `StepResult`, as for `instruction`.
 - Throws `STEP_FAILED` when Revyl cannot reach a verdict, for example because the step errored or was cancelled on Revyl.
 - `options.soft: true` returns a failed result instead of throwing `VALIDATION_FAILED`, for scripts that want to collect several outcomes. It does not turn `STEP_FAILED` into a result.
 - `options.timeout`: as for `instruction`.
@@ -182,7 +182,7 @@ When inspecting `revyl device report --session-id <id>`, read validation verdict
 
 ## Your own model
 
-**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0; the [Python](https://github.com/RevylAI/verify/blob/v0.6.2/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.6.2/go/README.md#your-own-model) READMEs show them with each language's names. Runs instructions and validations on a model you choose, in your process, instead of Revyl's agent. Revyl still provides the browser or device. Leave `model` out and Revyl's agent runs the step, as before.
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0; the [Python](https://github.com/RevylAI/verify/blob/v0.6.3/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.6.3/go/README.md#your-own-model) READMEs show them with each language's names. Runs instructions and validations on a model you choose, in your process, instead of Revyl's agent. Revyl still provides the browser or device. Leave `model` out and Revyl's agent runs the step, as before.
 
 ```ts
 const session = await open('ios', { model: 'anthropic/claude-sonnet-5-5' });  // every step on your model

@@ -181,6 +181,7 @@ func Open(ctx context.Context, target Target, options ...OpenOption) (*Session, 
 	}
 	s := &Session{client: c, id: start.SessionID, runID: start.RunID, platform: target.Platform, stepTimeout: opt.StepTimeout, log: opt.Log, agent: agent}
 	s.viewer = viewer + "/sessions/" + url.PathEscape(s.id)
+	s.logStarting()
 	err = s.ready(ctx, target)
 	if err == nil && target.Platform != Web {
 		err = s.waitFirstScreen(ctx, callerCtx)
@@ -191,6 +192,7 @@ func Open(ctx context.Context, target Target, options ...OpenOption) (*Session, 
 		_ = s.Close(cleanupCtx)
 		return nil, err
 	}
+	s.logLine("ready")
 	return s, nil
 }
 
@@ -335,16 +337,25 @@ func (s *Session) ready(ctx context.Context, target Target) error {
 			return err
 		}
 		var launched struct {
-			Success bool `json:"success"`
+			Success bool   `json:"success"`
+			Error   string `json:"error"`
 		}
 		if err := decode(r, &launched); err != nil {
 			return err
 		}
 		if !launched.Success {
-			return failure(ErrSessionStartFailed, "Could not launch the installed app.")
+			return failure(ErrSessionStartFailed, fmt.Sprintf("Could not launch %s on the %s device: %s Check that the bundle ID names an app installed on the device. See %s", target.BundleID, s.platform, sentence(launched.Error), s.viewer))
 		}
 	}
 	return nil
+}
+
+func (s *Session) logStarting() {
+	if s.id == "" {
+		s.logLine("starting " + string(s.platform) + " session (run " + s.runID + ")")
+		return
+	}
+	s.logLine("starting " + string(s.platform) + " session " + s.viewer)
 }
 
 func (s *Session) workerPath(action string) string {

@@ -1,3 +1,5 @@
+import type { StepResult } from './session.js';
+
 export type VerifyErrorCode =
   | 'INVALID_ARGUMENT'
   | 'CONFIG_NOT_FOUND'
@@ -30,13 +32,16 @@ export class VerifyError extends Error {
   readonly code: VerifyErrorCode;
   readonly reason?: RefusalReason;
   readonly httpStatus?: number;
+  /** The failed step on INSTRUCTION_FAILED and VALIDATION_FAILED, with its turns and tokens when it ran on your own model. */
+  readonly result?: StepResult;
 
-  constructor(code: VerifyErrorCode, message: string, options?: { cause?: unknown; reason?: RefusalReason; httpStatus?: number }) {
+  constructor(code: VerifyErrorCode, message: string, options?: { cause?: unknown; reason?: RefusalReason; httpStatus?: number; result?: StepResult }) {
     super(message, options);
     this.name = 'VerifyError';
     this.code = code;
     this.reason = options?.reason;
     this.httpStatus = options?.httpStatus;
+    this.result = options?.result;
   }
 }
 

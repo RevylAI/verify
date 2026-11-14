@@ -73,14 +73,14 @@ try {
   }
   assert.equal(execFileSync('npx', ['--no-install', 'revyl-verify', '--version'], { cwd: consumer, env, encoding: 'utf8', timeout: 30_000 }).trim(), manifest.version);
   const consumerInit = spawnSync('npx', ['--no-install', 'revyl-verify', 'init', '--platform', 'ios', '--no-install'], { cwd: consumer, env, encoding: 'utf8', timeout: 30_000 });
-  assert.equal(consumerInit.status, 2);
-  assert.match(consumerInit.stderr, /AUTH_MISSING/);
+  assert.equal(consumerInit.status, 0);
+  assert.match(consumerInit.stdout, /Could not confirm a Revyl sign-in: AUTH_MISSING/);
   assert.ok(readFileSync(join(consumer, 'verify.config.ts'), 'utf8').includes("bundleId: 'com.apple.Preferences'"));
   const scopedProject = join(directory, 'scoped-project');
   mkdirSync(scopedProject);
   const scopedInit = spawnSync(process.execPath, [scopedCli, 'init', '--platform', 'ios', '--no-install'], { cwd: scopedProject, env, encoding: 'utf8', timeout: 30_000 });
-  assert.equal(scopedInit.status, 2);
-  assert.match(scopedInit.stderr, /AUTH_MISSING/);
+  assert.equal(scopedInit.status, 0);
+  assert.match(scopedInit.stdout, /Could not confirm a Revyl sign-in: AUTH_MISSING/);
   for (const file of ['verify.config.ts', 'verify/example.mts']) {
     assert.equal(readFileSync(join(consumer, file), 'utf8'), readFileSync(join(scopedProject, file), 'utf8'));
   }

@@ -9,10 +9,10 @@ Use Go 1.26.9 or later and a Revyl account. Set `REVYL_API_KEY` through your she
 The module lives in the repository's `go/` subdirectory. Install the tagged release with:
 
 ```sh
-go get github.com/RevylAI/verify/go@v0.5.2
+go get github.com/RevylAI/verify/go@v0.5.3
 ```
 
-Go releases use independent repository tags such as `go/v0.5.2`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
+Go releases use independent repository tags such as `go/v0.5.3`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
 
 ## Quick start: iOS Settings
 
@@ -21,7 +21,7 @@ This program opens the iOS Settings app on a cloud simulator, which every accoun
 ```sh
 mkdir verify-go && cd verify-go
 go mod init example.com/verify-go
-go get github.com/RevylAI/verify/go@v0.5.2
+go get github.com/RevylAI/verify/go@v0.5.3
 ```
 
 Save this as `main.go`:
@@ -45,7 +45,7 @@ func main() {
 
 func run() error {
 	ctx := context.Background()
-	s, err := verify.Open(ctx, verify.Target{Platform: verify.IOS, BundleID: "com.apple.Preferences"})
+	s, err := verify.Open(ctx, verify.Target{Platform: verify.IOS, BundleID: "com.apple.Preferences"}, verify.OpenOptions{Log: func(line string) { log.Println(line) }})
 	if err != nil {
 		return err
 	}
@@ -54,7 +54,6 @@ func run() error {
 		defer cancel()
 		_ = s.Close(cleanup)
 	}()
-	log.Println("Watch:", s.ViewerURL())
 	if _, err := s.Instruction(ctx, "Open General, then About"); err != nil {
 		return err
 	}
@@ -66,7 +65,7 @@ func run() error {
 }
 ```
 
-Run it with `go run .`. It prints the session link, exits 0 when the validation passes, and saves `about.png`. Use `verify.Android` with `BundleID: "com.android.settings"` for Android, or `AppID` for your own uploaded app.
+Run it with `go run .`. It prints `ios: starting ios session <link>` as soon as the session exists, while the simulator is still starting, exits 0 when the validation passes, and saves `about.png`. Use `verify.Android` with `BundleID: "com.android.settings"` for Android, or `AppID` for your own uploaded app.
 
 ## Core API
 
@@ -149,12 +148,12 @@ Run with `go test -v -timeout 6m`. `t.Fatal` runs deferred cleanup. The URL and 
 ## Targets and options
 
 - **Web:** `Target{Platform: verify.Web, AppID: "…", URL: "https://…"}` registers a deployed HTTPS URL as a web build. Alternatively supply `BuildID`, or omit URL and build ID to select the latest web build on `Branch` (the app's default branch if omitted). `Viewport` accepts `Width`, `Height`, and optional `DeviceScaleFactor`; `SignIn` accepts `Path`, `Secret` (the stored secret's name, never its value), and optional `Persona`.
-- **iOS and Android:** set `Platform` to `verify.IOS` or `verify.Android` and exactly one of `AppID`, `BuildID`, `ArtifactURL` (HTTPS), or `BundleID` (an app already installed). `DeviceModel` and `OSVersion` are optional and written as Revyl names them, such as `DeviceModel: "iPhone 16", OSVersion: "iOS 18.5"` or `DeviceModel: "Pixel 7", OSVersion: "Android 14"`. A value Revyl doesn't offer returns `ErrInvalidArgument` listing the values it accepts, and no session starts. `URL`, `Branch`, `Viewport`, and `SignIn` are web-only.
+- **iOS and Android:** set `Platform` to `verify.IOS` or `verify.Android` and exactly one of `AppID`, `BuildID`, `ArtifactURL` (HTTPS), or `BundleID` (an app already installed). `DeviceModel` and `OSVersion` are optional and written as Revyl names them, such as `DeviceModel: "iPhone 16", OSVersion: "iOS 18.5"` or `DeviceModel: "Pixel 7", OSVersion: "Android 14"`. A value Revyl doesn't offer returns `ErrInvalidArgument` listing the values it accepts, and no session starts. An `AppID` or `BuildID` Revyl can't find returns `ErrInvalidArgument` naming what wasn't found and how to fix it, and no session starts. A `BundleID` that can't be launched returns `ErrSessionStartFailed` naming the bundle ID, with the session link. `URL`, `Branch`, `Viewport`, and `SignIn` are web-only.
 - **Mac computers:** `Target{Platform: verify.Mac}` creates a workspace; only `StartTimeout` is accepted alongside the platform. Mac computers are available to organizations on a current paid Revyl plan. A 429 `ErrComputerLimit` means queued work or a concurrency limit; Verify does not guess which cause applies or retry creation. See [computer availability](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#availability-and-errors).
 - `Target.StartTimeout` bounds startup (default 10 minutes); on web/mobile, `IdleTimeoutSeconds` sets the session's idle timeout (default 600 seconds). All methods also honor the caller's context.
 - `Open` takes at most one `OpenOptions` value, plus `WithModel`, `WithCustomModel` or `WithAgent` to run steps on your own model; `Instruction` and `Validation` take the same options for one step. `OpenOptions{StepTimeout: 3*time.Minute}` changes the default step timeout. Per-call `StepOptions{Timeout: time.Minute}` and `ValidationOptions{Timeout: time.Minute, Soft: true}` override it. Run one step at a time per session.
 - Redirects are rejected, not followed with credentials.
-- `OpenOptions{Log: func(line string) { ... }}` opts into computer lifecycle, evidence-gap messages, mobile best-effort first-screen debug notes, and the turns of steps run on your own model; the default is quiet for all targets. Keep that callback concurrency-safe if operations run concurrently. A confirmed execution result remains usable when its report evidence is pending or failed; the callback identifies that gap without logging private output or recording URLs.
+- `OpenOptions{Log: func(line string) { ... }}` opts into progress lines: `<platform>: starting <platform> session <link>` as soon as the session ID exists, before the browser or device is ready, then `ready`, on web, iOS, Android and hosted sessions; computer lifecycle; evidence-gap messages; mobile best-effort first-screen debug notes; and the turns of steps run on your own model. The default is quiet for all targets, so pass `Log: func(line string) { log.Println(line) }` to see the session link while a slow start runs. Keep that callback concurrency-safe if operations run concurrently. A confirmed execution result remains usable when its report evidence is pending or failed; the callback identifies that gap without logging private output or recording URLs.
 
 Requests have bounded deadlines even when passed `context.Background()`: ordinary HTTP requests use 30 seconds, device session creation up to 2 minutes, and accepted-step cancellation up to 5 seconds on a fresh context. Ordinary responses are limited to 16 MiB; computer screenshots allow up to 128 MiB of decoded image data. Safe reads and idempotent device build-registration/stop requests retry at most twice on transient failures; session creation, launch, and step/operation submission are never replayed. Caller cancellation remains detectable with `errors.Is(err, context.Canceled)` or `context.DeadlineExceeded`, alongside `verify.ErrTimeout` for device operations; interrupted computer mutation observation returns `verify.ErrActionUncertain`.
 
@@ -349,7 +348,7 @@ s, err := verify.Open(ctx, target, verify.WithAgent(verify.LocalAgent{
 ```
 
 - `verify.Anthropic(AnthropicOptions{Model, APIKey, BaseURL, MaxTokens, MaxRetries})` uses `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` for what you leave empty. `verify.OpenAICompatible(OpenAICompatibleOptions{Model, BaseURL, APIKey, Headers, Provider, MaxTokens, MaxRetries})` uses `OPENAI_BASE_URL` and `OPENAI_API_KEY` only when `BaseURL` is empty, and then sends OpenAI's `max_completion_tokens`. Both return `ErrModelKeyMissing` or `ErrInvalidArgument` when they can't be built.
-- To use another SDK or runtime, implement `verify.ModelAdapter`: `Name() string` and `Complete(ctx, ModelRequest) (ModelReply, error)`. The request has the system prompt, the text, the screenshot and the tools; the reply has the chosen tool call, text, token usage and whether it was truncated.
+- To use another SDK or runtime, implement `verify.ModelAdapter`: `Name() string` and `Complete(ctx, ModelRequest) (ModelReply, error)`. The request has the system prompt, the text, the screenshot and the tools; the reply has the chosen tool call, text, token usage and whether it was truncated. `ctx` ends when `ModelTimeout` or the step's timeout runs out; pass it to your SDK's request. When `ModelTimeout` ends it, Verify returns `ErrTimeout` ("<name> did not answer in time. Raise LocalAgent ModelTimeout for slow or local models."), whatever error your adapter returned.
 - `MaxImageSide` (default 1280, from 256 to 4096) sets the longest screenshot side sent to the model.
 
 [examples/byomodel](examples/byomodel/main.go) runs both forms on iOS Settings and adds exact actions: `cd go && go run ./examples/byomodel` with `REVYL_API_KEY` and `ANTHROPIC_API_KEY` set (or `MODEL=cerebras/qwen-3.8-27b` with `CEREBRAS_API_KEY`). [examples/customagent](examples/customagent/main.go) runs a custom agent on Ollama. Both start real, billable sessions.
@@ -436,7 +435,7 @@ Select an existing HTTPS web build for startup. Leave out `StopOnClose` only for
 
 Each hosted start gets a distinct preallocated session ID and is never replayed. Ambiguous startup failures attempt cleanup of that child ID; definite refusals do not. Child startup failure never stops the parent. Parent close prevents new child opens and cancels in-flight startup. It spends at most five seconds total waiting for startup cleanup and closing children, or half the caller's remaining deadline if shorter, then requests parent stop with the remaining budget. Prompt child cleanup finishes before parent stop; slow child cleanup cannot consume the whole stop budget. The server's parent stop also stops its children. Confirmed physical parent release completes cleanup even if a child stop failed; the optional log callback reports that failure without response content. Otherwise cleanup errors remain observable. Child readiness is bounded by both `StartTimeout` and the computer's remaining lifetime; older computer reports without an expiry cannot host sessions. Child worker operations also honor the parent's expiry and close cancellation; cleanup and reports remain available afterward. Explicitly closing a child does not close its parent.
 
-`session.Report(ctx)` returns a JSON object as `map[string]any` for normal, hosted, and computer sessions, including after close. It reads the device-session endpoint for app sessions and the computer report endpoint for computers; computer identity and state are validated. A session with no known ID returns `ErrNotFound` locally without a request. Reports may contain private session data: do not log or publish them indiscriminately.
+`session.Report(ctx)` returns a JSON object as `map[string]any` for normal, hosted, and computer sessions, including after close. Revyl finishes stopping a browser or device about a second after `Close`, so a web, iOS or Android `Report` after `Close` waits up to 5 seconds for a final `status` (`completed`, `failed`, `cancelled` or `timeout`); if Revyl is slower than that, it returns the status Revyl has, such as `stopping`. It reads the device-session endpoint for app sessions and the computer report endpoint for computers; computer identity and state are validated. A session with no known ID returns `ErrNotFound` locally without a request. Reports may contain private session data: do not log or publish them indiscriminately.
 
 ## Mac commands and files
 

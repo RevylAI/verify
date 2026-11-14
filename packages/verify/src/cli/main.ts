@@ -127,11 +127,20 @@ async function initCommand(args: string[]): Promise<number> {
   answers ??= await askInitQuestions(values['app-id'], values.url);
   const result = await initProject(process.cwd(), answers, { force: values.force ?? false });
   process.stdout.write(`Created ${result.created.join(' and ')}${result.gitignoreUpdated ? ', and added .verify/ to .gitignore' : ''}.\n`);
-  await signInAndCheck(interactive);
-  const steps =
-    answers.platform === 'mac' || answers.appId
-      ? ['Run: node verify/example.mts']
-      : ['Run: node verify/example.mts', 'To test your own app, put its Revyl app id in verify.config.ts in place of the Settings bundle id.'];
+  let signedIn = true;
+  try {
+    await signInAndCheck(interactive);
+  } catch (error) {
+    signedIn = false;
+    process.stdout.write(
+      `Could not confirm a Revyl sign-in: ${isVerifyError(error) ? `${error.code}: ` : ''}${errorMessage(error)}\nThe files above are written and need no change. Sign in, then run the example.\n`,
+    );
+  }
+  const steps = [
+    ...(signedIn ? [] : [`Sign in: run npx ${PACKAGE_NAME} login in a terminal, or set REVYL_API_KEY to a key from Revyl (Settings → API keys). Check it with npx ${PACKAGE_NAME} whoami.`]),
+    'Run: node verify/example.mts',
+    ...(answers.platform === 'mac' || answers.appId ? [] : ['To test your own app, put its Revyl app id in verify.config.ts in place of the Settings bundle id.']),
+  ];
   process.stdout.write(
     [
       'Next:',

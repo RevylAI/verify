@@ -68,7 +68,11 @@ func (s *Session) Validation(ctx context.Context, text string, options ...Valida
 }
 
 func stepReason(result StepResult) string {
-	reason := strings.TrimSpace(result.Reason)
+	return sentence(result.Reason)
+}
+
+func sentence(text string) string {
+	reason := strings.TrimSpace(text)
 	if reason == "" {
 		return "Revyl gave no reason."
 	}

@@ -162,15 +162,21 @@ export async function runLocalStep(
     const shot = await controls.capture(signal);
     const image = fitPng(shot.png, agent.maxImageSide);
     const modelStarted = Date.now();
-    const reply = await agent.model.complete(
-      {
-        system: type === 'validation' ? validationPrompt(controls.platform) : instructionPrompt(controls.platform, agent.grounding),
-        text: turnText(type, task, image, history),
-        image,
-        tools,
-      },
-      AbortSignal.any([signal, AbortSignal.timeout(agent.modelTimeout)]),
-    );
+    const modelDeadline = AbortSignal.timeout(agent.modelTimeout);
+    const reply = await agent.model
+      .complete(
+        {
+          system: type === 'validation' ? validationPrompt(controls.platform) : instructionPrompt(controls.platform, agent.grounding),
+          text: turnText(type, task, image, history),
+          image,
+          tools,
+        },
+        AbortSignal.any([signal, modelDeadline]),
+      )
+      .catch((error: unknown) => {
+        if (isVerifyError(error) || !modelDeadline.aborted || signal.aborted) throw error;
+        throw new VerifyError('TIMEOUT', `${agent.model.name} did not answer in time. Raise localAgent() modelTimeout for slow or local models.`, { cause: error });
+      });
     const record: ModelTurn = { action: 'no tool call', ok: false, modelMs: Date.now() - modelStarted, actionMs: 0, inputTokens: reply.usage.inputTokens, outputTokens: reply.usage.outputTokens };
     run.turns.push(record);
     run.inputTokens += record.inputTokens;

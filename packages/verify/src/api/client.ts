@@ -284,18 +284,21 @@ export function responseRefusalReason(response: RawResponse): RefusalReason | un
 }
 
 function mobileStartRefusal(response: RawResponse): VerifyError | undefined {
-  if (response.status !== 400 && response.status !== 422 || edgeBlockedError(response)) return undefined;
+  if (![400, 404, 422].includes(response.status) || edgeBlockedError(response)) return undefined;
   let detail: unknown;
   try {
     detail = (JSON.parse(new TextDecoder().decode(response.body)) as { detail?: unknown } | null)?.detail;
   } catch {
     return undefined;
   }
-  if (typeof detail !== 'string' || /^[a-z0-9_]*$/.test(detail.trim())) return undefined;
+  if (typeof detail !== 'string' || /^[a-z0-9_]*$/.test(detail.trim()) || (response.status === 404 && detail.trim().toLowerCase() === 'not found')) return undefined;
   const message = detail.trim().slice(0, 500);
+  const fix = response.status === 404
+    ? "Check app.appId and app.buildId: copy them from the app's page in Revyl, use an API key from the same organization, and upload a build if the app has none. No session was started."
+    : 'Change the target to a value Revyl accepts and run again.';
   return new VerifyError(
     'INVALID_ARGUMENT',
-    `Revyl refused to start the session (HTTP ${response.status}): ${/[.!?]$/.test(message) ? message : `${message}.`} Change the target to a value Revyl accepts and run again.`,
+    `Revyl refused to start the session (HTTP ${response.status}): ${/[.!?]$/.test(message) ? message : `${message}.`} ${fix}`,
     { httpStatus: response.status },
   );
 }

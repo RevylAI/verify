@@ -191,13 +191,15 @@ def test_success_logs_in_order_and_close_is_not_replayed(
     )
     session = open_session(asynchronous, target(platform), backend, log)
     try:
-        assert before_create and len(before_create[0]) == 1
-        assert "starting" in before_create[0][0]
-        if platform not in MOBILE:
+        assert before_create
+        if platform in MOBILE:
+            assert before_create[0] == []
+            assert logs[0] == f"{platform}: starting {platform} session {session.viewer_url}"
+        else:
+            assert len(before_create[0]) == 1
+            assert "starting" in before_create[0][0]
             assert session.id in before_create[0][0]
         assert logs[-1] == f"{platform}: ready"
-        if platform in MOBILE:
-            assert session.id in logs[1]
         if platform in COMPUTER_PLATFORMS:
             computer_api.result = {
                 "kind": "exec",
@@ -317,7 +319,7 @@ def test_mobile_run_only_failure_cancels_without_inventing_session(
     assert len(device_api.calls("POST", CANCEL)) == 1
     assert not device_stops(device_api)
     assert len(device_api.calls("POST", START)) == 1
-    assert "run-1" in logs[1]
+    assert "run-1" in logs[0]
     assert_private_logs(logs)
 
 

@@ -72,6 +72,9 @@ from ._transport import (
     seconds,
 )
 
+_FINAL_STATUSES: tuple[str, ...] = ("completed", "failed", "cancelled", "timeout")
+_REPORT_SETTLE_SECONDS: float = 5.0
+
 _PAGE_DIRECTION: dict[SwipeDirection, SwipeDirection] = {
     "up": "down",
     "down": "up",
@@ -306,7 +309,8 @@ class Session:
         submitted = False
         refused = False
         try:
-            session._log("starting session" + (" " + session.viewer_url if session.id else ""))
+            if session.id:
+                session._log(f"starting {target.platform} session {session.viewer_url}")
             deadline.remaining()
             submitted = True
             if session.id:
@@ -354,10 +358,10 @@ class Session:
                 session.viewer_url = app_url + "/sessions/" + quote(session_id, safe="")
             if session.id or session._run_id:
                 track(session)
-                if target.platform != "web":
+                if target.platform != "web" and not hosted:
                     session._log(
-                        "assigned session "
-                        + (session.viewer_url if session.id else session._run_id)
+                        f"starting {target.platform} session "
+                        + (session.viewer_url if session.id else f"(run {session._run_id})")
                     )
             if (
                 (session_id is not None and not valid_session_id)
@@ -463,7 +467,18 @@ class Session:
                 ).json()
             )
             if launched.get("success") is not True:
-                raise VerifyError("SESSION_START_FAILED", "Could not launch the installed app.")
+                error = launched.get("error")
+                reason = error.strip()[:500] if isinstance(error, str) else ""
+                if not reason:
+                    reason = "Revyl gave no reason."
+                elif reason[-1] not in ".!?":
+                    reason += "."
+                raise VerifyError(
+                    "SESSION_START_FAILED",
+                    f"Could not launch {target.bundle_id} on the {self.platform} device: {reason} "
+                    "Check that the bundle id names an app installed on the device. "
+                    f"See {self.viewer_url}",
+                )
 
     def _wait_first_screen(self, deadline: Deadline) -> None:
         try:
@@ -1226,12 +1241,25 @@ class Session:
     def report(self) -> dict[str, Json]:
         if not self.id:
             raise VerifyError("NOT_FOUND", "No session ID is available to read its report.")
-        return self._client.json(
-            "GET",
-            "/api/v1/execution/device-sessions/" + quote(self.id, safe=""),
-            deadline=Deadline(95),
-            retry=True,
-        )
+        closed = self._closed
+        settle_by = time.monotonic() + _REPORT_SETTLE_SECONDS
+        while True:
+            report = self._client.json(
+                "GET",
+                "/api/v1/execution/device-sessions/" + quote(self.id, safe=""),
+                deadline=Deadline(95),
+                retry=True,
+            )
+            status = report.get("status")
+            remaining = settle_by - time.monotonic()
+            if (
+                not closed
+                or not isinstance(status, str)
+                or status in _FINAL_STATUSES
+                or remaining <= 0
+            ):
+                return report
+            time.sleep(min(0.5, remaining))
 
     def close(self) -> None:
         self._close_with_deadline(None)

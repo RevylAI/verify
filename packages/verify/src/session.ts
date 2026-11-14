@@ -41,6 +41,8 @@ const LIVE_STEP_NOT_FOUND = /^live step not found/i;
 const STEP_CANCEL_TIMEOUT_MS = 5_000;
 const MAX_STEP_TEXT_LENGTH = 4_000;
 const ENDED_STATUSES = new Set(['completed', 'failed', 'cancelled', 'timeout', 'stopping']);
+const FINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'timeout']);
+const REPORT_SETTLE_MS = 5_000;
 const STEP_TERMINAL_STATUSES = new Set(['completed', 'failed']);
 const SESSION_NOT_RUNNING = /session is (not running|not active|stopping)/i;
 const UNCERTAIN_ERROR_CODES = new Set(['request_timeout', 'connection_closed', 'protocol_error']);
@@ -152,6 +154,7 @@ export interface Session {
 }
 
 export interface OpenedSession extends Session {
+  /** The session's metadata from Revyl. After close(), waits up to 5 seconds for a final status: completed, failed, cancelled or timeout. */
   report(): Promise<Record<string, unknown>>;
   navigate(url: string): Promise<void>;
   open(target: HostedTargetConfig): Promise<OpenedSession>;
@@ -374,7 +377,7 @@ export class DeviceSession implements Session {
   async instruction(text: string, options: StepOptions = {}): Promise<StepResult> {
     const result = await this.step('instruction', text, options);
     if (!result.passed) {
-      throw new VerifyError('INSTRUCTION_FAILED', `Instruction failed: "${result.text}". ${sentence(result.reason)} See ${this.viewerUrl}`);
+      throw new VerifyError('INSTRUCTION_FAILED', `Instruction failed: "${result.text}". ${sentence(result.reason)} See ${this.viewerUrl}`, { result });
     }
     return result;
   }
@@ -386,7 +389,7 @@ export class DeviceSession implements Session {
   async validation(text: string, options: ValidationOptions = {}): Promise<StepResult> {
     const result = await this.step('validation', text, options);
     if (!result.passed && !options.soft) {
-      throw new VerifyError('VALIDATION_FAILED', `Validation failed: "${result.text}". ${sentence(result.reason)} See ${this.viewerUrl}`);
+      throw new VerifyError('VALIDATION_FAILED', `Validation failed: "${result.text}". ${sentence(result.reason)} See ${this.viewerUrl}`, { result });
     }
     return result;
   }
@@ -405,9 +408,17 @@ export class DeviceSession implements Session {
 
   async report(): Promise<Record<string, unknown>> {
     if (!this.id) throw new VerifyError('NOT_FOUND', 'Cannot report a session without a known session ID.');
-    const report: unknown = await this.client.getDeviceSession(this.id);
-    if (!report || typeof report !== 'object' || Array.isArray(report)) throw new VerifyError('API_ERROR', 'Revyl returned an invalid session report.');
-    return report as Record<string, unknown>;
+    const closing = this.closePromise;
+    await closing?.catch(() => undefined);
+    const settleBy = Date.now() + REPORT_SETTLE_MS;
+    for (;;) {
+      const report: unknown = await this.client.getDeviceSession(this.id);
+      if (!report || typeof report !== 'object' || Array.isArray(report)) throw new VerifyError('API_ERROR', 'Revyl returned an invalid session report.');
+      const { status } = report as { status?: unknown };
+      const remaining = settleBy - Date.now();
+      if (!closing || typeof status !== 'string' || FINAL_STATUSES.has(status) || remaining <= 0) return report as Record<string, unknown>;
+      await delay(Math.min(500, remaining));
+    }
   }
 
   navigate(url: string): Promise<void> {
@@ -858,7 +869,7 @@ export class DeviceSession implements Session {
     const response = await this.worker('POST', 'launch', { body: { bundle_id: bundleId } });
     const result = parseJson<WorkerActionResult>(response, 'launch');
     if (result.success !== true) {
-      throw new VerifyError('SESSION_START_FAILED', `Could not launch ${bundleId} on the ${this.target} device: ${result.error ?? 'no reason given'}`);
+      throw new VerifyError('SESSION_START_FAILED', `Could not launch ${bundleId} on the ${this.target} device: ${sentence(result.error ?? undefined)} Check that the bundle id names an app installed on the device. See ${this.viewerUrl}`);
     }
   }
 

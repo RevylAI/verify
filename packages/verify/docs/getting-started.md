@@ -51,7 +51,7 @@ Use `init` when you want named targets in `verify.config.ts` and a generated exa
 - `verify.config.ts`: the targets `open()` can start, by name
 - `verify/example.mts`: a script that opens the target, runs steps and takes a screenshot (web/mobile) or checks commands and files (Mac), and closes
 
-In scripts and CI, pass the answers as flags. Non-interactive runs never prompt or open a browser; provide `REVYL_API_KEY` as a secret:
+In scripts and CI, pass the answers as flags. Non-interactive runs never prompt or open a browser; provide `REVYL_API_KEY` as a secret. If `init` can't confirm a sign-in after writing the files, it says why, lists signing in as the first next step and exits 0, because the files are written and need no change:
 
 ```bash
 npx @revyl/verify init --platform ios
