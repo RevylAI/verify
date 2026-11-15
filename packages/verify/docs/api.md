@@ -139,7 +139,7 @@ const { width, height } = await session.screenSize();      // the screenshot's s
 
 ## session.report()
 
-Returns authenticated JSON metadata: `/execution/device-sessions/{id}` for normal and hosted app sessions, or the computer report for computers. It works after close, but fails locally with `NOT_FOUND` when no session ID is known. Revyl finishes stopping a browser or device about a second after `close()`, so a web, iOS or Android `report()` after `close()` waits up to 5 seconds for a final `status` (`completed`, `failed`, `cancelled` or `timeout`); if Revyl is slower than that, it returns the status Revyl has, such as `stopping`. It does not download recordings or turn a device stop acknowledgment into proof of physical release. Treat returned metadata as private.
+Returns authenticated JSON metadata: `/execution/device-sessions/{id}` for normal and hosted app sessions, or the computer report for computers. It works after close, but fails locally with `NOT_FOUND` when no session ID is known. After `close()`, `report()` waits up to 5 seconds for a final `status` (`completed`, `failed`, `cancelled` or `timeout`) and then returns the status Revyl has. iOS and Android sessions usually reach a final status within that wait. A web session stays `running` until Revyl has saved its recording, which can take longer, so call `report()` again later when you need a web session's final status. It does not download recordings or turn a device stop acknowledgment into proof of physical release. Treat returned metadata as private.
 
 ## session.instruction(text, options?)
 

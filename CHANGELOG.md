@@ -1,32 +1,32 @@
 # Changelog
 
-## 0.6.3 (2026-11-15)
+## 0.6.3 (2026-11-16)
 
 - An iOS or Android `open()` whose app or build Revyl can't find (HTTP 404) throws `INVALID_ARGUMENT` saying what wasn't found and how to fix it, instead of a bare `API_ERROR … failed with HTTP 404`: `Revyl refused to start the session (HTTP 404): App not found: <id>. Check app.appId and app.buildId: copy them from the app's page in Revyl, use an API key from the same organization, and upload a build if the app has none. No session was started.` Web and hosted starts still copy no server text.
 - A bundle id that can't be launched throws `SESSION_START_FAILED` with the session link: `Could not launch <bundle id> on the ios device: <reason> Check that the bundle id names an app installed on the device. See <link>`.
-- `report()` right after `close()` on a web, iOS or Android session waits up to 5 seconds for a final status (`completed`, `failed`, `cancelled` or `timeout`) instead of returning `running`. If Revyl is slower, it returns the status Revyl has.
+- `report()` right after `close()` waits up to 5 seconds for a final status (`completed`, `failed`, `cancelled` or `timeout`), so an iOS or Android session no longer reports `running`. If Revyl is slower, it returns the status Revyl has. A web session stays `running` until Revyl has saved its recording, which can take longer than 5 seconds; call `report()` again later for its final status.
 - Your own model: a custom `ModelAdapter` that stops when `modelTimeout` aborts its signal throws `TIMEOUT` with the built-in adapters' message, `<name> did not answer in time. Raise localAgent() modelTimeout for slow or local models.`, instead of the adapter's raw `TimeoutError`.
 - `INSTRUCTION_FAILED` and `VALIDATION_FAILED` carry the failed step as `error.result`, so a step that ran on your model reports its turns and tokens on `error.result.model`, as in Python and Go.
 - `verify init` that wrote its files but can't confirm a sign-in (no key, a rejected key, or Revyl unreachable) prints `Could not confirm a Revyl sign-in:` with the reason, makes signing in step 1 under "Next:", and exits 0 instead of 1 or 2, because the files are written and need no change.
 - Every other call sends the same requests as 0.6.2. Docs: the npm page shows the new README hero, which landed after 0.6.2 was tagged, and the API, errors, configuration, getting-started, agents and own-model pages describe the changes above.
 
-## Go 0.5.3 (2026-11-15)
+## Go 0.5.3 (2026-11-16)
 
 Published as the `go/v0.5.3` tag.
 
 - `OpenOptions.Log` gets `<platform>: starting <platform> session <link>` as soon as the session ID exists, before the browser or device is ready, then `ready`, on web, iOS, Android and hosted sessions, as in TypeScript. Before, nothing was logged until `Open` returned. The README's quick start passes a `Log` callback.
 - An iOS or Android `Open` whose `AppID` or `BuildID` Revyl can't find (HTTP 404) returns `ErrInvalidArgument` saying what wasn't found and how to fix it, instead of `ErrAPI` with a bare HTTP 404. No session was started.
 - `ErrSessionStartFailed` for a `BundleID` that can't be launched names the bundle ID and Revyl's reason, with the session link, instead of `Could not launch the installed app.`
-- `Report` right after `Close` waits up to 5 seconds for a final status, as in TypeScript 0.6.3.
+- `Report` right after `Close` waits up to 5 seconds for a final status, as in TypeScript 0.6.3. A web session can still report `running` after that wait.
 - A custom `ModelAdapter` that stops when `ModelTimeout` ends its context returns `ErrTimeout` with the built-in adapters' message, instead of a bare `context deadline exceeded`.
 - `verify.Version` and the `User-Agent` report 0.5.3. Every other call sends the same requests as v0.5.2.
 
-## Python 0.4.3 (2026-11-15)
+## Python 0.4.3 (2026-11-16)
 
 - iOS and Android print `[verify] ios: starting ios session <link>` as soon as the session ID exists, as Web and TypeScript do, instead of `starting session` without a link followed by `assigned session <link>`.
 - An iOS or Android `open()` whose `app_id` or `build_id` Revyl can't find (HTTP 404) raises `INVALID_ARGUMENT` saying what wasn't found and how to fix it, instead of `API_ERROR` with a bare HTTP 404. No session was started.
 - `SESSION_START_FAILED` for a `bundle_id` that can't be launched names the bundle id and Revyl's reason, with the session link, instead of `Could not launch the installed app.`
-- `report()` right after `close()` waits up to 5 seconds for a final status, as in TypeScript 0.6.3. `AsyncSession` does the same.
+- `report()` right after `close()` waits up to 5 seconds for a final status, as in TypeScript 0.6.3. `AsyncSession` does the same. A web session can still report `running` after that wait.
 - The `User-Agent` reports 0.4.3. Every other call sends the same requests as 0.4.2.
 
 ## 0.6.2 (2026-11-14)
