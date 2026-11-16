@@ -103,6 +103,19 @@ _WEB_TARGET_ERRORS = {
 }
 
 
+def _screen_error(response: Response) -> str:
+    try:
+        raw = obj(response.json())
+    except VerifyError:
+        return ""
+    error, detail = raw.get("error"), raw.get("detail", raw.get("message", ""))
+    return error if isinstance(error, str) else detail if isinstance(detail, str) else ""
+
+
+def _typing_refused(response: Response) -> bool:
+    return _screen_error(response) in ("target_not_found", "no_focused_input")
+
+
 def _live_step_not_found(response: Response) -> bool:
     if response.status != 404:
         return False
@@ -149,6 +162,10 @@ def save_screenshot(data: bytes, path: str | Path | None) -> bytes:
 
 
 class Session:
+    """One live Revyl session: a cloud browser or an iOS or Android device. A call the session's
+    platform does not offer raises NOT_AVAILABLE_ON_PLATFORM. Leaving its with block closes it.
+    """
+
     def __init__(
         self,
         client: Client,
@@ -215,13 +232,16 @@ class Session:
 
     @property
     def expires_at(self) -> datetime | None:
+        """When the hosting computer expires, for a session hosted on one; otherwise None."""
         return self._expires_at
 
     @property
     def closed(self) -> bool:
+        """Whether close() has run."""
         return self._closed
 
     def __enter__(self) -> Session:
+        """Returns the session; leaving the with block calls close()."""
         return self
 
     def __exit__(
@@ -252,6 +272,7 @@ class Session:
         computer_session_id: str | None = None,
         expires_at: datetime | None = None,
     ) -> Session:
+        """Starts the session on Revyl. open() calls it; call open() instead."""
         cancellation = cancellation or Cancellation()
         deadline = Deadline(target.start_timeout, cancellation)
         if expires_at is not None:
@@ -552,6 +573,16 @@ class Session:
         except VerifyError:
             return
 
+    def _no_focused_input(self, response: Response) -> VerifyError:
+        return VerifyError(
+            "ACTION_FAILED",
+            f"Nothing was typed: no text field has focus on the {self.platform} session "
+            "(no_focused_input). Tap the text field first, or call type() with the field's "
+            f"target or point, which taps it before typing. See {self.viewer_url}",
+            reason=refusal_reason(response),
+            http_status=response.status,
+        )
+
     def _worker_error(self, method: str, action: str, response: Response) -> VerifyError:
         blocked = edge_blocked_error(response)
         if blocked is not None:
@@ -561,9 +592,7 @@ class Session:
         except VerifyError:
             raw = {}
         error, reason = raw.get("error"), raw.get("detail", raw.get("message", ""))
-        screen_error = (
-            error if isinstance(error, str) else reason if isinstance(reason, str) else ""
-        )
+        screen_error = _screen_error(response)
         code = "ACTION_FAILED"
         if response.status in (401, 403):
             code = "AUTH_REJECTED"
@@ -573,14 +602,7 @@ class Session:
         ):
             code = "NOT_AVAILABLE_ON_PLATFORM"
         elif screen_error == "no_focused_input":
-            return VerifyError(
-                "ACTION_FAILED",
-                f"Nothing was typed: no text field has focus on the {self.platform} session "
-                "(no_focused_input). Tap the text field first, or call type() with the field's "
-                f"target or point, which taps it before typing. See {self.viewer_url}",
-                reason=refusal_reason(response),
-                http_status=response.status,
-            )
+            return self._no_focused_input(response)
         elif action == "input" and screen_error == "target_not_found":
             return VerifyError(
                 "ACTION_FAILED",
@@ -671,6 +693,10 @@ class Session:
         model: ModelOption | None = None,
         agent: LocalAgent | None = None,
     ) -> StepResult:
+        """Asks Revyl's agent, or your model when one is set, to do something on the app, and waits
+        for the result. A failed step raises INSTRUCTION_FAILED with the StepResult in
+        error.result; the session stays open. Browsers and devices only.
+        """
         result = self._step("instruction", text, timeout, model, agent)
         if not result.passed:
             reason = (result.reason or "").strip() or "Revyl gave no reason."
@@ -684,9 +710,13 @@ class Session:
         return result
 
     def open(self, target: Target, *, _cancellation: Cancellation | None = None) -> Session:
+        """Opens a hosted browser or device session on this computer from an exact app_id and
+        build_id. Computers only.
+        """
         self._computer_only()
 
     def navigate(self, url: str) -> None:
+        """Loads an http(s) URL in the browser. Web only."""
         self._navigate(url, Deadline(self._step_timeout, self._cancellation), False)
 
     def _navigate(self, url: str, deadline: Deadline, uncertain: bool) -> None:
@@ -745,12 +775,20 @@ class Session:
             raise VerifyError("ACTION_FAILED", "Revyl did not confirm web navigation.")
 
     def tap(self, at: Location) -> Point:
+        """Taps a point in screenshot pixels, or an element Revyl locates from a description.
+        Returns the point tapped, in screenshot pixels.
+        """
         location = self._to_device(_location(at))
         if self.platform == "ios":
             self._read_screenshot_size()
         return self._to_screenshot(cast(Point, self._perform(Tap(location))))
 
     def type(self, at: Location, text: str, *, clear: bool = True) -> Point:
+        """Taps a text field and types into it, clearing it first unless clear is False. Returns the
+        point tapped. On Web, when no text field takes focus at the point, clicks it and types
+        into the focused field, and raises ACTION_FAILED when none has focus. Browsers and
+        devices only.
+        """
         if not isinstance(text, str) or text_length(text) > 16_384:
             raise VerifyError("INVALID_ARGUMENT", "type() takes text of at most 16384 characters.")
         if not isinstance(clear, bool):
@@ -761,6 +799,10 @@ class Session:
         return self._to_screenshot(cast(Point, self._perform(TypeText(location, text, clear))))
 
     def type_focused(self, text: str, *, clear: bool = True) -> None:
+        """Types into the field that already has focus, without tapping, replacing its content
+        unless clear is False. Web and Mac computers, where clear must be False; on iOS and
+        Android, use type(location, text).
+        """
         if self.platform != "web":
             raise VerifyError(
                 "NOT_AVAILABLE_ON_PLATFORM",
@@ -776,12 +818,19 @@ class Session:
         self._perform(TypeFocused(text, clear))
 
     def double_tap(self, at: Location) -> Point:
+        """Double-taps a point in screenshot pixels, or an element Revyl locates from a description.
+        Returns the point, in screenshot pixels. Browsers and devices only.
+        """
         location = self._to_device(_location(at))
         if self.platform == "ios":
             self._read_screenshot_size()
         return self._to_screenshot(cast(Point, self._perform(DoubleTap(location))))
 
     def long_press(self, at: Location, *, duration: float | None = None) -> Point:
+        """Presses and holds a point or element for duration seconds (0.001 to 5), or Revyl's
+        default when left out. Returns the point, in screenshot pixels. Browsers and devices
+        only.
+        """
         if duration is not None and (
             isinstance(duration, bool)
             or not isinstance(duration, (int, float))
@@ -800,6 +849,9 @@ class Session:
         return self._to_screenshot(cast(Point, self._perform(LongPress(location, duration_ms))))
 
     def swipe(self, direction: SwipeDirection, *, from_: Location | None = None) -> None:
+        """Swipes from a point or the screen's center. 'up' moves the finger up, which scrolls
+        content down. Browsers and devices only.
+        """
         if direction not in ("up", "down", "left", "right"):
             raise VerifyError("INVALID_ARGUMENT", "swipe() takes 'up', 'down', 'left' or 'right'.")
         self._perform(
@@ -807,16 +859,27 @@ class Session:
         )
 
     def drag(self, start: Location, end: Location) -> None:
+        """Presses at one point or element, moves to another and releases. Browsers and devices
+        only.
+        """
         start_at, end_at = _location(start), _location(end)
         self._perform(Drag(self._to_device(start_at), self._to_device(end_at)))
 
     def press_key(self, key: Key | str, *, modifiers: Sequence[KeyModifier] = ()) -> None:
+        """Presses a key on the focused element. iOS and Android take 'enter' and 'backspace'; Web
+        and Mac computers also take the other Key names, and modifiers, with which a lowercase
+        letter or digit also works. On a Mac computer 'meta' is Command.
+        """
         self._perform(PressKey(*check_key(self.platform, key, modifiers)))
 
     def back(self) -> None:
+        """Goes back: browser history on Web, the back button on Android. On iOS it raises
+        NOT_AVAILABLE_ON_PLATFORM.
+        """
         self._perform(Back())
 
     def go_home(self) -> None:
+        """Goes to the home screen on iOS and Android. Not on Web."""
         if self.platform == "web":
             raise VerifyError(
                 "NOT_AVAILABLE_ON_PLATFORM",
@@ -826,11 +889,13 @@ class Session:
         self._perform(GoHome())
 
     def open_url(self, url: str) -> None:
+        """Opens a URL or deep link on a device, or loads an http(s) URL in a browser."""
         if not isinstance(url, str) or not url or text_length(url) > 8192:
             raise VerifyError("INVALID_ARGUMENT", "open_url() takes a URL of 1 to 8192 characters.")
         self._perform(OpenUrl(url))
 
     def launch_app(self, bundle_id: str) -> None:
+        """Launches an installed app by bundle ID or package name. Devices only."""
         if self.platform == "web":
             raise VerifyError(
                 "NOT_AVAILABLE_ON_PLATFORM",
@@ -847,6 +912,9 @@ class Session:
         )
 
     def locate(self, target: str) -> Point:
+        """Asks Revyl's grounding model where an element is on the current screen, in screenshot
+        pixels. Browsers and devices only.
+        """
         if not isinstance(target, str):
             raise VerifyError(
                 "INVALID_ARGUMENT", "A target is a description of 1 to 500 characters."
@@ -857,6 +925,7 @@ class Session:
         return self._to_screenshot(point)
 
     def screen_size(self) -> ScreenSize:
+        """The screenshot's size in pixels, the space every coordinate uses."""
         return self._read_screenshot_size()[0]
 
     def _read_screenshot_size(self, fresh: bool = False) -> tuple[ScreenSize, ScreenSize]:
@@ -1023,8 +1092,14 @@ class Session:
         if isinstance(action, TypeText):
             point, token = self._resolve(action.at, screen_token, deadline)
             body = _point_body(point, token, action.at)
-            body.update(text=action.text, clear_first=action.clear)
-            self._act("input", body, deadline, uncertain)
+            typed: dict[str, Json] = {"text": action.text, "clear_first": action.clear}
+            web = self.platform == "web"
+            if self._act("input", {**body, **typed}, deadline, uncertain, web) is None:
+                return point
+            self._act("tap", body, deadline, uncertain)
+            refusal = self._act("input", typed, deadline, uncertain, True)
+            if refusal is not None:
+                raise self._no_focused_input(refusal)
             return point
         if isinstance(action, TypeFocused):
             self._act(
@@ -1113,9 +1188,21 @@ class Session:
         token = result.get("screen_token")
         return Point(js_round(x), js_round(y)), token if isinstance(token, str) and token else None
 
-    def _act(self, action: str, body: dict[str, Json], deadline: Deadline, uncertain: bool) -> None:
+    def _act(
+        self,
+        action: str,
+        body: dict[str, Json],
+        deadline: Deadline,
+        uncertain: bool,
+        refusable: bool = False,
+    ) -> Response | None:
         deadline.remaining()
-        result = self._post(action, body, deadline, uncertain)
+        response = self._send(
+            action, body, deadline, uncertain, allow=_typing_refused if refusable else None
+        )
+        if not 200 <= response.status < 300:
+            return response
+        result = obj(response.json())
         if result.get("success") is not True:
             error = result.get("error")
             raise VerifyError(
@@ -1123,6 +1210,7 @@ class Session:
                 f"{action} failed on the {self.platform} session: "
                 f"{error if isinstance(error, str) else 'no reason given'}. See {self.viewer_url}",
             )
+        return None
 
     def _post(
         self,
@@ -1133,8 +1221,22 @@ class Session:
         *,
         timeout: float = 30,
     ) -> dict[str, Json]:
+        return obj(self._send(action, body, deadline, uncertain, timeout=timeout).json())
+
+    def _send(
+        self,
+        action: str,
+        body: dict[str, Json],
+        deadline: Deadline,
+        uncertain: bool,
+        *,
+        timeout: float = 30,
+        allow: Callable[[Response], bool] | None = None,
+    ) -> Response:
         try:
-            response = self._worker("POST", action, body, deadline=deadline, timeout=timeout)
+            return self._worker(
+                "POST", action, body, deadline=deadline, timeout=timeout, allow=allow
+            )
         except VerifyError as error:
             if uncertain and error.code == "TIMEOUT" and deadline.expired():
                 raise VerifyError(
@@ -1143,7 +1245,6 @@ class Session:
                     f"been applied. Verify did not repeat it. See {self.viewer_url}",
                 ) from error
             raise
-        return obj(response.json())
 
     def validation(
         self,
@@ -1154,6 +1255,10 @@ class Session:
         model: ModelOption | None = None,
         agent: LocalAgent | None = None,
     ) -> StepResult:
+        """Asks Revyl's agent, or your model when one is set, whether something holds on screen. A
+        failed verdict raises VALIDATION_FAILED with the StepResult in error.result, or returns
+        it when soft is True. Browsers and devices only.
+        """
         if not isinstance(soft, bool):
             raise VerifyError("INVALID_ARGUMENT", "soft must be a boolean.")
         result = self._step("validation", text, timeout, model, agent)
@@ -1339,6 +1444,7 @@ class Session:
                 self._step_running = False
 
     def screenshot(self, *, path: str | Path | None = None) -> bytes:
+        """A PNG of the screen right now, also written to path when given, creating its folder."""
         response = self._worker(
             "GET", "screenshot", deadline=Deadline(95, self._cancellation), retry=True
         )
@@ -1346,6 +1452,9 @@ class Session:
         return save_screenshot(response.body, path)
 
     def report(self) -> dict[str, Json]:
+        """The session's metadata from Revyl. After close(), waits up to 5 seconds for a final
+        status: completed, failed, cancelled or timeout.
+        """
         if not self.id:
             raise VerifyError("NOT_FOUND", "No session ID is available to read its report.")
         closed = self._closed
@@ -1374,6 +1483,9 @@ class Session:
                 return report
 
     def close(self) -> None:
+        """Stops the session on Revyl. Safe to call more than once; later calls share the first
+        outcome.
+        """
         self._close_with_deadline(None)
 
     def _close_with_deadline(self, deadline: Deadline | None) -> None:
@@ -1456,24 +1568,40 @@ class Session:
     def exec(
         self, argv: list[str], *, stdin: bytes | str = b"", timeout: float = 30, check: bool = True
     ) -> ExecResult:
+        """Runs a program with its arguments, not a shell line, for up to timeout seconds. Raises
+        COMMAND_FAILED on a non-zero exit unless check is False, which returns the ExecResult
+        instead. Computers only.
+        """
         self._computer_only()
 
     def read_file(self, path: str, *, timeout: float = 30) -> bytes:
+        """Up to the first 1 MiB of a file, by a path relative to the computer's workspace.
+        Computers only.
+        """
         self._computer_only()
 
     def write_file(self, path: str, data: bytes | str, *, timeout: float = 30) -> None:
+        """Writes up to 64 KiB to a file, by a path relative to the computer's workspace. Computers
+        only.
+        """
         self._computer_only()
 
     def stat(self, path: str, *, timeout: float = 30) -> FileStat:
+        """Whether a path is a file or a directory, and its size. Computers only."""
         self._computer_only()
 
     def processes(self, *, timeout: float = 30) -> list[ComputerProcess]:
+        """The processes commands on this computer started. Computers only."""
         self._computer_only()
 
     def terminate(self, handle_id: str, *, timeout: float = 30) -> None:
+        """Stops a process from processes(). Computers only."""
         self._computer_only()
 
     def recording(self) -> ComputerRecording | None:
+        """The computer's recording once it has stopped and released its resources, or None when it
+        has none; earlier it raises SESSION_BUSY. Computers only.
+        """
         self._computer_only()
 
 

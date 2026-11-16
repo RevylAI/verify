@@ -261,6 +261,10 @@ def _detail(response: Response) -> str | None:
 
 
 class ComputerSession(Session):
+    """A Revyl Mac or Linux computer: commands, files, processes, screenshots and screen actions,
+    without agent steps.
+    """
+
     def __init__(
         self,
         client: Client,
@@ -289,6 +293,7 @@ class ComputerSession(Session):
         *,
         stop_on_close: bool = True,
     ) -> ComputerSession:
+        """Attaches to an active computer by its id. attach() calls it; call attach() instead."""
         session = cls(
             client,
             computer_id,
@@ -635,6 +640,7 @@ class ComputerSession(Session):
         return raw
 
     def report(self) -> dict[str, Json]:
+        """The computer's report from Revyl, with its state and expiry."""
         return self._report(self._request("GET", "/report", None, Deadline(30)))
 
     def _assert_computer_open(self) -> None:
@@ -1190,6 +1196,10 @@ class ComputerSession(Session):
         )
 
     def close(self) -> None:
+        """Closes the sessions hosted on this computer, then stops the computer when this handle
+        owns it and waits until Revyl confirms its resources are released. Safe to call more than
+        once.
+        """
         with self._close_lock:
             with self._lock:
                 if self._closed:

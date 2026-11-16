@@ -46,6 +46,7 @@ const REPORT_SETTLE_MS = 5_000;
 const STEP_TERMINAL_STATUSES = new Set(['completed', 'failed']);
 const SESSION_NOT_RUNNING = /session is (not running|not active|stopping)/i;
 const UNCERTAIN_ERROR_CODES = new Set(['request_timeout', 'connection_closed', 'protocol_error']);
+const FOCUS_REFUSALS = new Set(['target_not_found', 'no_focused_input']);
 const WEB_TARGET_ERRORS = new Set(['stale_target', 'target_unstable', 'invalid_coordinates', 'target_not_found', 'unsupported_web_element', 'invalid_action', 'grounding_failed', 'password_field_required', 'password_focus_changed']);
 
 export type StepType = LiveStepType;
@@ -823,7 +824,19 @@ export class DeviceSession implements Session {
       }
       case 'type': {
         const point = await this.resolve(action.at, screenToken, signal);
-        await this.act('input', { ...pointBody(point, action.at), text: action.text, clear_first: action.clear }, signal);
+        const input = { ...pointBody(point, action.at), text: action.text, clear_first: action.clear };
+        if (this.platform !== 'web') {
+          await this.act('input', input, signal);
+          return { x: point.x, y: point.y };
+        }
+        const response = await this.worker('POST', 'input', { body: input, ...(signal ? { signal } : {}), allow: (refusal) => FOCUS_REFUSALS.has(responseErrorCode(refusal) ?? '') });
+        if (response.status >= 200 && response.status < 300) {
+          const result = parseJson<WorkerActionResult>(response, 'input');
+          if (result.success !== true) throw new VerifyError('ACTION_FAILED', `input failed on the ${this.target} session: ${result.error ?? 'no reason given'}. See ${this.viewerUrl}`);
+          return { x: point.x, y: point.y };
+        }
+        await this.act('tap', pointBody(point, action.at), signal);
+        await this.act('input', { text: action.text, clear_first: action.clear }, signal);
         return { x: point.x, y: point.y };
       }
       case 'type_focused':

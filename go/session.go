@@ -442,10 +442,8 @@ func (s *Session) workerError(method, action string, r response) error {
 	switch {
 	case r.status == 401 || r.status == 403:
 		return httpError(r)
-	case targetError == "no_focused_input":
-		return responseFailure(r, ErrActionFailed, fmt.Sprintf("Nothing was typed: no text field has focus on the %s session (no_focused_input). Tap the text field first, or call Type with the field's target or point, which taps it before typing. See %s", s.platform, s.viewer))
-	case action == "input" && targetError == "target_not_found":
-		return responseFailure(r, ErrActionFailed, "Nothing was typed: the tap did not land on a text field (target_not_found). Point at the text field itself, or pass its description as the target. See "+s.viewer)
+	case targetError == "no_focused_input" || action == "input" && targetError == "target_not_found":
+		return s.typingRefusal(r.status, targetError)
 	case r.status == 501 || detail.Error == "not_available_on_platform" || detail.Error == "step_output_not_available":
 		code = ErrNotAvailableOnPlatform
 	case webTargetErrors[targetError]:
@@ -461,6 +459,22 @@ func (s *Session) workerError(method, action string, r response) error {
 		code = ErrActionUncertain
 	}
 	return responseFailure(r, code, fmt.Sprintf("Revyl session request failed (HTTP %d). See %s", r.status, s.viewer))
+}
+
+func (s *Session) typingRefusal(status int, workerCode string) error {
+	message := fmt.Sprintf("Nothing was typed: no text field has focus on the %s session (no_focused_input). Tap the text field first, or call Type with the field's target or point, which taps it before typing. See %s", s.platform, s.viewer)
+	if workerCode == "target_not_found" {
+		message = "Nothing was typed: the tap did not land on a text field (target_not_found). Point at the text field itself, or pass its description as the target. See " + s.viewer
+	}
+	return &Error{Code: ErrActionFailed, HTTPStatus: status, Message: message, workerCode: workerCode}
+}
+
+func focusRefusal(err error) *Error {
+	var sdkError *Error
+	if errors.As(err, &sdkError) && (sdkError.workerCode == "no_focused_input" || sdkError.workerCode == "target_not_found") {
+		return sdkError
+	}
+	return nil
 }
 
 func (s *Session) sessionEndError() error {

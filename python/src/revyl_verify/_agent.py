@@ -66,6 +66,10 @@ WEB_KEYS: dict[str, str] = {
 
 @dataclass(frozen=True)
 class LocalAgent:
+    """An agent from local_agent() that runs steps on your model. Pass it as agent to open() or to
+    one step.
+    """
+
     model: ModelAdapter
     grounding: Grounding = "revyl"
     max_turns: int = 20
@@ -97,11 +101,20 @@ def local_agent(
     model_timeout: float = 60,
     max_image_side: int = 1280,
 ) -> LocalAgent:
+    """Runs instructions and validations on a model you choose, on your machine; Revyl only receives
+    device actions. max_turns is the model turns an instruction may take (default 20, at most
+    100) and model_timeout the seconds one model call may take, retries included (default 60).
+    """
     return LocalAgent(model, grounding, max_turns, model_timeout, max_image_side)
 
 
 @dataclass(frozen=True)
 class CustomModel:
+    """Your own OpenAI-compatible endpoint, such as vLLM, LiteLLM or a gateway, passed as model.
+    api_key is sent as a bearer token only to base_url, and is never read from the environment,
+    logged or sent to Revyl.
+    """
+
     id: str
     base_url: str
     api_key: str | None = None

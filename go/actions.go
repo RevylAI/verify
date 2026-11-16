@@ -635,7 +635,16 @@ func (s *Session) perform(ctx context.Context, action deviceAction, screenToken 
 		}
 		body := pointBody(point, token, action.at)
 		body["text"], body["clear_first"] = action.text, action.clear
-		return &point, s.act(ctx, "input", body)
+		err = s.act(ctx, "input", body)
+		if s.platform == Web && focusRefusal(err) != nil {
+			if err = s.act(ctx, "tap", pointBody(point, token, action.at)); err == nil {
+				err = s.act(ctx, "input", map[string]any{"text": action.text, "clear_first": action.clear})
+				if refusal := focusRefusal(err); refusal != nil {
+					err = s.typingRefusal(refusal.HTTPStatus, "no_focused_input")
+				}
+			}
+		}
+		return &point, err
 	case "type_focused":
 		return nil, s.act(ctx, "input", map[string]any{"text": action.text, "clear_first": action.clear})
 	case "drag":

@@ -132,6 +132,11 @@ def open(
     agent: LocalAgent | None = None,
     _cancellation: Cancellation | None = None,
 ) -> Session:
+    """Starts a Revyl cloud browser, iOS or Android device, or computer and returns its session, a
+    ComputerSession for mac and linux. Pass model or agent to run every step on your own model;
+    on a computer that raises NOT_AVAILABLE_ON_PLATFORM. Mobile first-screen readiness is best-
+    effort.
+    """
     from ._transport import Client
 
     if not isinstance(target, Target):
@@ -169,6 +174,9 @@ def attach(
     stop_on_close: bool = True,
     _cancellation: Cancellation | None = None,
 ) -> ComputerSession:
+    """Attaches to an active Revyl computer by its id. Closing the session stops the computer unless
+    stop_on_close is False.
+    """
     from ._models import UUID_PATTERN
     from ._transport import Client
 
@@ -200,6 +208,9 @@ def current_computer(
     log: Callable[[str], None] | Literal[False] | None = None,
     stop_on_close: bool = False,
 ) -> ComputerSession:
+    """Attaches to the Revyl computer this job runs on, from REVYL_COMPUTER_ID, without stopping it
+    on close by default. Raises COMPUTER_ID_MISSING outside a revyl-macos runner.
+    """
     return attach(
         _current_computer_id(),
         backend_url=backend_url,
@@ -218,6 +229,7 @@ async def async_current_computer(
     log: Callable[[str], None] | Literal[False] | None = None,
     stop_on_close: bool = False,
 ) -> AsyncSession:
+    """The asyncio form of current_computer(), returning an AsyncSession."""
     return await async_attach(
         _current_computer_id(),
         backend_url=backend_url,

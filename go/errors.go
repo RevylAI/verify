@@ -73,6 +73,7 @@ type Error struct {
 	Message    string
 	Cause      error
 	ExecResult *ExecResult
+	workerCode string
 }
 
 func (e *Error) Error() string { return fmt.Sprintf("%s: %s", e.Code, e.Message) }

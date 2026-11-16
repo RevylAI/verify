@@ -15,6 +15,8 @@ from ._transport import Deadline, Json, VerifyError, exchange
 
 @dataclass(frozen=True)
 class ModelTool:
+    """A tool the model may call, with a JSON Schema for its arguments."""
+
     name: str
     description: str
     parameters: dict[str, Json]
@@ -22,6 +24,8 @@ class ModelTool:
 
 @dataclass(frozen=True)
 class ModelImage:
+    """A PNG screenshot and its size in pixels."""
+
     png: bytes
     width: int
     height: int
@@ -29,6 +33,10 @@ class ModelImage:
 
 @dataclass(frozen=True)
 class ModelRequest:
+    """One stateless request: the system prompt, the task and history as text, the current
+    screenshot and the tools offered.
+    """
+
     system: str
     text: str
     image: ModelImage
@@ -37,18 +45,26 @@ class ModelRequest:
 
 @dataclass(frozen=True)
 class ModelToolCall:
+    """The tool the model chose and its arguments."""
+
     name: str
     arguments: dict[str, Json]
 
 
 @dataclass(frozen=True)
 class ModelUsage:
+    """Tokens one model call used; input tokens include cached input."""
+
     input_tokens: int = 0
     output_tokens: int = 0
 
 
 @dataclass(frozen=True)
 class ModelReply:
+    """A model's answer: the tool it chose, if any, its text, its token usage, and whether it
+    stopped at the output token cap.
+    """
+
     tool_call: ModelToolCall | None = None
     text: str | None = None
     usage: ModelUsage = field(default_factory=ModelUsage)
@@ -56,10 +72,19 @@ class ModelReply:
 
 
 class ModelAdapter(Protocol):
-    @property
-    def name(self) -> str: ...
+    """The only contract a model has to meet to drive a Verify session. Implement it to plug in any
+    provider, a local model or an agent runtime. Each call is independent: Verify sends the full
+    context every turn.
+    """
 
-    def complete(self, request: ModelRequest, timeout: float) -> ModelReply: ...
+    @property
+    def name(self) -> str:
+        """Shown in logs, step results and the Revyl session report, so never put a secret in it."""
+        ...
+
+    def complete(self, request: ModelRequest, timeout: float) -> ModelReply:
+        """Answers one request within timeout seconds, retries included."""
+        ...
 
 
 _RETRYABLE = {408, 409, 429, 500, 502, 503, 504, 529}
@@ -89,6 +114,10 @@ def anthropic(
     max_tokens: int = 4096,
     max_retries: int = 2,
 ) -> ModelAdapter:
+    """Claude through Anthropic's Messages API. api_key defaults to ANTHROPIC_API_KEY and base_url
+    to ANTHROPIC_BASE_URL, then https://api.anthropic.com; without a key it raises
+    MODEL_KEY_MISSING.
+    """
     return _Anthropic(model, api_key, base_url, max_tokens, max_retries)
 
 
@@ -102,6 +131,10 @@ def openai_compatible(
     max_tokens: int | None = None,
     max_retries: int = 2,
 ) -> ModelAdapter:
+    """Any server that speaks OpenAI's chat completions with tools and image input: OpenAI, Ollama,
+    vLLM, OpenRouter, Cerebras and others. With base_url left out it reads OPENAI_BASE_URL and
+    OPENAI_API_KEY; with a base_url it sends only the api_key you pass.
+    """
     return _ChatCompletions(model, base_url, api_key, headers, provider, max_tokens, max_retries)
 
 

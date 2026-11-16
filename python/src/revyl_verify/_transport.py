@@ -54,6 +54,12 @@ Json: TypeAlias = "None | bool | int | float | str | list[Json] | dict[str, Json
 
 
 class VerifyError(Exception):
+    """Every Verify failure. code is stable, such as INSTRUCTION_FAILED or SESSION_ENDED, and the
+    message says how to fix the call. result is the failed StepResult on INSTRUCTION_FAILED and
+    VALIDATION_FAILED; reason and http_status carry a known server refusal code and the HTTP
+    status; viewer_url and cleanup_status name the session and whether it was stopped.
+    """
+
     def __init__(
         self,
         code: str,

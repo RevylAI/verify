@@ -18,6 +18,10 @@ def text_length(text: str) -> int:
 
 @dataclass(frozen=True)
 class Viewport:
+    """A web session's browser size in CSS pixels, 320 to 3840 by 240 to 2160, with an optional
+    device scale factor from 1 to 3.
+    """
+
     width: int
     height: int
     device_scale_factor: float | None = None
@@ -25,6 +29,10 @@ class Viewport:
 
 @dataclass(frozen=True)
 class SignIn:
+    """A test-only sign-in route Revyl opens before a web session starts: a local path, the name of
+    a secret stored in Revyl, and an optional persona.
+    """
+
     path: str
     secret: str
     persona: str | None = None
@@ -32,6 +40,11 @@ class SignIn:
 
 @dataclass(frozen=True)
 class Target:
+    """What open() starts. Web takes app_id, with url, build_id or branch; iOS and Android take
+    exactly one of app_id, build_id, artifact_url or bundle_id; mac and linux take only platform
+    and start_timeout. Timeouts are in seconds.
+    """
+
     platform: Platform
     app_id: str | None = None
     bundle_id: str | None = None
@@ -47,6 +60,8 @@ class Target:
     sign_in: SignIn | None = None
 
     def validate(self, *, hosted: bool = False) -> None:
+        """Raises INVALID_ARGUMENT when the target is incomplete or mixes options."""
+
         def bad(message: str) -> None:
             raise VerifyError("INVALID_ARGUMENT", message)
 
@@ -191,18 +206,26 @@ class Target:
 
 @dataclass(frozen=True)
 class Point:
+    """A point in screenshot pixels, from the top-left corner."""
+
     x: int
     y: int
 
 
 @dataclass(frozen=True)
 class ScreenSize:
+    """A screenshot's width and height in pixels."""
+
     width: int
     height: int
 
 
 @dataclass(frozen=True)
 class ModelTurn:
+    """One model turn of a step on your own model: the action it chose, whether it ran, model and
+    action seconds, and tokens. A failed action is reported back to the model on its next turn.
+    """
+
     action: str
     ok: bool
     model_seconds: float
@@ -213,6 +236,10 @@ class ModelTurn:
 
 @dataclass(frozen=True)
 class ModelRun:
+    """How a step ran on your model instead of Revyl's agent: the model's name, such as
+    'anthropic/claude-sonnet-5-5', its grounding, turns and token totals.
+    """
+
     id: str
     grounding: Literal["model", "revyl"]
     turns: list[ModelTurn]
@@ -222,6 +249,10 @@ class ModelRun:
 
 @dataclass(frozen=True)
 class StepResult:
+    """The outcome of one instruction or validation. reason is Revyl's explanation, or your model's;
+    model is set when the step ran on your model.
+    """
+
     type: Literal["instruction", "validation"]
     text: str
     passed: bool
@@ -232,6 +263,10 @@ class StepResult:
 
 @dataclass(frozen=True)
 class ExecResult:
+    """The outcome of a command run on a computer. Revyl keeps the first 1 MiB of stdout and stderr
+    together.
+    """
+
     exit_code: int
     stdout: str
     stderr: str
@@ -239,12 +274,16 @@ class ExecResult:
 
 @dataclass(frozen=True)
 class FileStat:
+    """Whether a computer path is a file or a directory, and its size in bytes."""
+
     kind: Literal["file", "directory"]
     size: int
 
 
 @dataclass(frozen=True)
 class ComputerProcess:
+    """A process a command on this computer started. Its id is Revyl's handle, not a PID."""
+
     id: str
     state: Literal["running", "exited"]
     exit_code: int | None = None
@@ -252,6 +291,10 @@ class ComputerProcess:
 
 @dataclass(frozen=True)
 class ComputerRecording:
+    """A computer's recording: a signed URL, which is a credential, and its duration and start time
+    when known.
+    """
+
     url: str
     duration_seconds: float | None = None
     started_at: datetime | None = None

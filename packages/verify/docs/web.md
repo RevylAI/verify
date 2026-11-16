@@ -77,7 +77,7 @@ try {
 }
 ```
 
-A location is `{ target: 'a description' }`, which Revyl's grounding model finds on the current page, or `{ x, y }` in screenshot pixels from the top-left corner; `screenSize()` gives the bounds and `locate(target)` gives an element's point without acting. `type()` clicks the field and clears it first unless you pass `{ clear: false }`. `openUrl(url)` loads a page like `navigate(url)`.
+A location is `{ target: 'a description' }`, which Revyl's grounding model finds on the current page, or `{ x, y }` in screenshot pixels from the top-left corner; `screenSize()` gives the bounds and `locate(target)` gives an element's point without acting. `type()` clicks the field and clears it first unless you pass `{ clear: false }`. When the click doesn't leave a text field focused, it taps once more and types into the focused field; if there is still none, nothing is typed and it throws `ACTION_FAILED` naming `no_focused_input`, so point at the field itself or describe it. `openUrl(url)` loads a page like `navigate(url)`.
 
 More actions, new in 0.5.0, on the same store:
 

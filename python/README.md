@@ -66,6 +66,8 @@ with open(Target(platform="ios", bundle_id="com.apple.Preferences", start_timeou
 
 `open` returns a `Session`, which is also a context manager. `instruction` and `validation` wait for completion; a failed validation raises by default even if HTTP succeeded. Pass `soft=True` to `validation` to inspect a failed verdict without raising. Screenshots return PNG `bytes` and optionally save them to `path`, creating its folder. `report()` returns a JSON dictionary: for devices it is the session-details/report metadata from `/execution/device-sessions/{id}`, not a fabricated report endpoint. After `close()`, `report()` waits up to 5 seconds for a final `status` (`completed`, `failed`, `cancelled` or `timeout`) and then returns the status Revyl has. iOS and Android sessions usually reach a final status within that wait. A web session stays `running` until Revyl has saved its recording, which can take longer, so call `report()` again later when you need a web session's final status.
 
+When a step fails, `instruction()` raises `VerifyError` with code `INSTRUCTION_FAILED` and `validation()` raises `VALIDATION_FAILED`, unless you pass `soft=True`, which returns the failed `StepResult` instead. `error.result` holds that `StepResult`, with its `reason` and, for a step on your own model, its turns and tokens, and the message ends with the session link. The session stays open after a failed step, so leaving the `with` block or calling `close()` still ends it.
+
 All timeout values are **seconds**, including `start_timeout` (default 600), step timeouts and computer command timeouts. Mobile startup includes a bounded best-effort blank-frame observation, not a guarantee that the app has rendered. Begin with an instruction that reaches the screen you need.
 
 ### Asyncio
@@ -107,7 +109,11 @@ with open(Target(platform="mac", start_timeout=600)) as session:
 recording = session.recording()
 ```
 
-`exec(argv, stdin=bytes_or_string, timeout=30, check=True)` preserves argument boundaries and raises on command failure by default. File and process operations are computer-only. File paths are workspace-relative, not arbitrary absolute guest paths. `recording()` returns computer recording metadata or `None`, including after close; it does not wait for or download a recording. Signed URLs in that metadata are credentials. Recording is locally unavailable on devices.
+`exec(argv, stdin=bytes_or_string, timeout=30, check=True)` preserves argument boundaries and raises on command failure by default. File and process operations are computer-only. File paths are workspace-relative, not arbitrary absolute guest paths.
+
+On a Mac, `exec` and the file calls run in the workspace, `/Users/computer/workspace`, and `~` in `exec` means that folder too. Apps on the screen save to the account's real home, so a file TextEdit or Finder saves to Documents is in `/Users/computer/Documents`, not `~/Documents`. Read it with that absolute path, for example `session.exec(["cat", "/Users/computer/Documents/hello.txt"])`, or set the home for one command with `session.exec(["env", "HOME=/Users/computer", "sh", "-c", "cat ~/Documents/hello.txt"])`. `read_file()` takes workspace paths only, so use `exec` for files the screen saved. TextEdit saves Rich Text by default (`hello.txt` becomes `hello.txt.rtf`), so press Shift+Command+T (Format > Make Plain Text) before saving for plain text, or read either kind as text with `session.exec(["textutil", "-convert", "txt", "-stdout", path])`.
+
+`recording()` returns computer recording metadata or `None`, including after close; it does not wait for or download a recording. Signed URLs in that metadata are credentials. Recording is locally unavailable on devices.
 
 Since 0.4.0, a script can click, type and press keys on the computer's screen at points it reads off `screenshot()`:
 
@@ -127,7 +133,7 @@ with open(Target(platform="mac", start_timeout=600)) as computer:
     computer.type_focused("Replacement", clear=False)  # typing replaces the selection
 ```
 
-On a computer, `type_focused` needs `clear=False`: it types where the cursor is and clears nothing, so to replace text, select it first. `"meta"` is Command and `"alt"` is Option. `screen_size()` works too. `tap("the Help menu in the menu bar")` clicks a description and returns the `Point` it clicked. It takes several seconds and can click a look-alike, or something else when the target isn't on the screen, so check the point or take a screenshot afterwards, and use `tap(Point(x, y))` from a screenshot for anything that's hard to undo. `locate()` and the other exact actions aren't available on computers and raise `NOT_AVAILABLE_ON_PLATFORM` before anything is sent. When Revyl answers `screen_starting`, nothing happened, so Verify waits and tries again for up to 30 seconds. A script keeps control of the screen for 120 seconds after its last action, so a teammate can't take control in the Revyl viewer until then; while someone does control it there, actions raise `SESSION_BUSY` and nothing happens. A 403 raises `AUTH_REJECTED`: the key's owner needs the Member role or above, and CI runner keys can't control the screen yet. [computers.md](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#screen) lists every screen error.
+On a computer, `type_focused` needs `clear=False`: it types where the cursor is and clears nothing, so to replace text, select it first. `"meta"` is Command and `"alt"` is Option. `screen_size()` works too. `tap("the Help menu in the menu bar")` clicks a description and returns the `Point` it clicked. It takes several seconds and can click a look-alike, or something else when the target isn't on the screen, so check the point or take a screenshot afterwards, and use `tap(Point(x, y))` from a screenshot for anything that's hard to undo. `locate()` and the other exact actions aren't available on computers and raise `NOT_AVAILABLE_ON_PLATFORM` before anything is sent. When Revyl answers `screen_starting`, nothing happened, so Verify waits and tries again for up to 30 seconds. A script keeps control of the screen for 120 seconds after its last action, so a teammate can't take control in the Revyl viewer until then; while someone does control it there, actions raise `SESSION_BUSY` and nothing happens. A 403 raises `AUTH_REJECTED`: the key's owner needs the Member role or above, and CI runner keys can't control the screen yet. [computers.md](https://github.com/RevylAI/verify/blob/v0.6.4/packages/verify/docs/computers.md#screen) lists every screen error.
 
 **Breaking wire change:** computer-operation arguments use `argv_b64` (one padded URL-safe base64 UTF-8 string per argument) and file paths use `path_b64`, with no raw `argv` or `path`. This SDK is incompatible with the previous backend contract. Deploy the encoded-only backend before publishing or upgrading to this SDK. Public APIs and decoded limits are unchanged; `stdin` and file `data` retain their existing standard base64 encoding, and process commands are unchanged. Encoding is not encryption, and Verify does not fall back to plaintext or replay the request.
 
@@ -209,8 +215,8 @@ A location is a `Point(x, y)` in whole, non-negative screenshot pixels from the 
 | `tap(at)` | Taps (clicks on Web and Mac computers) and returns the `Point` tapped. On a Mac computer a described tap takes several seconds and can click a look-alike, so check the point |
 | `double_tap(at)` | Double-taps (double-clicks on Web) and returns the `Point` |
 | `long_press(at, duration=None)` | Presses and holds for `duration` seconds, 0.001 to 5 in whole milliseconds (1.5 by default), and returns the `Point` |
-| `type(at, text, clear=True)` | Taps a text field and types into it, clearing it first unless `clear` is `False`; returns the `Point` tapped |
-| `type_focused(text, clear=True)` | Web and Mac computers: types into the field that already has focus, without clicking. Focus the field first, for example with `tap` or `press_key("tab")`. With no field focused nothing is typed and nothing is raised, so check the result. On Web it replaces the field's text unless `clear` is `False`. On a Mac computer pass `clear=False`: it types where the cursor is, and leaving `clear` out raises `INVALID_ARGUMENT`. To replace text there, select it first with `press_key("a", modifiers=["meta"])`. On iOS and Android it raises `NOT_AVAILABLE_ON_PLATFORM`; use `type(location, text)` |
+| `type(at, text, clear=True)` | Taps a text field and types into it, clearing it first unless `clear` is `False`; returns the `Point` tapped. On Web, when Revyl refuses to type at the point because no text field there takes focus, Verify clicks the point and types into the field that then has focus, and raises `ACTION_FAILED` (`no_focused_input`) when none does |
+| `type_focused(text, clear=True)` | Web and Mac computers: types into the field that already has focus, without clicking. Focus the field first, for example with `tap` or `press_key("tab")`. With no field focused nothing is typed: on Web that raises `ACTION_FAILED` (`no_focused_input`), and on a Mac computer nothing is raised, so check the result. On Web it replaces the field's text unless `clear` is `False`. On a Mac computer pass `clear=False`: it types where the cursor is, and leaving `clear` out raises `INVALID_ARGUMENT`. To replace text there, select it first with `press_key("a", modifiers=["meta"])`. On iOS and Android it raises `NOT_AVAILABLE_ON_PLATFORM`; use `type(location, text)` |
 | `swipe(direction, from_=None)` | Swipes from a location or the screen's center; `"up"` moves the finger up, which scrolls content down |
 | `drag(start, end)` | Presses at one location, moves to the other and releases, for example to reorder a list, move a slider or select text |
 | `press_key(key, modifiers=())` | Presses a key on the focused element. Every platform takes `"enter"` and `"backspace"`. Web and Mac computers also take `"tab"`, `"escape"`, `"delete"`, `"space"`, `"arrowup"`, `"arrowdown"`, `"arrowleft"`, `"arrowright"`, `"home"`, `"end"`, `"pageup"` and `"pagedown"`, and `modifiers`: up to four of `"ctrl"`, `"shift"`, `"alt"` and `"meta"`, held while the key is pressed. With modifiers a lowercase letter or digit works too. The shortcut key differs: select all with `press_key("a", modifiers=["meta"])` on a Mac computer, where `"meta"` is Command and `"alt"` is Option, and with `press_key("a", modifiers=["ctrl"])` on Web, where `"meta"` is not the shortcut key. Other keys and any modifiers raise `NOT_AVAILABLE_ON_PLATFORM` on iOS and Android |
@@ -423,11 +429,11 @@ Use an empty `dist/` before building; the package checker rejects stale or extra
 
 ## Documentation
 
-- [TypeScript API and platform contracts](https://github.com/RevylAI/verify/tree/main/packages/verify/docs)
-- [Use your own model](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/own-model.md): providers, live results and troubleshooting, which apply to Python too
-- [Go SDK](https://github.com/RevylAI/verify/tree/main/go)
-- [Live results from other SDKs and limitations](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/end-to-end.md)
-- [Python release procedure](https://github.com/RevylAI/verify/blob/main/RELEASING.md#python)
+- [TypeScript API and platform contracts](https://github.com/RevylAI/verify/tree/v0.6.4/packages/verify/docs)
+- [Use your own model](https://github.com/RevylAI/verify/blob/v0.6.4/packages/verify/docs/own-model.md): providers, live results and troubleshooting, which apply to Python too
+- [Go SDK](https://github.com/RevylAI/verify/tree/go/v0.5.4/go)
+- [Live results from other SDKs and limitations](https://github.com/RevylAI/verify/blob/v0.6.4/packages/verify/docs/end-to-end.md)
+- [Python release procedure](https://github.com/RevylAI/verify/blob/py/v0.4.4/RELEASING.md#python)
 
 ## Troubleshooting
 
@@ -440,4 +446,4 @@ Use an empty `dist/` before building; the package checker rejects stale or extra
 
 ## License
 
-[Apache 2.0](https://github.com/RevylAI/verify/blob/main/LICENSE).
+[Apache 2.0](https://github.com/RevylAI/verify/blob/py/v0.4.4/LICENSE).
