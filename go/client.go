@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -229,7 +230,68 @@ func httpError(r response) error {
 	return responseFailure(r, code, fmt.Sprintf("Revyl request failed (HTTP %d).", r.status))
 }
 
-func startRefusal(r response) error {
+var platformMismatch = regexp.MustCompile(`(?i)platform does not match`)
+
+var platformNames = map[string]string{"ios": "iOS", "android": "Android", "web": "web"}
+
+func platformArticle(platform string) string {
+	if platform == "web" {
+		return "a " + platform
+	}
+	return "an " + platformNames[platform]
+}
+
+func platformMismatchFix(t Target, appPlatform string) string {
+	platform := string(t.Platform)
+	opening := "This target's platform is '" + platform + "', but "
+	if t.AppID != "" {
+		if appPlatform != "" {
+			name := platformNames[appPlatform]
+			if name == "" {
+				name = appPlatform
+			}
+			article := "an "
+			if appPlatform == "web" {
+				article = "a "
+			}
+			return opening + "app " + t.AppID + " is " + article + name + " app. Pass the id of " + platformArticle(platform) + " app as AppID, or set Platform to '" + appPlatform + "'."
+		}
+		return opening + "app " + t.AppID + " is not " + platformArticle(platform) + " app. Pass the id of " + platformArticle(platform) + " app as AppID, or set Platform to the app's platform."
+	}
+	source := "the app at ArtifactURL"
+	if t.BuildID != "" {
+		source = "build " + t.BuildID
+	}
+	return opening + source + " is not " + platformArticle(platform) + " build. Pass a build id of " + platformArticle(platform) + " app as BuildID, or set Platform to the build's platform."
+}
+
+func webStartRefusal(r response, appID, buildID string) error {
+	details := responseDetails(r)
+	known := ""
+	for _, detail := range details {
+		if detail == "web_app_not_found" || detail == "web_build_not_found" {
+			known = detail
+			break
+		}
+	}
+	if r.status != http.StatusNotFound && known == "" {
+		return nil
+	}
+	what := "app " + appID + " or build " + buildID
+	switch {
+	case known == "web_build_not_found":
+		what = "build " + buildID
+	case known == "web_app_not_found" || buildID == "":
+		what = "app " + appID
+	}
+	cause := known
+	if cause == "" {
+		cause = fmt.Sprintf("HTTP %d", r.status)
+	}
+	return &Error{Code: ErrInvalidArgument, HTTPStatus: r.status, Message: "Revyl " + what + " was not found (" + cause + "). Check AppID and BuildID: copy them from the app's page in Revyl, and use an API key from the same organization. No session was started."}
+}
+
+func startRefusal(r response, t Target, appPlatform string) error {
 	if r.status != 400 && r.status != 404 && r.status != 422 {
 		return nil
 	}
@@ -248,6 +310,9 @@ func startRefusal(r response) error {
 		detail = strings.ToValidUTF8(detail[:500], "")
 	}
 	fix := "Change the target to a value Revyl accepts and run again."
+	if platformMismatch.MatchString(detail) {
+		fix = platformMismatchFix(t, appPlatform)
+	}
 	if r.status == 404 {
 		fix = "Check AppID and BuildID: copy them from the app's page in Revyl, use an API key from the same organization, and upload a build if the app has none. No session was started."
 	}

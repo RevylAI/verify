@@ -73,6 +73,10 @@ from ._transport import (
 )
 
 _FINAL_STATUSES: tuple[str, ...] = ("completed", "failed", "cancelled", "timeout")
+_RAISE_STEP_TIMEOUT = (
+    "Raise the step timeout (the timeout argument, or step_timeout in open()) or split the "
+    "{kind} into smaller steps."
+)
 _REPORT_SETTLE_SECONDS: float = 5.0
 
 _PAGE_DIRECTION: dict[SwipeDirection, SwipeDirection] = {
@@ -320,12 +324,21 @@ class Session:
             )
             if not 200 <= response.status < 300:
                 refused = response.status in (400, 401, 403, 404, 405, 422, 429)
-                from ._transport import http_error, start_refusal
+                from ._transport import http_error, start_refusal, web_start_refusal
 
                 mobile = not hosted and target.platform != "web"
-                error = (start_refusal(response) if mobile else None) or http_error(
-                    response, hosted=hosted
-                )
+                if target.platform == "web":
+                    refusal = web_start_refusal(response, target, hosted=hosted)
+                    refused = refused or refusal is not None
+                else:
+                    refusal = (
+                        start_refusal(
+                            response, target, lambda: _app_platform(client, target, deadline)
+                        )
+                        if mobile
+                        else None
+                    )
+                error = refusal or http_error(response, hosted=hosted)
                 if (
                     target.platform == "web"
                     and response.status == 409
@@ -415,10 +428,7 @@ class Session:
                     "timeout",
                     "stopping",
                 ):
-                    raise VerifyError(
-                        "SESSION_START_FAILED",
-                        "Web session ended before becoming ready. See " + self.viewer_url,
-                    )
+                    raise self._ended_before_ready(target, detail, "")
                 run = detail.get("workflow_run_id")
                 if detail.get("status") == "running" and isinstance(run, str) and run:
                     if not re.fullmatch(r"[A-Za-z0-9_-]{1,255}", run):
@@ -431,23 +441,31 @@ class Session:
                         png_size(response.body)
                         return
                     if response.status not in (409, 503):
-                        raise self._worker_error("GET", response)
+                        raise self._worker_error("GET", "screenshot", response)
                 deadline.pause(2)
         while True:
-            connection = self._client.json(
-                "GET",
-                "/api/v1/execution/streaming/worker-connection/" + quote(self._run_id, safe=""),
-                deadline=deadline,
-                retry=True,
-            )
+            try:
+                connection = self._client.json(
+                    "GET",
+                    "/api/v1/execution/streaming/worker-connection/" + quote(self._run_id, safe=""),
+                    deadline=deadline,
+                    retry=True,
+                )
+            except VerifyError as unreachable:
+                if unreachable.http_status != 404:
+                    raise
+                raise self._ended_before_ready(
+                    target, self._session_detail(deadline), "HTTP 404"
+                ) from unreachable
+            status = connection.get("status")
             if (
-                connection.get("status") == "ready"
+                status == "ready"
                 and isinstance(connection.get("worker_ws_url"), str)
                 and connection.get("worker_ws_url")
             ):
                 break
-            if connection.get("status") in ("cancelled", "stopped", "failed"):
-                raise VerifyError("SESSION_START_FAILED", "Device assignment failed.")
+            if status in ("cancelled", "stopped", "failed"):
+                raise self._ended_before_ready(target, self._session_detail(deadline), str(status))
             deadline.pause(2)
         connected = deadline.cap(90)
         while True:
@@ -457,8 +475,12 @@ class Session:
             if response.status == 200:
                 if obj(response.json()).get("device_connected") is True:
                     break
+            elif response.status in (404, 410):
+                raise self._ended_before_ready(
+                    target, self._session_detail(deadline), f"HTTP {response.status}"
+                )
             elif response.status != 503:
-                raise self._worker_error("GET", response)
+                raise self._worker_error("GET", "health", response)
             connected.pause(2)
         if target.bundle_id:
             launched = obj(
@@ -480,6 +502,41 @@ class Session:
                     f"See {self.viewer_url}",
                 )
 
+    def _session_detail(self, deadline: Deadline) -> dict[str, Json]:
+        if not self.id:
+            return {}
+        try:
+            return self._client.json(
+                "GET",
+                "/api/v1/execution/device-sessions/" + quote(self.id, safe=""),
+                deadline=deadline.cap(5),
+                timeout=5,
+            )
+        except VerifyError:
+            return {}
+
+    def _ended_before_ready(
+        self, target: Target, detail: dict[str, Json], fallback_status: str
+    ) -> VerifyError:
+        status, error_message = detail.get("status"), detail.get("error_message")
+        reason = (
+            error_message.strip()[:500]
+            if isinstance(error_message, str) and error_message.strip()
+            else "no reason given"
+        )
+        message = (
+            f"The {self.platform} session ended before it was ready "
+            f"({status if isinstance(status, str) and status else fallback_status}): "
+            f"{reason if reason[-1] in '.!?' else reason + '.'} See {self.viewer_url}"
+        )
+        if target.artifact_url:
+            message += (
+                f" Revyl installs artifact_url by downloading {_public_url(target.artifact_url)}: "
+                "check that it is a public HTTPS download Revyl can reach, or upload the build "
+                "and pass build_id."
+            )
+        return VerifyError("SESSION_START_FAILED", message)
+
     def _wait_first_screen(self, deadline: Deadline) -> None:
         try:
             while True:
@@ -495,7 +552,7 @@ class Session:
         except VerifyError:
             return
 
-    def _worker_error(self, method: str, response: Response) -> VerifyError:
+    def _worker_error(self, method: str, action: str, response: Response) -> VerifyError:
         blocked = edge_blocked_error(response)
         if blocked is not None:
             return blocked
@@ -515,6 +572,24 @@ class Session:
             "step_output_not_available",
         ):
             code = "NOT_AVAILABLE_ON_PLATFORM"
+        elif screen_error == "no_focused_input":
+            return VerifyError(
+                "ACTION_FAILED",
+                f"Nothing was typed: no text field has focus on the {self.platform} session "
+                "(no_focused_input). Tap the text field first, or call type() with the field's "
+                f"target or point, which taps it before typing. See {self.viewer_url}",
+                reason=refusal_reason(response),
+                http_status=response.status,
+            )
+        elif action == "input" and screen_error == "target_not_found":
+            return VerifyError(
+                "ACTION_FAILED",
+                "Nothing was typed: the tap did not land on a text field (target_not_found). "
+                "Point at the text field itself, or pass its description as the target. "
+                f"See {self.viewer_url}",
+                reason=refusal_reason(response),
+                http_status=response.status,
+            )
         elif screen_error in _WEB_TARGET_ERRORS:
             return VerifyError(
                 "ACTION_FAILED",
@@ -559,11 +634,20 @@ class Session:
         allow: Callable[[Response], bool] | None = None,
     ) -> Response:
         if self.closed:
-            raise VerifyError("SESSION_ENDED", "The session was closed.")
+            raise VerifyError(
+                "SESSION_ENDED",
+                f"The {self.platform} session was closed before this call. Run every step "
+                "before close() or inside the with block, or open a new session with open(). "
+                f"See {self.viewer_url}",
+            )
         if self.expires_at is not None:
             remaining = (self.expires_at - datetime.now(timezone.utc)).total_seconds()
             if remaining <= 0:
-                raise VerifyError("SESSION_ENDED", "The hosting computer has expired.")
+                raise VerifyError(
+                    "SESSION_ENDED",
+                    f"The {self.platform} session's hosting computer was closed or expired. "
+                    f"Open a new hosted session from a running computer. See {self.viewer_url}",
+                )
             deadline = deadline.cap(remaining)
         response = self._client.request(
             method,
@@ -576,7 +660,7 @@ class Session:
             headers=self._attribution,
         )
         if not 200 <= response.status < 300 and not (allow and allow(response)):
-            raise self._worker_error(method, response)
+            raise self._worker_error(method, action, response)
         return response
 
     def instruction(
@@ -868,7 +952,8 @@ class Session:
             ):
                 raise VerifyError(
                     "TIMEOUT",
-                    f"The {kind} did not finish within {duration:g} s on {agent.model.name}. "
+                    f'The {kind} did not finish within {duration:g} s on {agent.model.name}: "'
+                    f'{description}". {_RAISE_STEP_TIMEOUT.format(kind=kind)} '
                     f"See {self.viewer_url}",
                 ) from error
             raise
@@ -988,7 +1073,8 @@ class Session:
             if self.platform == "ios":
                 raise VerifyError(
                     "NOT_AVAILABLE_ON_PLATFORM",
-                    "back() is not available on iOS; tap the on-screen back control.",
+                    "back() is not available on iOS; tap the on-screen back control. "
+                    f"See {self.viewer_url}",
                 )
             self._act("back", {}, deadline, uncertain)
             return None
@@ -1100,10 +1186,15 @@ class Session:
         )
         with self._lock:
             if self._step_running:
+                self._log(f"✗ {kind}: INVALID_ARGUMENT")
                 raise VerifyError(
-                    "INVALID_ARGUMENT", "Run one instruction or validation at a time on a session."
+                    "INVALID_ARGUMENT",
+                    "Run one instruction or validation at a time on a session: await each step "
+                    "before starting the next. asyncio.gather() and threads start them at the "
+                    "same time.",
                 )
             self._step_running = True
+            open_at_start = not self._closed
         deadline = Deadline(duration, self._cancellation)
         started = time.monotonic()
         step_id: str | None = None
@@ -1213,7 +1304,21 @@ class Session:
             self._log(f"{'✓' if result.passed else '✗'} {kind} ({result.duration_seconds:.1f}s)")
             return result
         except VerifyError as error:
-            self._log(f"✗ {kind}: {error.code}")
+            failure = error
+            if open_at_start and self._closed:
+                failure = VerifyError(
+                    "SESSION_ENDED",
+                    f"The {self.platform} session was closed while the {kind} was running. "
+                    f"Await every step before calling close(). See {self.viewer_url}",
+                )
+            elif local is None and error.code == "TIMEOUT" and time.monotonic() >= deadline.end:
+                failure = VerifyError(
+                    "TIMEOUT",
+                    f"The {kind} did not finish within {duration:g} s and was cancelled: "
+                    f'"{text.strip()}". {_RAISE_STEP_TIMEOUT.format(kind=kind)} '
+                    f"See {self.viewer_url}",
+                )
+            self._log(f"✗ {kind}: {failure.code}")
             if error.code == "TIMEOUT" and step_id:
                 try:
                     self._client.request(
@@ -1226,7 +1331,9 @@ class Session:
                     )
                 except VerifyError:
                     pass
-            raise
+            if failure is error:
+                raise
+            raise failure from error
         finally:
             with self._lock:
                 self._step_running = False
@@ -1373,6 +1480,21 @@ class Session:
 def _web_build(client: Client, target: Target, deadline: Deadline) -> str:
     if target.build_id:
         return target.build_id
+    try:
+        return _find_web_build(client, target, deadline)
+    except VerifyError as error:
+        if error.http_status != 404:
+            raise
+        raise VerifyError(
+            "INVALID_ARGUMENT",
+            f"Revyl app {target.app_id} was not found (HTTP 404). Check app_id: copy it from the "
+            "app's page in Revyl, and use an API key from the same organization. No session was "
+            "started.",
+            http_status=404,
+        ) from error
+
+
+def _find_web_build(client: Client, target: Target, deadline: Deadline) -> str:
     path = "/api/v1/apps/" + quote(target.app_id or "", safe="")
     if target.url:
         body: dict[str, Json] = {"url": target.url}
@@ -1396,7 +1518,13 @@ def _web_build(client: Client, target: Target, deadline: Deadline) -> str:
             if platform is not None and (
                 not isinstance(platform, str) or platform.lower() != "web"
             ):
-                raise VerifyError("CONFIG_INVALID", "Revyl app is not a web app.")
+                if not isinstance(platform, str) or platform.lower() not in ("ios", "android"):
+                    raise VerifyError("CONFIG_INVALID", "Revyl app is not a web app.")
+                raise VerifyError(
+                    "CONFIG_INVALID",
+                    f"Revyl app {target.app_id} is a {platform.lower()} app, not a web app. Pass "
+                    f"a web app's id as app_id, or set platform to '{platform.lower()}'.",
+                )
             branch_id = detail.get("default_branch_id")
             if isinstance(branch_id, str) and branch_id:
                 query.append(("branch_id", branch_id))
@@ -1411,6 +1539,32 @@ def _web_build(client: Client, target: Target, deadline: Deadline) -> str:
             "Revyl app has no web build. Set url or create a web build first.",
         )
     return build_id
+
+
+def _app_platform(client: Client, target: Target, deadline: Deadline) -> str | None:
+    if not target.app_id:
+        return None
+    try:
+        platform = client.json(
+            "GET",
+            "/api/v1/apps/" + quote(target.app_id, safe=""),
+            deadline=deadline.cap(5),
+            timeout=5,
+        ).get("platform")
+    except VerifyError:
+        return None
+    return platform.lower() if isinstance(platform, str) and platform.strip() else None
+
+
+def _public_url(url: str) -> str:
+    try:
+        parsed = urlsplit(url)
+        if not parsed.scheme or not parsed.hostname:
+            raise ValueError
+        _ = parsed.port
+    except ValueError:
+        return "the URL you passed"
+    return f"{parsed.scheme}://{parsed.netloc.rsplit('@', 1)[-1]}{parsed.path}"
 
 
 def _location(at: object) -> Location:

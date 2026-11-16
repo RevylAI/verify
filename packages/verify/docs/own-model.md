@@ -162,7 +162,7 @@ const session = await open('ios', { agent }); // or session.instruction(text, { 
 ```
 
 - `anthropic({ model, apiKey?, baseURL?, maxTokens?, maxRetries? })` and `openaiCompatible({ model, baseURL?, apiKey?, headers?, provider?, maxTokens?, maxRetries? })` are the two built-in adapters. When `baseURL` is left out, `anthropic()` reads `ANTHROPIC_BASE_URL` and `openaiCompatible()` reads `OPENAI_BASE_URL` and `OPENAI_API_KEY`; with a `baseURL`, `openaiCompatible()` sends only the `apiKey` you pass.
-- To use another SDK or runtime, implement `ModelAdapter`: a `name` and `complete(request, signal)`, which gets the system prompt, the text, the screenshot and the tools, and returns the chosen tool call and token usage. `signal` aborts when `modelTimeout` or the step's timeout runs out; pass it to your SDK's request. When `modelTimeout` aborts it, Verify throws `TIMEOUT` ("<name> did not answer in time. Raise localAgent() modelTimeout for slow or local models."), whatever error your adapter threw.
+- To use another SDK or runtime, implement `ModelAdapter`: a `name` and `complete(request, signal)`, which gets the system prompt, the text, the screenshot and the tools, and returns the chosen tool call and token usage. `signal` aborts when `modelTimeout` or the step's timeout runs out; pass it to your SDK's request. When `modelTimeout` aborts it, Verify throws `TIMEOUT` ("<name> did not answer within modelTimeout (60000 ms). Raise localAgent() modelTimeout for slow or local models."), whatever error your adapter threw.
 - See [api.md](api.md#custom-agents) for every option.
 
 ## What goes where
@@ -184,10 +184,13 @@ const session = await open('ios', { agent }); // or session.instruction(text, { 
 | Retries per model call | 2, on rate limits, 5xx and network errors; `Retry-After` is honored up to 10 s | the adapter's `maxRetries` (0 to 5) |
 | Output tokens per turn, thinking included | 4096 on Anthropic, OpenAI and Google, 2048 elsewhere; a reply cut off at the cap throws `MODEL_ERROR`, and a tool call in it is never run | the adapter's `maxTokens` |
 | Turns in a row without a tool call | 3, then `MODEL_ERROR` | |
+| `done` claims the screen check disagrees with | 2, then `INSTRUCTION_FAILED` | |
 
 Input token counts include cached input, so a proxy or provider that caches prompts doesn't make a step look cheaper than it is. Input tokens grow with the number of turns, not with history: each turn sends one screenshot and a text log. Expect roughly 1,300 input tokens per iOS turn at the default size. `step.model` reports each turn's action, model and action time, and token counts, so you can see the cost of every step. A step that fails with `INSTRUCTION_FAILED` or `VALIDATION_FAILED` reports them too, on `error.result.model`.
 
 Device actions are never retried; a failed action goes back to the model to choose its next move. An instruction that runs out of turns fails with `INSTRUCTION_FAILED` like any other.
+
+When your model calls `done` with success, Verify doesn't take its word for it. It takes a new screenshot and asks the same model, as a check, whether the screen shows the task's result. If the check agrees, the instruction passes. If not, the model is told what is missing and keeps working; when it says `done` a second time and the check still disagrees, the instruction fails with `INSTRUCTION_FAILED` and the check's reason. The check is one more model call, and it shows in `step.model.turns` as `check true` or `check false`. With `grounding: 'revyl'`, a target that is only coordinates, such as `[208, 761]`, is refused and sent back to the model to describe the element in words.
 
 ## Troubleshooting
 
@@ -202,7 +205,9 @@ Device actions are never retried; a failed action goes back to the model to choo
 | `MODEL_ERROR`: does not support tool calls, or answered without calling a tool | The model or server ignores tools | Pick a model that supports tool calls; on Ollama, one tagged "tools" |
 | `MODEL_ERROR`: cut off at its output token cap | The model, often while thinking, used all of `maxTokens` before finishing its tool call; Verify never runs a cut-off call | Pass the model through `localAgent()` with a higher `maxTokens`, such as `anthropic({ model, maxTokens: 8192 })` |
 | `TIMEOUT` from the model | A call took longer than `modelTimeout`, with a built-in or your own adapter | Raise `modelTimeout`, common with local models |
-| `INSTRUCTION_FAILED`: did not finish within 20 turns | The model looped or kept missing | Split the instruction, use a stronger model, or keep `grounding: 'revyl'` |
+| `INSTRUCTION_FAILED`: did not finish within 20 turns (maxTurns 20) | The model looped or kept missing | Raise `maxTurns`, split the instruction, use a stronger model, or keep `grounding: 'revyl'` |
+| `INSTRUCTION_FAILED`: said the task was done, but a check of the screen disagreed | The model stopped before the task's result was on the screen | Split the instruction into smaller steps, or use a stronger model |
+| `ACTION_FAILED`: Nothing was typed (Web) | No text field had focus, or the point given to `type` wasn't on a text field. On your model this goes back to the model, which tries again | With `grounding: 'model'`, a model that can't point accurately keeps missing small fields: keep `grounding: 'revyl'` or use a stronger model |
 
 [errors.md](errors.md) lists every Verify error code.
 

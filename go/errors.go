@@ -91,12 +91,26 @@ func (e *Error) Is(target error) bool {
 func failure(code Code, message string) error { return &Error{Code: code, Message: message} }
 
 func refusalReason(r response) RefusalReason {
+	for _, detail := range responseDetails(r) {
+		switch reason := RefusalReason(detail); reason {
+		case ReasonWebRuntimeUnavailable, ReasonWebRuntimeNotConfigured, ReasonComputerLimit, ReasonRuntimeUnavailable, ReasonComputerRuntimeUnavailable,
+			ReasonComputerAtCapacity, ReasonComputerPlatformAtCapacity, ReasonComputerNotRunning, ReasonComputerCannotHostPlatform, ReasonComputerNotFound,
+			ReasonWebBuildRequired, ReasonWebBuildNotSupported, ReasonIOSBuildRequired, ReasonIOSBuildNotSupported,
+			ReasonAndroidBuildRequired, ReasonAndroidBuildNotSupported, ReasonWebSessionConflict, ReasonIOSSessionConflict,
+			ReasonAndroidSessionConflict, ReasonNotAvailableOnPlatform, ReasonRequestTimeout, ReasonProtocolError:
+			return reason
+		}
+	}
+	return ""
+}
+
+func responseDetails(r response) []string {
 	var raw struct {
 		Detail json.RawMessage `json:"detail"`
 		Error  json.RawMessage `json:"error"`
 	}
 	if json.Unmarshal(r.body, &raw) != nil {
-		return ""
+		return nil
 	}
 	var detail string
 	if json.Unmarshal(raw.Detail, &detail) != nil {
@@ -109,17 +123,7 @@ func refusalReason(r response) RefusalReason {
 	}
 	var topLevel string
 	_ = json.Unmarshal(raw.Error, &topLevel)
-	for _, reason := range []RefusalReason{RefusalReason(detail), RefusalReason(topLevel)} {
-		switch reason {
-		case ReasonWebRuntimeUnavailable, ReasonWebRuntimeNotConfigured, ReasonComputerLimit, ReasonRuntimeUnavailable, ReasonComputerRuntimeUnavailable,
-			ReasonComputerAtCapacity, ReasonComputerPlatformAtCapacity, ReasonComputerNotRunning, ReasonComputerCannotHostPlatform, ReasonComputerNotFound,
-			ReasonWebBuildRequired, ReasonWebBuildNotSupported, ReasonIOSBuildRequired, ReasonIOSBuildNotSupported,
-			ReasonAndroidBuildRequired, ReasonAndroidBuildNotSupported, ReasonWebSessionConflict, ReasonIOSSessionConflict,
-			ReasonAndroidSessionConflict, ReasonNotAvailableOnPlatform, ReasonRequestTimeout, ReasonProtocolError:
-			return reason
-		}
-	}
-	return ""
+	return []string{detail, topLevel}
 }
 
 func isJSONBody(body []byte) bool {

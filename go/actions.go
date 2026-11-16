@@ -686,7 +686,7 @@ func (s *Session) perform(ctx context.Context, action deviceAction, screenToken 
 		return nil, s.act(ctx, "go_home", map[string]any{})
 	case "back":
 		if s.platform == IOS {
-			return nil, failure(ErrNotAvailableOnPlatform, "Back is not available on iOS; tap the on-screen back control.")
+			return nil, failure(ErrNotAvailableOnPlatform, "Back is not available on iOS; tap the on-screen back control. See "+s.viewer)
 		}
 		return nil, s.act(ctx, "back", map[string]any{})
 	}

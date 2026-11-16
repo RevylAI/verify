@@ -161,14 +161,23 @@ class Target:
             return
         if any(value is not None for value in (self.url, self.branch, self.viewport, self.sign_in)):
             bad("url, branch, viewport, and sign_in apply only to web targets.")
-        if not hosted and (
-            sum(
-                value is not None
-                for value in (self.app_id, self.build_id, self.artifact_url, self.bundle_id)
+        sources = [
+            name
+            for name in ("app_id", "build_id", "artifact_url", "bundle_id")
+            if getattr(self, name) is not None
+        ]
+        if not hosted and len(sources) != 1:
+            given = ", ".join(sources[:-1]) + " and " + sources[-1] if sources else "none of them"
+            bad(
+                "A mobile target takes exactly one of app_id, build_id, artifact_url or "
+                f"bundle_id; it has {given}."
+                + (
+                    " Keep build_id to pin an exact build, or app_id to install the app's newest "
+                    "build."
+                    if self.app_id is not None and self.build_id is not None
+                    else ""
+                )
             )
-            != 1
-        ):
-            bad("Mobile needs exactly one of app_id, build_id, artifact_url, or bundle_id.")
         if self.artifact_url and not self.artifact_url.startswith("https://"):
             bad("artifact_url must use HTTPS.")
         for value, limit in (

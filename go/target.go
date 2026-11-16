@@ -120,14 +120,21 @@ func (t *Target) validate(hosted bool) error {
 	if hosted {
 		return nil
 	}
-	sources := 0
-	for _, source := range []string{t.AppID, t.BuildID, t.ArtifactURL, t.BundleID} {
-		if source != "" {
-			sources++
+	var given []string
+	for _, source := range []struct{ name, value string }{{"AppID", t.AppID}, {"BuildID", t.BuildID}, {"ArtifactURL", t.ArtifactURL}, {"BundleID", t.BundleID}} {
+		if source.value != "" {
+			given = append(given, source.name)
 		}
 	}
-	if sources != 1 {
+	if len(given) == 0 {
 		return bad("Mobile needs exactly one of AppID, BuildID, ArtifactURL, or BundleID.")
+	}
+	if len(given) > 1 {
+		message := "Mobile needs exactly one of AppID, BuildID, ArtifactURL, or BundleID; it has " + strings.Join(given[:len(given)-1], ", ") + " and " + given[len(given)-1] + "."
+		if t.AppID != "" && t.BuildID != "" {
+			message += " Keep BuildID to pin an exact build, or AppID to install the app's newest build."
+		}
+		return bad(message)
 	}
 	if t.ArtifactURL != "" && !strings.HasPrefix(t.ArtifactURL, "https://") {
 		return bad("ArtifactURL must use HTTPS.")

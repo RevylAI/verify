@@ -142,7 +142,10 @@ def open(
     if local is not None and computer:
         raise VerifyError(
             "NOT_AVAILABLE_ON_PLATFORM",
-            "Your own model runs steps on browsers and devices, not on computers.",
+            "Your own model runs steps on browsers and devices, not on computers (platform "
+            f"'{target.platform}'). Remove the model and agent options from open(): on a "
+            "computer, run commands with exec(), read and write files with read_file() and "
+            "write_file(), and use the screen actions, which need no model.",
         )
     install_signal_cleanup()
     seconds(step_timeout, 1, 3600, "step_timeout")

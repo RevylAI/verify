@@ -98,7 +98,8 @@ func (s *Session) step(ctx context.Context, kind, text string, timeout time.Dura
 	s.mu.Lock()
 	if s.stepRunning {
 		s.mu.Unlock()
-		return StepResult{}, failure(ErrInvalidArgument, "Run one instruction or validation at a time on a session.")
+		s.logLine("✗ " + kind + ": " + string(ErrInvalidArgument))
+		return StepResult{}, failure(ErrInvalidArgument, "Run one instruction or validation at a time on a session: finish each step before starting the next. Goroutines start them at the same time; wait for each call to return.")
 	}
 	s.stepRunning = true
 	s.mu.Unlock()
@@ -109,7 +110,7 @@ func (s *Session) step(ctx context.Context, kind, text string, timeout time.Dura
 	}()
 	started := time.Now()
 	text = strings.TrimSpace(text)
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := context.WithTimeoutCause(ctx, timeout, errStepTimeout)
 	defer cancel()
 	if !s.expiresAt.IsZero() {
 		var expireCancel context.CancelFunc
@@ -131,8 +132,11 @@ func (s *Session) step(ctx context.Context, kind, text string, timeout time.Dura
 	}
 	outcome, err := s.runStep(ctx, kind, text, timeout)
 	if err != nil {
-		if ended := s.sessionEndError(); ended != nil {
+		if ended := s.stepEndError(kind); ended != nil {
 			return StepResult{}, ended
+		}
+		if errors.Is(err, ErrTimeout) && context.Cause(ctx) == errStepTimeout {
+			return StepResult{}, &Error{Code: ErrTimeout, Message: fmt.Sprintf("The %s did not finish within %d ms and was cancelled: \"%s\". %s See %s", kind, timeout.Milliseconds(), text, raiseStepTimeout(kind), s.viewer), Cause: err}
 		}
 		return StepResult{}, err
 	}
@@ -242,10 +246,10 @@ func (s *Session) runLocal(ctx context.Context, kind, text string, timeout time.
 	local, err := runLocalStep(ctx, kind, text, agent, s.platform, s, s.logLine)
 	if err != nil {
 		var sdkError *Error
-		if ctx.Err() != nil && !(errors.As(err, &sdkError) && sdkError.Code != ErrTimeout) {
-			err = &Error{Code: ErrTimeout, Message: fmt.Sprintf("The %s did not finish within %d ms on %s. See %s", kind, timeout.Milliseconds(), name, s.viewer), Cause: err}
+		if context.Cause(ctx) == errStepTimeout && !(errors.As(err, &sdkError) && sdkError.Code != ErrTimeout) {
+			err = &Error{Code: ErrTimeout, Message: fmt.Sprintf("The %s did not finish within %d ms on %s: \"%s\". %s See %s", kind, timeout.Milliseconds(), name, text, raiseStepTimeout(kind), s.viewer), Cause: err}
 		}
-		if ended := s.sessionEndError(); ended != nil {
+		if ended := s.stepEndError(kind); ended != nil {
 			err = ended
 		}
 		code := err.Error()
@@ -268,6 +272,26 @@ func (s *Session) runLocal(ctx context.Context, kind, text string, timeout time.
 	}
 	s.logLine(fmt.Sprintf("%s %s (%s, %d turn%s on %s, %d tokens)%s", mark, kind, formatDuration(result.Duration), len(local.run.Turns), plural, local.run.ID, local.run.InputTokens+local.run.OutputTokens, why))
 	return result, nil
+}
+
+var errStepTimeout = errors.New("step timeout")
+
+func raiseStepTimeout(kind string) string {
+	options := "StepOptions"
+	if kind == "validation" {
+		options = "ValidationOptions"
+	}
+	return "Raise the step timeout (" + options + " Timeout, or OpenOptions StepTimeout) or split the " + kind + " into smaller steps."
+}
+
+func (s *Session) stepEndError(kind string) error {
+	s.mu.Lock()
+	closed := s.closeDone != nil
+	s.mu.Unlock()
+	if closed {
+		return failure(ErrSessionEnded, fmt.Sprintf("The %s session was closed while the %s was running. Wait for every step to return before calling Close. See %s", s.platform, kind, s.viewer))
+	}
+	return s.sessionEndError()
 }
 
 func formatDuration(d time.Duration) string {

@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.6.4 (unreleased)
+
+- Your own model: when the model says an instruction is done, Verify checks before passing it. It takes a new screenshot and asks the same model whether the screen shows the task's result. If the check disagrees, the model is told what is missing and keeps working; a second disagreement fails the instruction with `INSTRUCTION_FAILED`: `<model> said the task was done, but a check of the screen disagreed: <reason>`. Before, a model that stopped early (for example after opening an edit field without saving) passed the step. The check is one extra model call per finished instruction and shows in `step.model.turns` as `check true` or `check false`.
+- Your own model on Web: typing that Revyl refuses because no text field has focus (`no_focused_input`) throws `ACTION_FAILED` (`Nothing was typed: no text field has focus on the web session (no_focused_input). Tap the text field first, or call type() with the field's target or point, which taps it before typing. See <link>`) instead of `SESSION_BUSY`, and a point that isn't on a text field says `Nothing was typed: the tap did not land on a text field (target_not_found)…`. In a step on your model, both go back to the model, which tries again, instead of ending the step. The model's prompt says that `type` clicks the field before typing.
+- Your own model with Revyl grounding: a target that is only coordinates, such as `[208, 761]`, is refused and sent back to the model to describe the element in words, instead of being sent to Revyl's grounding model.
+- Your own model: running out of turns says `<model> did not finish within 20 turns (maxTurns 20). Raise localAgent() maxTurns or split the instruction into smaller steps.`, and a model call that runs past `modelTimeout` names the value: `<model> did not answer within modelTimeout (60000 ms). Raise localAgent() modelTimeout for slow or local models.`
+- A web `open()` whose app or build Revyl can't find throws `INVALID_ARGUMENT` (`Revyl app <id> was not found (HTTP 404). Check app.appId: copy it from the app's page in Revyl, and use an API key from the same organization. No session was started.`) instead of `API_ERROR … failed with HTTP 404`.
+- An iOS or Android `open()` that Revyl refuses with "Build platform does not match the session" says which platform the target asked for and what the app or build is: `This target's platform is 'ios', but app <id> is a web app. Pass the id of an iOS app as app.appId, or set platform to 'web'.` (for a build id: `…but build <id> is not an iOS build…`).
+- An iOS or Android session that ends before it is ready, such as one whose `artifactUrl` Revyl can't download, throws `SESSION_START_FAILED` with Revyl's reason and the session link instead of `SESSION_ENDED`, and with an `artifactUrl` adds that it must be a public HTTPS download Revyl can reach (the URL is shown without its query string).
+- `open('android')` with no such target in `verify.config.ts` shows the shape to add: `… Add it under targets in that file, such as android: { platform: 'android', app: { appId: '<app id>' } }, with exactly one of appId, buildId, artifactUrl or bundleId in app.` A target's `app` with more than one of those names the ones it has and, for `appId` and `buildId`, which to keep.
+- A misspelled target option in `verify.config.ts` is named with a suggestion, such as `targets.web.plaform is not a known option. Did you mean platform?`, instead of `targets.web.platform must be 'web', 'ios', …`.
+- A call after `close()` says `The android session was closed before this call. Await every step before calling close(), or open a new session with open(). See <link>`. `back()` on iOS, `model` on a computer, two steps at once and a step timeout now say how to fix the call: tap the on-screen back control (with the session link); remove `model` and use `exec()`, the file calls and the screen actions; await each step (`Promise.all` starts them together); raise the step timeout or split the step.
+- Docs: errors.md and own-model.md describe the changes above.
+
+## Go 0.5.4 (unreleased)
+
+- Your own model: a `done` with success is checked against a new screenshot by the same model before the step passes; a second disagreement fails the instruction (`ErrInstructionFailed`): `<model> said the task was done, but a check of the screen disagreed: <reason>`. The check shows in `step.Model.Turns` as `check true` or `check false`.
+- Web typing refused for no focused field (`no_focused_input`) returns `ErrActionFailed` (`Nothing was typed: no text field has focus … Tap the text field first, or call Type with the field's target or point …`) instead of `ErrSessionBusy`, and on your model goes back to the model instead of ending the step. A point that isn't on a text field says so (`target_not_found`). With Revyl grounding, a target that is only coordinates is sent back to the model.
+- Your own model: running out of turns names `MaxTurns` and how to raise it; a model call past `ModelTimeout` names the value. A custom adapter's own `ErrTimeout` gets the same message.
+- A Revyl-agent step whose `StepOptions` or `ValidationOptions` `Timeout` runs out returns `ErrTimeout` naming the timeout, the step, and how to fix it (`Raise the step timeout … or split the instruction into smaller steps. See <link>`), instead of `Revyl operation exceeded its deadline or was cancelled.` A caller's own cancellation still returns the generic `ErrTimeout`.
+- A web `Open` whose app or build Revyl can't find returns `ErrInvalidArgument` (`Revyl app <id> was not found (HTTP 404). Check AppID: …`) instead of `ErrAPI`. "Build platform does not match the session" adds which platform the target asked for and what the app or build is, and what to change.
+- An iOS or Android session that ends before it is ready returns `ErrSessionStartFailed` with Revyl's reason and the session link; with an `ArtifactURL` it adds that the download must be public HTTPS (the URL without its query).
+- A call after `Close`, a step interrupted by `Close`, `Back` on iOS (now with the session link), two steps at once, `WithModel` on a computer, and a target with both `AppID` and `BuildID` say how to fix the call.
+
+## Python 0.4.4 (unreleased)
+
+- Your own model: a `done` with success is checked against a new screenshot by the same model before the step passes; a second disagreement raises `INSTRUCTION_FAILED`: `<model> said the task was done, but a check of the screen disagreed: <reason>`. The check shows in `step.model.turns` as `check true` or `check false`.
+- Web typing refused for no focused field (`no_focused_input`) raises `ACTION_FAILED` (`Nothing was typed: no text field has focus … call type() with the field's target or point …`) instead of `SESSION_BUSY`, and on your model goes back to the model instead of ending the step. A point that isn't on a text field says so (`target_not_found`). With Revyl grounding, a target that is only coordinates is sent back to the model.
+- Your own model: running out of turns names `max_turns` and how to raise it; a model call past `model_timeout` names the value in seconds.
+- A step timeout says how to fix it: raise the `timeout` argument or `step_timeout`, or split the step.
+- A web `open()` whose app or build Revyl can't find raises `INVALID_ARGUMENT` (`Revyl app <id> was not found (HTTP 404). Check app_id: …`) instead of `API_ERROR`. "Build platform does not match the session" adds which platform the target asked for and what the app or build is, and what to change.
+- An iOS or Android session that ends before it is ready, such as an `artifact_url` Revyl can't download, raises `SESSION_START_FAILED` with Revyl's reason and the session link instead of `SESSION_ENDED: Revyl session request failed (HTTP 404)`; with an `artifact_url` it adds that the download must be public HTTPS (the URL without its query).
+- A step still running when `close()` (or the end of a `with` block) ends the session raises `SESSION_ENDED` saying so, instead of `TIMEOUT`. Two steps at once (`asyncio.gather()`) say to await each one. A call after `close()`, `back()` on iOS (now with the session link), `model` on a computer, and a target with both `app_id` and `build_id` say how to fix the call.
+
 ## 0.6.3 (2026-11-16)
 
 - An iOS or Android `open()` whose app or build Revyl can't find (HTTP 404) throws `INVALID_ARGUMENT` saying what wasn't found and how to fix it, instead of a bare `API_ERROR … failed with HTTP 404`: `Revyl refused to start the session (HTTP 404): App not found: <id>. Check app.appId and app.buildId: copy them from the app's page in Revyl, use an API key from the same organization, and upload a build if the app has none. No session was started.` Web and hosted starts still copy no server text.
@@ -220,58 +254,3 @@ First PyPI release of `revyl-verify` (import `revyl_verify`, Python ≥3.10), pu
 ## 0.3.0 (2026-10-31)
 
 - Sign in automatically on the first interactive `open()`, `attach()`, or `currentComputer()` call using the Revyl CLI browser-approval flow; CI remains key-only and browser-free.
-- Make `npx @revyl/verify init` install Verify, scaffold a project, sign in through the Revyl CLI browser approval flow when needed, and print the example command. Non-interactive runs use `REVYL_API_KEY` without prompting or opening a browser.
-- Add `currentComputer()`, Python `current_computer()` / `async_current_computer()`, and Go `CurrentComputer` to attach non-owning to `REVYL_COMPUTER_ID`, with explicit ownership opt-in and a typed error when no current computer is configured.
-- Add explicit non-owning computer attachment with `stopOnClose: false`, Python `stop_on_close=False`, and Go `OpenOptions.StopOnClose`. Closing these attachments still cleans up hosted children but leaves the computer running for its owner to release; the default remains owning.
-
-- Removed environment overrides.
-
-- **Breaking wire change:** encode computer-operation arguments as `argv_b64` and file paths as `path_b64` using padded URL-safe base64 of UTF-8, without changing public APIs, argument boundaries, or existing stdin/data fields. Verify 0.3.0 requires the encoded-only backend, which is already live on revyl.ai; no plaintext fallback or automatic replay is provided.
-
-- Classify HTTP 403 responses with a `text/html` content type and nonempty `cf-ray` as `EDGE_BLOCKED` across TypeScript, Go and Python, unless the body is syntactically valid JSON. Preserve origin authentication errors, omit response content from edge-block messages, and do not retry blocked requests.
-
-- Map hosted Web navigation `request_timeout` and `protocol_error` responses to `ACTION_UNCERTAIN` with safe reasons and HTTP status. Timeout messages explain that navigation may still commit and the session remains open; Verify never replays it.
-
-- Treat ordinary Web `409 web_runtime_unavailable` admission refusals as definite pre-dispatch failures: preserve `API_ERROR` plus safe reason/status details and do not send a stop request. Allocated or otherwise uncertain Web failures retain cleanup.
-
-- Bound parent computer cleanup's child phase to five seconds so slow child stops cannot prevent requesting parent release. Recognize `web_runtime_not_configured` as a definite hosted refusal, reject reports without a known session ID locally, preserve safe TypeScript startup diagnostics, and keep the original TypeScript `Session` interface compatible through the extended `OpenedSession` interface.
-
-- Add public computer attachment, computer-hosted child sessions and deterministic Web navigation in TypeScript, Go and Python. Child sessions reuse the parent's authenticated client and expire with it; parent close attempts bounded child cleanup before requesting computer release. Initial hosted Web builds remain HTTPS; localhost is reached by navigation after start, subject to runtime availability.
-- Preserve typed server refusal reasons and HTTP status alongside existing error codes, including Web `web_runtime_unavailable`, computer `computer_limit` and `runtime_unavailable`, without replaying starts or navigation.
-
-- Preserve Python startup session identity, viewer links and separate cleanup outcomes on typed errors; add optional lifecycle logging to sync/async opening. Clean up identifiable malformed or uncertain starts, interrupt cancelled async startup, validate device stop acknowledgments, and preserve original failures when cleanup also fails.
-
-- Prepare Python SDK 0.1.0 (`revyl-verify`, import `revyl_verify`) for Python ≥3.10, with typed sync and thread-adapted async sessions, seconds-based timeouts, web/mobile steps and early-access computer operations. Include fake-server coverage, wheel/sdist checks and an isolated installed-wheel smoke; Python has not been published or verified live. Its independent `py/v*` release workflow validates without publishing on dispatch, skips exact published versions, and requires administrator-enabled, protected-environment PyPI trusted publishing for new tag releases.
-
-- Add the source-free `revyl-verify` npm alias with matching API, TypeScript types and CLI, pinned to the exact `@revyl/verify` version. Validate and pack both packages; optional CI publication checks each version independently and publishes the scoped package before the alias.
-- Add a standard-library-only Go SDK for web, iOS, Android, and early-access Mac and Linux computers. Computer commands, binary files, process handles, screenshots, recording metadata, and confirmed-release cleanup require computer access through support@revyl.ai. Capacity refusals have a distinct `COMPUTER_LIMIT` code; no start or operation is automatically replayed.
-
-## 0.2.0 (2026-10-27)
-
-Prepared for release; see npm for publication status.
-
-- Enable Linux named and inline computer targets with the shared Mac command, file, process, screenshot, and confirmed-release cleanup surface. Both operating systems remain early access; contact support@revyl.ai for access.
-- Add `COMPUTER_LIMIT` for queued work (including iOS) or concurrency admission refusals, without retrying or stopping a definitely refused start. Preserve `SESSION_BUSY` for operation limits.
-- Explain the 120-second unclaimed-start failure without shortening the default 10-minute start timeout.
-- Expose optional `expiresAt` and bound operation/screenshot observation by the hard 60-minute lifetime from create, while keeping explicit close possible.
-- Add computer `recording()` metadata retrieval after terminal state and confirmed release, including after close. Missing recordings return null; signed URLs remain private, with no automatic waiting or download.
-- Keep Linux CLI init intentionally unavailable; use inline targets or config entries. Computer instruction/validation remain locally unavailable.
-- Observe mobile first-screen content best-effort for up to 10 seconds after connection/launch, without pretending the runtime provides rendered-readiness guarantees. Generated mobile examples begin with an instruction to wait for the first screen before validation.
-- Retry structured computer screen-not-ready responses with bounded backoff during the fixed startup window; do not replay mutations or unrelated failures.
-- Skip CI publication when the exact version is already on npm, require explicit administrator opt-in for new CI publications, fail closed on registry lookup errors, and document manual Mac publication, optional trusted publishing, and independent Go module tags.
-
-Regression validation uses fake API responses. The [end-to-end record](https://github.com/RevylAI/verify/blob/v0.2.0/packages/verify/docs/end-to-end.md) distinguishes baseline live runs from startup fixes still awaiting live re-verification.
-
-## 0.1.0 (2026-10-26)
-
-Published manually from a maintainer's Mac without provenance.
-
-- Open Revyl cloud web browsers, iOS simulators, and Android emulators from TypeScript.
-- Run natural-language instruction and validation steps, with typed failures and optional soft validation results.
-- Save screenshots, share session links, and close sessions explicitly or during best-effort process cleanup.
-- Configure named targets and initialize a script with the `verify` or `revyl-verify` command.
-- Use environment credentials or an existing Revyl CLI login, with documentation included in the package.
-- Include **early-access Mac computers** for commands, binary files, process handles, screenshots, and confirmed-release cleanup. Ask support@revyl.ai about access.
-- Reserve Linux target types and document the future contract; opening Linux is not available in this release.
-
-Requires Node.js 22.18 or later and a Revyl account. There is no bundled test runner or step replay. Mac operations remain covered by source-aligned fake-API tests; the attempted live start never reached active, so it did not prove any operation or confirmed cleanup.

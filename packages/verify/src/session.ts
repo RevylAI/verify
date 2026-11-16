@@ -217,6 +217,7 @@ export class DeviceSession implements Session {
   private closePromise: Promise<void> | undefined;
   private stepRunning = false;
   private parent?: HostingParent;
+  private readonly artifactUrl: string | undefined;
   private readySignal?: AbortSignal;
   private size?: { width: number; height: number };
   private sizeSource?: 'health';
@@ -239,6 +240,7 @@ export class DeviceSession implements Session {
     this.id = id;
     this.workflowRunId = workflowRunId;
     this.viewerUrl = sessionViewerUrl(id, undefined, options.appUrl);
+    this.artifactUrl = target.platform === 'web' ? undefined : target.app.artifactUrl;
   }
 
   static async start(client: RevylClient, target: ResolvedDeviceTarget, options: SessionOptions, parent?: HostingParent): Promise<DeviceSession> {
@@ -508,7 +510,8 @@ export class DeviceSession implements Session {
       throw new VerifyError('INVALID_ARGUMENT', `${type}() takes a timeout of at least 1000 ms.`);
     }
     if (this.stepRunning) {
-      throw new VerifyError('INVALID_ARGUMENT', 'Run one step at a time on a session: await each instruction or validation before starting the next.');
+      this.log(`✗ ${type} "${text.trim()}": INVALID_ARGUMENT`);
+      throw new VerifyError('INVALID_ARGUMENT', 'Run one instruction or validation at a time on a session: await each step before starting the next. Promise.all starts them at the same time.');
     }
     this.stepRunning = true;
     const description = text.trim();
@@ -595,7 +598,7 @@ export class DeviceSession implements Session {
           })
           .catch(() => undefined);
       }
-      throw new VerifyError('TIMEOUT', `The ${type} did not finish within ${timeoutMs} ms and was cancelled: "${description}". See ${this.viewerUrl}`);
+      throw new VerifyError('TIMEOUT', `The ${type} did not finish within ${timeoutMs} ms and was cancelled: "${description}". Raise the step timeout (the timeout option, or stepTimeout in verify.config.ts) or split the ${type} into smaller steps. See ${this.viewerUrl}`);
     }
   }
 
@@ -609,7 +612,7 @@ export class DeviceSession implements Session {
       return await runLocalStep(type, description, agent, this.agentControls(), signal, (line) => this.log(line));
     } catch (error) {
       if (signal.aborted && !(isVerifyError(error) && error.code !== 'TIMEOUT')) {
-        throw new VerifyError('TIMEOUT', `The ${type} did not finish within ${timeoutMs} ms on ${agent.model.name}: "${description}". See ${this.viewerUrl}`, { cause: error });
+        throw new VerifyError('TIMEOUT', `The ${type} did not finish within ${timeoutMs} ms on ${agent.model.name}: "${description}". Raise the step timeout (the timeout option, or stepTimeout in verify.config.ts) or split the ${type} into smaller steps. See ${this.viewerUrl}`, { cause: error });
       }
       throw error;
     } finally {
@@ -845,7 +848,7 @@ export class DeviceSession implements Session {
         await this.act('go_home', undefined, signal);
         return undefined;
       case 'back':
-        if (this.platform === 'ios') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'back() is not available on iOS; tap the on-screen back control.');
+        if (this.platform === 'ios') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `back() is not available on iOS; tap the on-screen back control. See ${this.viewerUrl}`);
         await this.act('back', undefined, signal);
         return undefined;
       case 'open_url':
@@ -921,7 +924,10 @@ export class DeviceSession implements Session {
     action: string,
     options: { body?: unknown; signal?: AbortSignal; retry?: boolean; timeoutMs?: number; allow?: (response: RawResponse) => boolean },
   ): Promise<RawResponse> {
-    if (this.closePromise || this.parent?.signal.aborted || (this.parent?.expiresAt && Date.now() >= this.parent.expiresAt.getTime())) throw new VerifyError('SESSION_ENDED', `The ${this.target} session was closed or its parent expired.`);
+    if (this.closePromise) throw new VerifyError('SESSION_ENDED', `The ${this.target} session was closed before this call. Await every step before calling close(), or open a new session with open(). See ${this.viewerUrl}`);
+    if (this.parent?.signal.aborted || (this.parent?.expiresAt && Date.now() >= this.parent.expiresAt.getTime())) {
+      throw new VerifyError('SESSION_ENDED', `The ${this.target} session's hosting computer was closed or expired. Open a new hosted session from a running computer. See ${this.viewerUrl}`);
+    }
     const signal = this.parent ? AbortSignal.any([
       this.parent.signal,
       ...(this.parent.expiresAt ? [AbortSignal.timeout(Math.max(0, this.parent.expiresAt.getTime() - Date.now()))] : []),
@@ -963,6 +969,12 @@ export class DeviceSession implements Session {
         );
       }
       return new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `${baseAction} is not available on ${this.platform} sessions (${reason}).`);
+    }
+    if ((code ?? detail) === 'no_focused_input') {
+      return new VerifyError('ACTION_FAILED', `Nothing was typed: no text field has focus on the ${this.target} session (no_focused_input). Tap the text field first, or call type() with the field's target or point, which taps it before typing. See ${this.viewerUrl}`);
+    }
+    if (baseAction === 'input' && (code ?? detail) === 'target_not_found') {
+      return new VerifyError('ACTION_FAILED', `Nothing was typed: the tap did not land on a text field (target_not_found). Point at the text field itself, or pass its description as the target. See ${this.viewerUrl}`);
     }
     if (WEB_TARGET_ERRORS.has(code ?? detail ?? '')) {
       return new VerifyError('ACTION_FAILED', `${baseAction} could not act on the screen (${code ?? detail}). Take a fresh screenshot and try again. See ${this.viewerUrl}`);
@@ -1019,16 +1031,20 @@ export class DeviceSession implements Session {
     }
   }
 
+  private startFailure(status: string, reason: string | undefined): VerifyError {
+    const download = this.artifactUrl
+      ? ` Revyl installs app.artifactUrl by downloading ${withoutQuery(this.artifactUrl)}: check that it is a public HTTPS download Revyl can reach, or upload the build and pass app.buildId.`
+      : '';
+    return new VerifyError('SESSION_START_FAILED', `The ${this.target} session ended before it was ready (${status}): ${sentence(reason)}${download} See ${this.viewerUrl}`);
+  }
+
   private async waitForDeviceReady(deadline: number): Promise<void> {
     for (;;) {
       this.readySignal?.throwIfAborted();
       const connection = await this.client.getWorkerConnection(this.workflowRunId, this.readySignal);
       if (connection.status === 'ready' && connection.worker_ws_url) break;
       if (connection.status === 'cancelled' || connection.status === 'stopped' || connection.status === 'failed') {
-        throw new VerifyError(
-          'SESSION_START_FAILED',
-          `The ${this.target} device did not start (${connection.status}): ${connection.message ?? 'no reason given'}`,
-        );
+        throw this.startFailure(connection.status, connection.message ?? undefined);
       }
       await waitBeforeDeadline(deadline, `The ${this.target} device was not assigned in time.`);
     }
@@ -1036,6 +1052,10 @@ export class DeviceSession implements Session {
     for (;;) {
       const response = await this.client.worker(this.workflowRunId, 'health', { method: 'GET', retry: true, signal: this.readySignal });
       if (response.status === 200 && parseJson<WorkerHealth>(response, 'health').device_connected) return;
+      if (response.status === 404 || response.status === 410) {
+        const detail = this.id ? await this.client.getDeviceSession(this.id, AbortSignal.timeout(5_000)).catch(() => undefined) : undefined;
+        throw this.startFailure(detail?.status ?? 'ended', detail?.error_message ?? undefined);
+      }
       if (response.status !== 200 && response.status !== 503) throw this.workerError('GET', 'health', response);
       await waitBeforeDeadline(connectDeadline, `The ${this.target} device did not connect in time.`);
     }
@@ -1048,6 +1068,20 @@ async function resolveWebBuildId(
 ): Promise<string> {
   const { app } = target;
   if (app.buildId) return app.buildId;
+  try {
+    return await findWebBuildId(client, target);
+  } catch (error) {
+    if (!isVerifyError(error) || error.httpStatus !== 404) throw error;
+    throw new VerifyError(
+      'INVALID_ARGUMENT',
+      `Revyl app ${app.appId} was not found (HTTP 404). Check app.appId: copy it from the app's page in Revyl, and use an API key from the same organization. No session was started.`,
+      { httpStatus: 404, cause: error },
+    );
+  }
+}
+
+async function findWebBuildId(client: RevylClient, target: Extract<ResolvedDeviceTarget, { platform: 'web' }>): Promise<string> {
+  const { app } = target;
   if (app.url) {
     const build = await client.registerWebUrlBuild(app.appId, { url: app.url, ...(app.branch ? { branch_name: app.branch } : {}) });
     if (!build.id) throw new VerifyError('API_ERROR', `Revyl registered ${app.url} without returning a build id.`);
@@ -1057,7 +1091,7 @@ async function resolveWebBuildId(
   if (!app.branch) {
     const detail = await client.getApp(app.appId);
     if (detail.platform && detail.platform.toLowerCase() !== 'web') {
-      throw new VerifyError('CONFIG_INVALID', `Target ${target.name}: Revyl app ${app.appId} is a ${detail.platform} app, not a web app.`);
+      throw new VerifyError('CONFIG_INVALID', `Target ${target.name}: Revyl app ${app.appId} is a ${detail.platform} app, not a web app. Pass a web app's id as app.appId, or set platform to '${detail.platform.toLowerCase()}'.`);
     }
     branchId = detail.default_branch_id ?? undefined;
   }
@@ -1113,6 +1147,15 @@ function pointBody(point: Point & { screenToken?: string }, at: Location | undef
 
 function formatDuration(ms: number): string {
   return ms < 60_000 ? `${(ms / 1_000).toFixed(1)}s` : `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1_000)}s`;
+}
+
+function withoutQuery(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return 'the URL you passed';
+  }
 }
 
 function sentence(reason: string | undefined): string {

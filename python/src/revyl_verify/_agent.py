@@ -15,6 +15,7 @@ from PIL import Image
 from ._model import (
     ModelAdapter,
     ModelImage,
+    ModelReply,
     ModelRequest,
     ModelTool,
     ModelToolCall,
@@ -337,6 +338,8 @@ class AgentControls:
 
 _VALIDATION_ATTEMPTS = 3
 _NO_TOOL_LIMIT = 3
+_DONE_CHECKS = 2
+_COORDINATES_ONLY = re.compile(r"^\s*[\[(]?\s*\d+(\.\d+)?\s*,\s*\d+(\.\d+)?\s*[\])]?\s*$")
 _ABORTING_CODES = {
     "SESSION_ENDED",
     "SESSION_BUSY",
@@ -383,17 +386,49 @@ def run_local_step(
             sum(turn.output_tokens for turn in turns),
         )
 
+    def ask(
+        system: str, text: str, image: ModelImage, offered: list[ModelTool]
+    ) -> tuple[ModelReply, float]:
+        started = time.monotonic()
+        try:
+            reply = agent.model.complete(
+                ModelRequest(system, text, image, offered),
+                min(agent.model_timeout, deadline.remaining()),
+            )
+        except Exception as error:
+            if (
+                time.monotonic() - started < agent.model_timeout
+                or deadline.expired()
+                or (isinstance(error, VerifyError) and error.code != "TIMEOUT")
+            ):
+                raise
+            raise VerifyError(
+                "TIMEOUT",
+                f"{name} did not answer within model_timeout ({agent.model_timeout:g} s). "
+                "Raise local_agent() model_timeout for slow or local models.",
+            ) from error
+        if reply.truncated:
+            raise VerifyError(
+                "MODEL_ERROR",
+                f"{name}'s reply was cut off at its output token cap "
+                + (
+                    "in the middle of a tool call, so Verify did not use it"
+                    if reply.tool_call
+                    else "before it called a tool"
+                )
+                + ". Pass the model to local_agent() through an adapter with a higher "
+                "max_tokens, such as anthropic(model, max_tokens=8192) or "
+                "openai_compatible(model, base_url=..., max_tokens=8192).",
+            )
+        return reply, time.monotonic() - started
+
     without_tool = 0
+    rejected_dones = 0
     for turn in range(1, limit + 1):
         deadline.remaining()
         png, screen_token = controls.capture(deadline)
         image = fit_png(png, agent.max_image_side)
-        model_started = time.monotonic()
-        reply = agent.model.complete(
-            ModelRequest(system, _turn_text(kind, task, image, history), image, tools),
-            min(agent.model_timeout, deadline.remaining()),
-        )
-        model_seconds = time.monotonic() - model_started
+        reply, model_seconds = ask(system, _turn_text(kind, task, image, history), image, tools)
         model_ms = round(model_seconds * 1000)
 
         def record(action: str, ok: bool, action_seconds: float = 0) -> None:
@@ -409,19 +444,6 @@ def run_local_step(
             )
 
         call = reply.tool_call
-        if reply.truncated:
-            raise VerifyError(
-                "MODEL_ERROR",
-                f"{name}'s reply was cut off at its output token cap "
-                + (
-                    "in the middle of a tool call, so Verify did not use it"
-                    if call
-                    else "before it called a tool"
-                )
-                + ". Pass the model to local_agent() through an adapter with a higher "
-                "max_tokens, such as anthropic(model, max_tokens=8192) or "
-                "openai_compatible(model, base_url=..., max_tokens=8192).",
-            )
         if call is None:
             without_tool += 1
             if without_tool == _NO_TOOL_LIMIT:
@@ -449,8 +471,60 @@ def run_local_step(
             reason = raw_reason[:1000] if isinstance(raw_reason, str) else None
             outcome = f"{call.name} {'true' if passed else 'false'}"
             record(outcome, True)
-            log(f"  · turn {turn}: {outcome} ({model_ms} ms)")
-            return passed, reason or None, run()
+            if call.name == "verdict" or not passed:
+                log(f"  · turn {turn}: {outcome} ({model_ms} ms)")
+                return passed, reason or None, run()
+            after = fit_png(controls.capture(deadline)[0], agent.max_image_side)
+            actions = "\n".join(history[-30:]) or "none"
+            check, check_seconds = ask(
+                _check_prompt(controls.platform),
+                f"Task: {task}\nActions taken:\n{actions}\n"
+                f"The model that did the task says: {reason or 'done'}\n"
+                f"The screenshot is {after.width}x{after.height} pixels.",
+                after,
+                [_VERDICT_TOOL],
+            )
+            verdict = (
+                check.tool_call if check.tool_call and check.tool_call.name == "verdict" else None
+            )
+            confirmed = verdict is not None and verdict.arguments.get("passed") is True
+            raw_check_reason = verdict.arguments.get("reason") if verdict else None
+            check_reason = (
+                raw_check_reason[:1000] if isinstance(raw_check_reason, str) else None
+            ) or None
+            turns.append(
+                ModelTurn(
+                    f"check {'true' if confirmed else 'false'}",
+                    verdict is not None,
+                    check_seconds,
+                    0,
+                    check.usage.input_tokens,
+                    check.usage.output_tokens,
+                )
+            )
+            total_ms = model_ms + round(check_seconds * 1000)
+            if confirmed:
+                log(f"  · turn {turn}: done true, confirmed by a check ({total_ms} ms)")
+                return True, reason or check_reason, run()
+            missing = check_reason or "the check gave no verdict"
+            log(
+                f"  · turn {turn}: done true, but a check of the screen disagreed: {missing} "
+                f"({total_ms} ms)"
+            )
+            rejected_dones += 1
+            if rejected_dones == _DONE_CHECKS:
+                return (
+                    False,
+                    f"{name} said the task was done, but a check of the screen disagreed: "
+                    f"{missing}",
+                    run(),
+                )
+            history.append(
+                f"{turn}. done: not accepted, because the screen does not show the task "
+                f"complete: {missing if missing[-1] in '.!?' else missing + '.'} Keep working on "
+                "the task, or call done with success false and a reason if it cannot be done."
+            )
+            continue
         action_started = time.monotonic()
         action = call.name
         ok = False
@@ -474,7 +548,12 @@ def run_local_step(
         deadline.pause(0.5 if controls.platform == "web" else 1)
     if kind == "validation":
         raise VerifyError("STEP_FAILED", f"{name} gave no verdict in {limit} attempts.")
-    return False, f"{name} did not finish within {limit} turns.", run()
+    return (
+        False,
+        f"{name} did not finish within {limit} turns (max_turns {limit}). Raise local_agent() "
+        "max_turns or split the instruction into smaller steps.",
+        run(),
+    )
 
 
 def fit_png(data: bytes, max_side: int) -> ModelImage:
@@ -517,6 +596,12 @@ def _to_action(
     def location(required: bool, prefix: str = "") -> Location | None:
         if grounding == "revyl":
             target = args.get(f"{prefix}target")
+            if isinstance(target, str) and _COORDINATES_ONLY.match(target):
+                raise VerifyError(
+                    "INVALID_ARGUMENT",
+                    f'{prefix}target must describe the element in words, such as "Pay rent '
+                    'checkbox"; with Revyl grounding, coordinates are not accepted.',
+                )
             if isinstance(target, str) and target.strip():
                 return target.strip()[:500]
             if required:
@@ -643,9 +728,24 @@ def _instruction_prompt(platform: DevicePlatform, grounding: Grounding) -> str:
             "screenshot, x to the right and y down from the top-left corner.",
             "Check the screenshot before each action: the previous action may not have done what "
             "you expected. To see content further down, swipe up.",
+            "type clicks the field first and then types; use type_focused only when a field "
+            "already has focus."
+            if platform == "web"
+            else "type taps the field first and then types.",
             "Call done with success true as soon as the screenshot shows the task is complete. "
             "Call done with success false and a reason if it cannot be done.",
         ]
+    )
+
+
+def _check_prompt(platform: DevicePlatform) -> str:
+    return (
+        f"You check whether a task on a {_PLATFORM_LABEL[platform]} has been carried out. "
+        "Judge only what the current screenshot shows, not what the actions or the other model "
+        "claim. Call verdict with passed true only if the screenshot shows the task's result, "
+        "such as the entered text, the changed item or the page the task leads to. If it does "
+        "not, or you cannot tell, call verdict with passed false and say in one sentence what "
+        "is missing."
     )
 
 

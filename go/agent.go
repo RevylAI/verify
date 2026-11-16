@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -69,7 +70,10 @@ type localResult struct {
 const (
 	validationAttempts = 3
 	noToolLimit        = 3
+	doneChecks         = 2
 )
+
+var coordinatesOnly = regexp.MustCompile(`^\s*[\[(]?\s*\d+(\.\d+)?\s*,\s*\d+(\.\d+)?\s*[\])]?\s*$`)
 
 var abortingCodes = map[Code]bool{ErrSessionEnded: true, ErrSessionBusy: true, ErrAuthRejected: true, ErrEdgeBlocked: true, ErrModelError: true, ErrTimeout: true, ErrAPI: true, ErrActionUncertain: true}
 
@@ -86,7 +90,33 @@ func runLocalStep(ctx context.Context, kind, task string, a *agent, platform Pla
 	if kind == "instruction" {
 		tools, turns, system = instructionTools(platform, a.grounding), a.maxTurns, instructionPrompt(platform, a.grounding)
 	}
-	withoutTool := 0
+	ask := func(system, text string, image ModelImage, offered []ModelTool) (*ModelToolCall, *ModelTurn, error) {
+		modelStarted := time.Now()
+		modelCtx, cancel := context.WithTimeout(ctx, a.modelTimeout)
+		reply, err := a.model.Complete(modelCtx, ModelRequest{System: system, Text: text, Image: image, Tools: offered})
+		modelTimedOut := modelCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil
+		cancel()
+		if err != nil {
+			var sdkError *Error
+			if modelTimedOut && (!errors.As(err, &sdkError) || sdkError.Code == ErrTimeout) {
+				return nil, nil, &Error{Code: ErrTimeout, Message: fmt.Sprintf("%s did not answer within ModelTimeout (%s). Raise LocalAgent ModelTimeout for slow or local models.", name, a.modelTimeout), Cause: err}
+			}
+			return nil, nil, err
+		}
+		run.Turns = append(run.Turns, ModelTurn{Action: "no tool call", ModelDuration: time.Since(modelStarted), InputTokens: reply.Usage.InputTokens, OutputTokens: reply.Usage.OutputTokens})
+		record := &run.Turns[len(run.Turns)-1]
+		run.InputTokens += record.InputTokens
+		run.OutputTokens += record.OutputTokens
+		if reply.Truncated {
+			where := "before it called a tool"
+			if reply.ToolCall != nil {
+				where = "in the middle of a tool call, so Verify did not use it"
+			}
+			return nil, nil, failure(ErrModelError, name+"'s reply was cut off at its output token cap "+where+". Pass the model to LocalAgent through an adapter with a higher MaxTokens, such as Anthropic(AnthropicOptions{Model: model, MaxTokens: 8192}) or OpenAICompatible(OpenAICompatibleOptions{Model: model, BaseURL: baseURL, MaxTokens: 8192}).")
+		}
+		return reply.ToolCall, record, nil
+	}
+	withoutTool, rejectedDones := 0, 0
 	for turn := 1; turn <= turns; turn++ {
 		if ctx.Err() != nil {
 			return localResult{}, contextError(ctx)
@@ -99,31 +129,11 @@ func runLocalStep(ctx context.Context, kind, task string, a *agent, platform Pla
 		if err != nil {
 			return localResult{}, err
 		}
-		modelStarted := time.Now()
-		modelCtx, cancel := context.WithTimeout(ctx, a.modelTimeout)
-		reply, err := a.model.Complete(modelCtx, ModelRequest{System: system, Text: turnText(kind, task, image, history), Image: image, Tools: tools})
-		modelTimedOut := modelCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil
-		cancel()
+		call, record, err := ask(system, turnText(kind, task, image, history), image, tools)
 		if err != nil {
-			var sdkError *Error
-			if modelTimedOut && !errors.As(err, &sdkError) {
-				return localResult{}, &Error{Code: ErrTimeout, Message: name + " did not answer in time. Raise LocalAgent ModelTimeout for slow or local models.", Cause: err}
-			}
 			return localResult{}, err
 		}
-		run.Turns = append(run.Turns, ModelTurn{Action: "no tool call", ModelDuration: time.Since(modelStarted), InputTokens: reply.Usage.InputTokens, OutputTokens: reply.Usage.OutputTokens})
-		record := &run.Turns[len(run.Turns)-1]
-		run.InputTokens += record.InputTokens
-		run.OutputTokens += record.OutputTokens
 		modelMs := record.ModelDuration.Milliseconds()
-		call := reply.ToolCall
-		if reply.Truncated {
-			where := "before it called a tool"
-			if call != nil {
-				where = "in the middle of a tool call, so Verify did not use it"
-			}
-			return localResult{}, failure(ErrModelError, name+"'s reply was cut off at its output token cap "+where+". Pass the model to LocalAgent through an adapter with a higher MaxTokens, such as Anthropic(AnthropicOptions{Model: model, MaxTokens: 8192}) or OpenAICompatible(OpenAICompatibleOptions{Model: model, BaseURL: baseURL, MaxTokens: 8192}).")
-		}
 		if call == nil {
 			withoutTool++
 			if withoutTool == noToolLimit {
@@ -151,10 +161,60 @@ func runLocalStep(ctx context.Context, kind, task string, a *agent, platform Pla
 			}
 			passed := call.Arguments[flag] == true
 			reason, _ := call.Arguments["reason"].(string)
+			reason = clip(reason, 1000)
 			record.Action = call.Name + " " + strconv.FormatBool(passed)
 			record.OK = true
-			log(fmt.Sprintf("  · turn %d: %s (%d ms)", turn, record.Action, modelMs))
-			return localResult{passed: passed, reason: clip(reason, 1000), run: run}, nil
+			if call.Name == "verdict" || !passed {
+				log(fmt.Sprintf("  · turn %d: %s (%d ms)", turn, record.Action, modelMs))
+				return localResult{passed: passed, reason: reason, run: run}, nil
+			}
+			after, err := c.capture(ctx)
+			if err != nil {
+				return localResult{}, err
+			}
+			afterImage, err := fitPNG(after.png, a.maxImageSide)
+			if err != nil {
+				return localResult{}, err
+			}
+			taken := strings.Join(history[max(0, len(history)-30):], "\n")
+			if taken == "" {
+				taken = "none"
+			}
+			claim := reason
+			if claim == "" {
+				claim = "done"
+			}
+			checkText := fmt.Sprintf("Task: %s\nActions taken:\n%s\nThe model that did the task says: %s\nThe screenshot is %dx%d pixels.", task, taken, claim, afterImage.Width, afterImage.Height)
+			check, checkRecord, err := ask(checkPrompt(platform), checkText, afterImage, []ModelTool{verdictTool})
+			if err != nil {
+				return localResult{}, err
+			}
+			verdict := check != nil && check.Name == "verdict"
+			confirmed := verdict && check.Arguments["passed"] == true
+			checkReason := ""
+			if verdict {
+				checkReason, _ = check.Arguments["reason"].(string)
+				checkReason = clip(checkReason, 1000)
+			}
+			checkRecord.Action, checkRecord.OK = "check "+strconv.FormatBool(confirmed), verdict
+			checkMs := modelMs + checkRecord.ModelDuration.Milliseconds()
+			if confirmed {
+				log(fmt.Sprintf("  · turn %d: done true, confirmed by a check (%d ms)", turn, checkMs))
+				if reason == "" {
+					reason = checkReason
+				}
+				return localResult{passed: true, reason: reason, run: run}, nil
+			}
+			if checkReason == "" {
+				checkReason = "the check gave no verdict"
+			}
+			log(fmt.Sprintf("  · turn %d: done true, but a check of the screen disagreed: %s (%d ms)", turn, checkReason, checkMs))
+			rejectedDones++
+			if rejectedDones == doneChecks {
+				return localResult{reason: name + " said the task was done, but a check of the screen disagreed: " + checkReason, run: run}, nil
+			}
+			history = append(history, fmt.Sprintf("%d. done: not accepted, because the screen does not show the task complete: %s Keep working on the task, or call done with success false and a reason if it cannot be done.", turn, strings.TrimRight(checkReason, ". \t\n")+"."))
+			continue
 		}
 		actionStarted := time.Now()
 		action, err := toAction(call, platform, a.grounding, image, size)
@@ -201,7 +261,7 @@ func runLocalStep(ctx context.Context, kind, task string, a *agent, platform Pla
 	if kind == "validation" {
 		return localResult{}, failure(ErrStepFailed, fmt.Sprintf("%s gave no verdict in %d attempts.", name, turns))
 	}
-	return localResult{reason: fmt.Sprintf("%s did not finish within %d turns.", name, turns), run: run}, nil
+	return localResult{reason: fmt.Sprintf("%s did not finish within %d turns (MaxTurns %d). Raise LocalAgent MaxTurns or split the instruction into smaller steps.", name, turns, turns), run: run}, nil
 }
 
 func toAction(call *ModelToolCall, platform Platform, grounding Grounding, image ModelImage, size Size) (deviceAction, error) {
@@ -212,6 +272,9 @@ func toAction(call *ModelToolCall, platform Platform, grounding Grounding, image
 	location := func(required bool, prefix string) (Location, error) {
 		if grounding == GroundingRevyl {
 			if target, ok := args[prefix+"target"].(string); ok && strings.TrimSpace(target) != "" {
+				if coordinatesOnly.MatchString(target) {
+					return nil, failure(ErrInvalidArgument, prefix+`target must describe the element in words, such as "Pay rent checkbox"; with Revyl grounding, coordinates are not accepted.`)
+				}
 				return Element(clip(strings.TrimSpace(target), 500)), nil
 			}
 			if required {
@@ -382,6 +445,10 @@ func describe(action deviceAction) string {
 var platformLabel = map[Platform]string{IOS: "iPhone simulator", Android: "Android emulator", Web: "web browser"}
 
 func instructionPrompt(platform Platform, grounding Grounding) string {
+	typing := "type taps the field first and then types."
+	if platform == Web {
+		typing = "type clicks the field first and then types; use type_focused only when a field already has focus."
+	}
 	point := "To point at an element, give the pixel coordinates of its center in the screenshot, x to the right and y down from the top-left corner."
 	if grounding == GroundingRevyl {
 		point = "To point at an element, describe it in target by its visible text or look, for example \"General row\" or \"Search field\". Do not give coordinates."
@@ -390,8 +457,13 @@ func instructionPrompt(platform Platform, grounding Grounding) string {
 		"You operate a " + platformLabel[platform] + " to carry out a task. Every turn you see the current screenshot and the actions taken so far, and you call exactly one tool.",
 		point,
 		"Check the screenshot before each action: the previous action may not have done what you expected. To see content further down, swipe up.",
+		typing,
 		"Call done with success true as soon as the screenshot shows the task is complete. Call done with success false and a reason if it cannot be done.",
 	}, "\n")
+}
+
+func checkPrompt(platform Platform) string {
+	return "You check whether a task on a " + platformLabel[platform] + " has been carried out. Judge only what the current screenshot shows, not what the actions or the other model claim. Call verdict with passed true only if the screenshot shows the task's result, such as the entered text, the changed item or the page the task leads to. If it does not, or you cannot tell, call verdict with passed false and say in one sentence what is missing."
 }
 
 func validationPrompt(platform Platform) string {

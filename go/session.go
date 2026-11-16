@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -79,6 +80,7 @@ type Session struct {
 	agent                    *agent
 	size                     *Size
 	sizeFromHealth           bool
+	artifactURL              string
 	screenshotScale          *screenshotScale
 }
 
@@ -112,7 +114,7 @@ func Open(ctx context.Context, target Target, options ...OpenOption) (*Session, 
 		return nil, err
 	}
 	if agent != nil && target.Platform.computer() {
-		return nil, failure(ErrNotAvailableOnPlatform, "Your own model runs steps on browsers and devices, not on computers.")
+		return nil, failure(ErrNotAvailableOnPlatform, "Your own model runs steps on browsers and devices, not on computers (platform '"+string(target.Platform)+"'). Remove WithModel, WithCustomModel and WithAgent from Open: on a computer, run commands with Exec, read and write files with ReadFile and WriteFile, and use the screen actions, which need no model.")
 	}
 	opt, err := openOptions(settings)
 	if err != nil {
@@ -168,7 +170,24 @@ func Open(ctx context.Context, target Target, options ...OpenOption) (*Session, 
 		return nil, err
 	}
 	if r.status < 200 || r.status >= 300 {
-		if refusal := startRefusal(r); refusal != nil && target.Platform != Web {
+		if target.Platform == Web {
+			if refusal := webStartRefusal(r, target.AppID, request["build_id"].(string)); refusal != nil {
+				return nil, refusal
+			}
+			return nil, httpError(r)
+		}
+		appPlatform := ""
+		if target.AppID != "" && slices.ContainsFunc(responseDetails(r), platformMismatch.MatchString) {
+			lookupCtx, lookupCancel := context.WithTimeout(ctx, 5*time.Second)
+			var app struct {
+				Platform string `json:"platform"`
+			}
+			if c.json(lookupCtx, "GET", "/api/v1/apps/"+url.PathEscape(target.AppID), nil, false, 5*time.Second, &app) == nil {
+				appPlatform = strings.ToLower(app.Platform)
+			}
+			lookupCancel()
+		}
+		if refusal := startRefusal(r, target, appPlatform); refusal != nil {
 			return nil, refusal
 		}
 		return nil, httpError(r)
@@ -179,7 +198,7 @@ func Open(ctx context.Context, target Target, options ...OpenOption) (*Session, 
 	if (target.Platform == Web && start.SessionID != id) || (target.Platform != Web && start.RunID == "") {
 		return nil, failure(ErrSessionStartFailed, "Revyl did not acknowledge the new session.")
 	}
-	s := &Session{client: c, id: start.SessionID, runID: start.RunID, platform: target.Platform, stepTimeout: opt.StepTimeout, log: opt.Log, agent: agent}
+	s := &Session{client: c, id: start.SessionID, runID: start.RunID, platform: target.Platform, stepTimeout: opt.StepTimeout, log: opt.Log, agent: agent, artifactURL: target.ArtifactURL}
 	s.viewer = viewer + "/sessions/" + url.PathEscape(s.id)
 	s.logStarting()
 	err = s.ready(ctx, target)
@@ -200,6 +219,15 @@ func (c *client) webBuild(ctx context.Context, t Target) (string, error) {
 	if t.BuildID != "" {
 		return t.BuildID, nil
 	}
+	build, err := c.latestWebBuild(ctx, t)
+	var sdkError *Error
+	if errors.As(err, &sdkError) && sdkError.HTTPStatus == http.StatusNotFound {
+		return "", &Error{Code: ErrInvalidArgument, HTTPStatus: http.StatusNotFound, Message: "Revyl app " + t.AppID + " was not found (HTTP 404). Check AppID: copy it from the app's page in Revyl, and use an API key from the same organization. No session was started.", Cause: err}
+	}
+	return build, err
+}
+
+func (c *client) latestWebBuild(ctx context.Context, t Target) (string, error) {
 	path := "/api/v1/apps/" + url.PathEscape(t.AppID)
 	if t.URL != "" {
 		body := map[string]string{"url": t.URL}
@@ -291,8 +319,9 @@ func (s *Session) ready(ctx context.Context, target Target) error {
 	}
 	for {
 		var connection struct {
-			Status string `json:"status"`
-			URL    string `json:"worker_ws_url"`
+			Status  string `json:"status"`
+			URL     string `json:"worker_ws_url"`
+			Message string `json:"message"`
 		}
 		if err := s.client.json(ctx, "GET", "/api/v1/execution/streaming/worker-connection/"+url.PathEscape(s.runID), nil, true, 30*time.Second, &connection); err != nil {
 			return err
@@ -301,7 +330,7 @@ func (s *Session) ready(ctx context.Context, target Target) error {
 			break
 		}
 		if connection.Status == "cancelled" || connection.Status == "stopped" || connection.Status == "failed" {
-			return failure(ErrSessionStartFailed, "Device assignment failed.")
+			return s.startFailure(connection.Status, connection.Message)
 		}
 		if err := pause(ctx, 2*time.Second); err != nil {
 			return err
@@ -324,6 +353,20 @@ func (s *Session) ready(ctx context.Context, target Target) error {
 			if health.Connected {
 				break
 			}
+		} else if r.status == 404 || r.status == 410 {
+			status, reason := "ended", ""
+			if s.id != "" {
+				detailCtx, detailCancel := context.WithTimeout(ctx, 5*time.Second)
+				var detail struct {
+					Status string `json:"status"`
+					Error  string `json:"error_message"`
+				}
+				if s.client.json(detailCtx, "GET", "/api/v1/execution/device-sessions/"+url.PathEscape(s.id), nil, false, 5*time.Second, &detail) == nil && detail.Status != "" {
+					status, reason = detail.Status, detail.Error
+				}
+				detailCancel()
+			}
+			return s.startFailure(status, reason)
 		} else if r.status != 503 {
 			return s.workerError("GET", "health", r)
 		}
@@ -348,6 +391,18 @@ func (s *Session) ready(ctx context.Context, target Target) error {
 		}
 	}
 	return nil
+}
+
+func (s *Session) startFailure(status, reason string) error {
+	download := ""
+	if s.artifactURL != "" {
+		source := "the URL you passed"
+		if parsed, err := url.Parse(s.artifactURL); err == nil && parsed.Host != "" {
+			source = parsed.Scheme + "://" + parsed.Host + parsed.EscapedPath()
+		}
+		download = " Revyl installs ArtifactURL by downloading " + source + ": check that it is a public HTTPS download Revyl can reach, or upload the build and pass BuildID."
+	}
+	return failure(ErrSessionStartFailed, fmt.Sprintf("The %s session ended before it was ready (%s): %s%s See %s", s.platform, status, sentence(reason), download, s.viewer))
 }
 
 func (s *Session) logStarting() {
@@ -387,6 +442,10 @@ func (s *Session) workerError(method, action string, r response) error {
 	switch {
 	case r.status == 401 || r.status == 403:
 		return httpError(r)
+	case targetError == "no_focused_input":
+		return responseFailure(r, ErrActionFailed, fmt.Sprintf("Nothing was typed: no text field has focus on the %s session (no_focused_input). Tap the text field first, or call Type with the field's target or point, which taps it before typing. See %s", s.platform, s.viewer))
+	case action == "input" && targetError == "target_not_found":
+		return responseFailure(r, ErrActionFailed, "Nothing was typed: the tap did not land on a text field (target_not_found). Point at the text field itself, or pass its description as the target. See "+s.viewer)
 	case r.status == 501 || detail.Error == "not_available_on_platform" || detail.Error == "step_output_not_available":
 		code = ErrNotAvailableOnPlatform
 	case webTargetErrors[targetError]:
@@ -409,13 +468,10 @@ func (s *Session) sessionEndError() error {
 	closed := s.closeDone != nil
 	s.mu.Unlock()
 	if closed {
-		return failure(ErrSessionEnded, "The session was closed.")
+		return failure(ErrSessionEnded, fmt.Sprintf("The %s session was closed before this call. Wait for every step to return before calling Close, or open a new session with Open. See %s", s.platform, s.viewer))
 	}
-	if s.lifetime != nil && s.lifetime.Err() != nil {
-		return failure(ErrSessionEnded, "The parent session was closed.")
-	}
-	if !s.expiresAt.IsZero() && !time.Now().Before(s.expiresAt) {
-		return failure(ErrSessionEnded, "The session lifetime has expired.")
+	if s.lifetime != nil && s.lifetime.Err() != nil || !s.expiresAt.IsZero() && !time.Now().Before(s.expiresAt) {
+		return failure(ErrSessionEnded, fmt.Sprintf("The %s session's hosting computer was closed or expired. Open a new hosted session from a running computer. See %s", s.platform, s.viewer))
 	}
 	return nil
 }

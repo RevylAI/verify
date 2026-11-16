@@ -83,6 +83,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const WEB_URL = /^https:\/\/[^/?#@\s]+(\/[^?#\s]*)?$/;
 const TARGET_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
 const PLATFORMS = ['web', 'ios', 'android', 'mac', 'linux'] as const;
+const TARGET_KEYS = ['platform', 'app', 'device', 'viewport', 'signIn', 'startTimeout', 'idleTimeoutSeconds'];
 
 export function defineConfig(config: VerifyConfig): VerifyConfig {
   return config;
@@ -162,6 +163,7 @@ function parseTarget(raw: unknown, name: string, path: string, fail: Fail, hoste
   const target = asRecord(raw, path, fail);
   const platform = target.platform;
   if (typeof platform !== 'string' || !(PLATFORMS as readonly string[]).includes(platform)) {
+    rejectUnknownKeys(target, TARGET_KEYS, path, fail);
     fail(`${path}.platform`, "must be 'web', 'ios', 'android', 'mac', or 'linux'.");
   }
   const startTimeout = integer(target.startTimeout, `${path}.startTimeout`, 10_000, 1_800_000, 600_000, fail);
@@ -244,9 +246,11 @@ function parseTarget(raw: unknown, name: string, path: string, fail: Fail, hoste
   if (app.artifactUrl !== undefined && (typeof app.artifactUrl !== 'string' || !/^https:\/\//.test(app.artifactUrl))) {
     fail(`${path}.app.artifactUrl`, 'must be an HTTPS URL.');
   }
-  const sources = [app.appId, app.buildId, app.artifactUrl, app.bundleId].filter((value) => value !== undefined).length;
-  if (!hosted && sources !== 1) {
-    fail(`${path}.app`, 'takes exactly one of appId, buildId, or artifactUrl to install an app, or bundleId to open one already on the device.');
+  const given = (['appId', 'buildId', 'artifactUrl', 'bundleId'] as const).filter((key) => app[key] !== undefined);
+  if (!hosted && given.length !== 1) {
+    const has = given.length ? ` It has ${given.join(' and ')}.` : '';
+    const keep = app.appId !== undefined && app.buildId !== undefined ? " Keep buildId to pin an exact build, or appId to install the app's newest build." : '';
+    fail(`${path}.app`, `takes exactly one of appId, buildId, or artifactUrl to install an app, or bundleId to open one already on the device.${has}${keep}`);
   }
   let device: MobileTargetConfig['device'];
   if (target.device !== undefined) {
@@ -279,8 +283,20 @@ function asRecord(raw: unknown, path: string, fail: Fail): Record<string, unknow
 
 function rejectUnknownKeys(record: Record<string, unknown>, allowed: string[], path: string, fail: Fail): void {
   for (const key of Object.keys(record)) {
-    if (!allowed.includes(key)) fail(path ? `${path}.${key}` : key, `is not a known option. Known: ${allowed.join(', ')}.`);
+    if (allowed.includes(key)) continue;
+    const near = allowed.find((name) => editDistance(name.toLowerCase(), key.toLowerCase()) <= 2);
+    fail(path ? `${path}.${key}` : key, `is not a known option.${near ? ` Did you mean ${near}?` : ''} Known: ${allowed.join(', ')}.`);
   }
+}
+
+function editDistance(a: string, b: string): number {
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j += 1) current[j] = Math.min(previous[j]! + 1, current[j - 1]! + 1, previous[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+    previous = current;
+  }
+  return previous[b.length]!;
 }
 
 function integer(raw: unknown, path: string, min: number, max: number, fallback: number | undefined, fail: Fail): number {

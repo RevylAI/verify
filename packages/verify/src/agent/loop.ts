@@ -140,6 +140,8 @@ export function localAgent(options: LocalAgentOptions): LocalAgent {
 
 const VALIDATION_ATTEMPTS = 3;
 const NO_TOOL_LIMIT = 3;
+const DONE_CHECKS = 2;
+const COORDINATES_ONLY = /^\s*[[(]?\s*\d+(\.\d+)?\s*,\s*\d+(\.\d+)?\s*[\])]?\s*$/;
 const ABORTING_CODES = new Set(['SESSION_ENDED', 'SESSION_BUSY', 'AUTH_REJECTED', 'EDGE_BLOCKED', 'MODEL_ERROR', 'TIMEOUT', 'API_ERROR', 'ACTION_UNCERTAIN']);
 
 /** Runs one instruction or validation through the agent's model. The caller enforces the step deadline through signal. */
@@ -157,34 +159,33 @@ export async function runLocalStep(
   const tools = type === 'validation' ? [VERDICT_TOOL] : instructionTools(controls.platform, agent.grounding);
   const turns = type === 'validation' ? VALIDATION_ATTEMPTS : agent.maxTurns;
   let turnsWithoutTool = 0;
-  for (let turn = 1; turn <= turns; turn += 1) {
-    signal.throwIfAborted();
-    const shot = await controls.capture(signal);
-    const image = fitPng(shot.png, agent.maxImageSide);
+  let rejectedDones = 0;
+  const ask = async (system: string, text: string, image: ReturnType<typeof fitPng>, offered: ModelTool[]) => {
     const modelStarted = Date.now();
     const modelDeadline = AbortSignal.timeout(agent.modelTimeout);
-    const reply = await agent.model
-      .complete(
-        {
-          system: type === 'validation' ? validationPrompt(controls.platform) : instructionPrompt(controls.platform, agent.grounding),
-          text: turnText(type, task, image, history),
-          image,
-          tools,
-        },
-        AbortSignal.any([signal, modelDeadline]),
-      )
-      .catch((error: unknown) => {
-        if (isVerifyError(error) || !modelDeadline.aborted || signal.aborted) throw error;
-        throw new VerifyError('TIMEOUT', `${agent.model.name} did not answer in time. Raise localAgent() modelTimeout for slow or local models.`, { cause: error });
-      });
+    const reply = await agent.model.complete({ system, text, image, tools: offered }, AbortSignal.any([signal, modelDeadline])).catch((error: unknown) => {
+      if (!modelDeadline.aborted || signal.aborted || (isVerifyError(error) && error.code !== 'TIMEOUT')) throw error;
+      throw new VerifyError('TIMEOUT', `${agent.model.name} did not answer within modelTimeout (${agent.modelTimeout} ms). Raise localAgent() modelTimeout for slow or local models.`, { cause: error });
+    });
     const record: ModelTurn = { action: 'no tool call', ok: false, modelMs: Date.now() - modelStarted, actionMs: 0, inputTokens: reply.usage.inputTokens, outputTokens: reply.usage.outputTokens };
     run.turns.push(record);
     run.inputTokens += record.inputTokens;
     run.outputTokens += record.outputTokens;
-    const call = reply.toolCall;
     if (reply.truncated) {
-      throw new VerifyError('MODEL_ERROR', `${agent.model.name}'s reply was cut off at its output token cap ${call ? 'in the middle of a tool call, so Verify did not use it' : 'before it called a tool'}. Pass the model to localAgent() through an adapter with a higher maxTokens, such as anthropic({ model, maxTokens: 8192 }) or openaiCompatible({ model, baseURL, maxTokens: 8192 }).`);
+      throw new VerifyError('MODEL_ERROR', `${agent.model.name}'s reply was cut off at its output token cap ${reply.toolCall ? 'in the middle of a tool call, so Verify did not use it' : 'before it called a tool'}. Pass the model to localAgent() through an adapter with a higher maxTokens, such as anthropic({ model, maxTokens: 8192 }) or openaiCompatible({ model, baseURL, maxTokens: 8192 }).`);
     }
+    return { call: reply.toolCall, record };
+  };
+  for (let turn = 1; turn <= turns; turn += 1) {
+    signal.throwIfAborted();
+    const shot = await controls.capture(signal);
+    const image = fitPng(shot.png, agent.maxImageSide);
+    const { call, record } = await ask(
+      type === 'validation' ? validationPrompt(controls.platform) : instructionPrompt(controls.platform, agent.grounding),
+      turnText(type, task, image, history),
+      image,
+      tools,
+    );
     if (!call) {
       turnsWithoutTool += 1;
       if (turnsWithoutTool === NO_TOOL_LIMIT) {
@@ -206,8 +207,33 @@ export async function runLocalStep(
       const reason = typeof call.arguments.reason === 'string' ? call.arguments.reason.slice(0, 1_000) : undefined;
       record.action = `${call.name} ${passed}`;
       record.ok = true;
-      log(`  · turn ${turn}: ${record.action} (${record.modelMs} ms)`);
-      return { passed, ...(reason ? { reason } : {}), run };
+      if (call.name === 'verdict' || !passed) {
+        log(`  · turn ${turn}: ${record.action} (${record.modelMs} ms)`);
+        return { passed, ...(reason ? { reason } : {}), run };
+      }
+      const after = fitPng((await controls.capture(signal)).png, agent.maxImageSide);
+      const checkText = [
+        `Task: ${task}`,
+        `Actions taken:\n${history.slice(-30).join('\n') || 'none'}`,
+        `The model that did the task says: ${reason ?? 'done'}`,
+        `The screenshot is ${after.width}x${after.height} pixels.`,
+      ].join('\n');
+      const check = await ask(checkPrompt(controls.platform), checkText, after, [VERDICT_TOOL]);
+      const confirmed = check.call?.name === 'verdict' && check.call.arguments.passed === true;
+      const checkReason = check.call?.name === 'verdict' && typeof check.call.arguments.reason === 'string' ? check.call.arguments.reason.slice(0, 1_000) : undefined;
+      check.record.action = `check ${confirmed}`;
+      check.record.ok = check.call?.name === 'verdict';
+      if (confirmed) {
+        log(`  · turn ${turn}: done true, confirmed by a check (${record.modelMs + check.record.modelMs} ms)`);
+        const why = reason ?? checkReason;
+        return { passed: true, ...(why ? { reason: why } : {}), run };
+      }
+      const missing = checkReason ?? 'the check gave no verdict';
+      log(`  · turn ${turn}: done true, but a check of the screen disagreed: ${missing} (${record.modelMs + check.record.modelMs} ms)`);
+      rejectedDones += 1;
+      if (rejectedDones === DONE_CHECKS) return { passed: false, reason: `${agent.model.name} said the task was done, but a check of the screen disagreed: ${missing}`, run };
+      history.push(`${turn}. done: not accepted, because the screen does not show the task complete: ${missing.replace(/[.\s]*$/, '.')} Keep working on the task, or call done with success false and a reason if it cannot be done.`);
+      continue;
     }
     const actionStarted = Date.now();
     try {
@@ -226,7 +252,7 @@ export async function runLocalStep(
     await delay(controls.platform === 'web' ? 500 : 1_000, undefined, { signal });
   }
   if (type === 'validation') throw new VerifyError('STEP_FAILED', `${agent.model.name} gave no verdict in ${turns} attempts.`);
-  return { passed: false, reason: `${agent.model.name} did not finish within ${turns} turns.`, run };
+  return { passed: false, reason: `${agent.model.name} did not finish within ${turns} turn${turns === 1 ? '' : 's'} (maxTurns ${turns}). Raise localAgent() maxTurns or split the instruction into smaller steps.`, run };
 }
 
 function toAction(call: ModelToolCall, platform: AgentControls['platform'], grounding: Grounding, image: { width: number; height: number }, size: { width: number; height: number }): DeviceAction {
@@ -234,6 +260,9 @@ function toAction(call: ModelToolCall, platform: AgentControls['platform'], grou
   const location = (required: boolean, prefix = ''): Location | undefined => {
     const [target, x, y] = [args[`${prefix}target`], args[`${prefix}x`], args[`${prefix}y`]];
     if (grounding === 'revyl') {
+      if (typeof target === 'string' && COORDINATES_ONLY.test(target)) {
+        throw new VerifyError('INVALID_ARGUMENT', `${prefix}target must describe the element in words, such as "Pay rent checkbox"; with Revyl grounding, coordinates are not accepted.`);
+      }
       if (typeof target === 'string' && target.trim()) return { target: target.trim().slice(0, 500) };
       if (required) throw new VerifyError('INVALID_ARGUMENT', `${prefix}target is required: describe the element by its visible text or appearance.`);
       return undefined;
@@ -327,8 +356,13 @@ function instructionPrompt(platform: AgentControls['platform'], grounding: Groun
       ? 'To point at an element, describe it in target by its visible text or look, for example "General row" or "Search field". Do not give coordinates.'
       : 'To point at an element, give the pixel coordinates of its center in the screenshot, x to the right and y down from the top-left corner.',
     'Check the screenshot before each action: the previous action may not have done what you expected. To see content further down, swipe up.',
+    platform === 'web' ? 'type clicks the field first and then types; use type_focused only when a field already has focus.' : 'type taps the field first and then types.',
     'Call done with success true as soon as the screenshot shows the task is complete. Call done with success false and a reason if it cannot be done.',
   ].join('\n');
+}
+
+function checkPrompt(platform: AgentControls['platform']): string {
+  return `You check whether a task on a ${PLATFORM_LABEL[platform]} has been carried out. Judge only what the current screenshot shows, not what the actions or the other model claim. Call verdict with passed true only if the screenshot shows the task's result, such as the entered text, the changed item or the page the task leads to. If it does not, or you cannot tell, call verdict with passed false and say in one sentence what is missing.`;
 }
 
 function validationPrompt(platform: AgentControls['platform']): string {

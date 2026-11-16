@@ -86,8 +86,12 @@ export class RevylClient {
   async startDevice(request: StartDeviceRequest, signal?: AbortSignal): Promise<StartDeviceResponse> {
     const path = '/api/v1/execution/start_device';
     const response = await this.send('POST', path, { body: request, retry: false, timeoutMs: 120_000, signal });
-    if (response.status < 200 || response.status >= 300) throw (request.platform !== 'web' && mobileStartRefusal(response)) || apiError('POST', path, response);
-    return parseJson<StartDeviceResponse>(response, `POST ${path}`);
+    if (response.status >= 200 && response.status < 300) return parseJson<StartDeviceResponse>(response, `POST ${path}`);
+    if (request.platform === 'web') throw webStartRefusal(request, response) ?? apiError('POST', path, response);
+    const appPlatform = request.app_id && PLATFORM_MISMATCH.test(responseDetail(response) ?? '')
+      ? await this.getApp(request.app_id, AbortSignal.timeout(5_000)).then((app) => app.platform?.toLowerCase() || undefined, () => undefined)
+      : undefined;
+    throw mobileStartRefusal(request, response, appPlatform) ?? apiError('POST', path, response);
   }
 
   getDeviceSession(sessionId: string, signal?: AbortSignal): Promise<DeviceSessionDetail> {
@@ -283,7 +287,33 @@ export function responseRefusalReason(response: RawResponse): RefusalReason | un
   return responseKnownDetail(response, REFUSAL_REASONS);
 }
 
-function mobileStartRefusal(response: RawResponse): VerifyError | undefined {
+const PLATFORM_MISMATCH = /platform does not match/i;
+const PLATFORM_NAMES: Record<string, string> = { ios: 'iOS', android: 'Android', web: 'web' };
+
+function platformMismatchFix(request: StartDeviceRequest, appPlatform: string | undefined): string {
+  const name = PLATFORM_NAMES[request.platform] ?? request.platform;
+  const article = request.platform === 'web' ? 'a' : 'an';
+  if (request.app_id) {
+    const actual = appPlatform ? `is ${appPlatform === 'web' ? 'a' : 'an'} ${PLATFORM_NAMES[appPlatform] ?? appPlatform} app` : `is not ${article} ${name} app`;
+    return `This target's platform is '${request.platform}', but app ${request.app_id} ${actual}. Pass the id of ${article} ${name} app as app.appId, or set platform to ${appPlatform ? `'${appPlatform}'` : "the app's platform"}.`;
+  }
+  const source = request.build_id ? `build ${request.build_id}` : 'the app at app.artifactUrl';
+  return `This target's platform is '${request.platform}', but ${source} is not ${article} ${name} build. Pass a build id of ${article} ${name} app as app.buildId, or set platform to the build's platform.`;
+}
+
+function webStartRefusal(request: StartDeviceRequest, response: RawResponse): VerifyError | undefined {
+  if (edgeBlockedError(response)) return undefined;
+  const detail = responseKnownDetail(response, new Set(['web_app_not_found', 'web_build_not_found']));
+  if (response.status !== 404 && !detail) return undefined;
+  const what = detail === 'web_build_not_found' ? `build ${request.build_id}` : detail === 'web_app_not_found' || !request.build_id ? `app ${request.app_id}` : `app ${request.app_id} or build ${request.build_id}`;
+  return new VerifyError(
+    'INVALID_ARGUMENT',
+    `Revyl ${what} was not found (${detail ?? `HTTP ${response.status}`}). Check app.appId and app.buildId: copy them from the app's page in Revyl, and use an API key from the same organization. No session was started.`,
+    { httpStatus: response.status },
+  );
+}
+
+function mobileStartRefusal(request: StartDeviceRequest, response: RawResponse, appPlatform: string | undefined): VerifyError | undefined {
   if (![400, 404, 422].includes(response.status) || edgeBlockedError(response)) return undefined;
   let detail: unknown;
   try {
@@ -295,7 +325,7 @@ function mobileStartRefusal(response: RawResponse): VerifyError | undefined {
   const message = detail.trim().slice(0, 500);
   const fix = response.status === 404
     ? "Check app.appId and app.buildId: copy them from the app's page in Revyl, use an API key from the same organization, and upload a build if the app has none. No session was started."
-    : 'Change the target to a value Revyl accepts and run again.';
+    : PLATFORM_MISMATCH.test(message) ? platformMismatchFix(request, appPlatform) : 'Change the target to a value Revyl accepts and run again.';
   return new VerifyError(
     'INVALID_ARGUMENT',
     `Revyl refused to start the session (HTTP ${response.status}): ${/[.!?]$/.test(message) ? message : `${message}.`} ${fix}`,

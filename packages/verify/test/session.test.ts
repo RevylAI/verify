@@ -229,7 +229,7 @@ describe('instruction and validation', () => {
       .on('GET', /step_status\/s$/, () => json({ step_id: 's', status: 'completed', result: stepResult({ status: 'success' }) }));
     const session = await start(fake, android);
     const first = session.instruction('Open settings');
-    await expect(session.instruction('Open profile')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT', message: expect.stringContaining('one step at a time') });
+    await expect(session.instruction('Open profile')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT', message: expect.stringContaining('one instruction or validation at a time') });
     await first;
     await expect(session.validation('   ')).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
   });

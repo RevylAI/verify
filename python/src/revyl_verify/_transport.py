@@ -22,7 +22,7 @@ from urllib.parse import SplitResult, urlsplit
 from . import _cleanup
 
 if TYPE_CHECKING:
-    from ._models import Platform
+    from ._models import Platform, Target
 
 CleanupStatus = Literal["not_attempted", "not_required", "acknowledged", "confirmed", "unconfirmed"]
 RefusalReason = Literal[
@@ -358,7 +358,74 @@ def refusal_reason(response: Response) -> RefusalReason | None:
     return None
 
 
-def start_refusal(response: Response) -> VerifyError | None:
+_PLATFORM_MISMATCH = re.compile(r"platform does not match", re.I)
+_PLATFORM_NAMES = {"ios": "iOS", "android": "Android", "web": "web"}
+
+
+def _platform_mismatch_fix(target: Target, app_platform: str | None) -> str:
+    name = _PLATFORM_NAMES[target.platform]
+    article = "a" if target.platform == "web" else "an"
+    start = f"This target's platform is '{target.platform}', but"
+    if target.app_id:
+        if app_platform in _PLATFORM_NAMES:
+            actual = (
+                f"is {'a' if app_platform == 'web' else 'an'} {_PLATFORM_NAMES[app_platform]} app"
+            )
+            platform = f"'{app_platform}'"
+        else:
+            actual, platform = f"is not {article} {name} app", "the app's platform"
+        return (
+            f"{start} app {target.app_id} {actual}. Pass the id of {article} {name} app as "
+            f"app_id, or set platform to {platform}."
+        )
+    source = f"build {target.build_id}" if target.build_id else "the app at artifact_url"
+    return (
+        f"{start} {source} is not {article} {name} build. Pass a build id of {article} {name} "
+        "app as build_id, or set platform to the build's platform."
+    )
+
+
+def web_start_refusal(response: Response, target: Target, *, hosted: bool) -> VerifyError | None:
+    if edge_blocked_error(response) is not None:
+        return None
+    try:
+        raw = obj(response.json())
+    except VerifyError:
+        raw = {}
+    detail = raw.get("detail")
+    known = next(
+        (
+            value
+            for value in (
+                detail,
+                detail.get("error") if isinstance(detail, dict) else None,
+                raw.get("error"),
+            )
+            if value in ("web_app_not_found", "web_build_not_found")
+        ),
+        None,
+    )
+    if known is None and (hosted or response.status != 404):
+        return None
+    what = (
+        f"build {target.build_id}"
+        if known == "web_build_not_found"
+        else f"app {target.app_id}"
+        if known == "web_app_not_found" or not target.build_id
+        else f"app {target.app_id} or build {target.build_id}"
+    )
+    return VerifyError(
+        "INVALID_ARGUMENT",
+        f"Revyl {what} was not found ({known or f'HTTP {response.status}'}). Check app_id and "
+        "build_id: copy them from the app's page in Revyl, and use an API key from the same "
+        "organization. No session was started.",
+        http_status=response.status,
+    )
+
+
+def start_refusal(
+    response: Response, target: Target, app_platform: Callable[[], str | None]
+) -> VerifyError | None:
     if response.status not in (400, 404, 422) or edge_blocked_error(response) is not None:
         return None
     try:
@@ -377,6 +444,8 @@ def start_refusal(response: Response) -> VerifyError | None:
         "from the same organization, and upload a build if the app has none. "
         "No session was started."
         if response.status == 404
+        else _platform_mismatch_fix(target, app_platform() if target.app_id else None)
+        if _PLATFORM_MISMATCH.search(message)
         else "Change the target to a value Revyl accepts and run again."
     )
     return VerifyError(

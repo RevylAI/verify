@@ -27,6 +27,15 @@ export interface AttachOptions extends Pick<OpenOptions, 'log' | 'backendUrl' | 
 
 const signIns = new Map<string, Promise<Credentials>>();
 
+function targetExample(name: string): string {
+  const key = /^[A-Za-z_$][\w$]*$/.test(name) ? name : `'${name}'`;
+  if (name === 'mac' || name === 'linux') return `Add it under targets in that file, such as ${key}: { platform: '${name}' }.`;
+  if (name === 'ios' || name === 'android') {
+    return `Add it under targets in that file, such as ${key}: { platform: '${name}', app: { appId: '<app id>' } }, with exactly one of appId, buildId, artifactUrl or bundleId in app.`;
+  }
+  return `Add it under targets in that file, such as ${key}: { platform: 'web', app: { appId: '<app id>' } }, or for a device ${key}: { platform: 'ios', app: { appId: '<app id>' } } with exactly one of appId, buildId, artifactUrl or bundleId in app.`;
+}
+
 async function credentialsForUse(options: Pick<OpenOptions, 'backendUrl' | 'appUrl'>): Promise<Credentials> {
   const credentials = await resolveCredentials();
   if (credentials) return credentials;
@@ -67,7 +76,7 @@ export async function open(target: string | TargetConfig, options: OpenOptions =
     if (!resolved) {
       throw new VerifyError(
         'INVALID_ARGUMENT',
-        `open('${target}'): ${config.configFile} has no target named "${target}". Targets: ${Object.keys(config.targets).join(', ')}.`,
+        `open('${target}'): ${config.configFile} has no target named "${target}". Targets: ${Object.keys(config.targets).join(', ')}. ${targetExample(target)}`,
       );
     }
     stepTimeout = config.stepTimeout;
@@ -76,7 +85,10 @@ export async function open(target: string | TargetConfig, options: OpenOptions =
   }
   const agent = chooseAgent(options, 'open()');
   if (agent && (resolved.platform === 'mac' || resolved.platform === 'linux')) {
-    throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'Your own model runs steps on browsers and devices, not on computers.');
+    throw new VerifyError(
+      'NOT_AVAILABLE_ON_PLATFORM',
+      `Your own model runs steps on browsers and devices, not on computers (platform '${resolved.platform}'). Remove the model and agent options from open(): on a computer, run commands with exec(), read and write files with readFile() and writeFile(), and use the screen actions, which need no model.`,
+    );
   }
   const credentials = await credentialsForUse(options);
   const log = options.log === false ? undefined : (options.log ?? ((line: string) => void process.stderr.write(`[verify] ${line}\n`)));
