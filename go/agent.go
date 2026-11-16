@@ -73,6 +73,7 @@ const (
 	doneChecks         = 2
 )
 
+var sessionLink = regexp.MustCompile(`\s*See https?://\S+`)
 var coordinatesOnly = regexp.MustCompile(`^\s*[\[(]?\s*\d+(\.\d+)?\s*,\s*\d+(\.\d+)?\s*[\])]?\s*$`)
 
 var abortingCodes = map[Code]bool{ErrSessionEnded: true, ErrSessionBusy: true, ErrAuthRejected: true, ErrEdgeBlocked: true, ErrModelError: true, ErrTimeout: true, ErrAPI: true, ErrActionUncertain: true}
@@ -242,7 +243,7 @@ func runLocalStep(ctx context.Context, kind, task string, a *agent, platform Pla
 			if sdkError != nil {
 				message = sdkError.Message
 			}
-			history = append(history, fmt.Sprintf("%d. %s: failed: %s", turn, record.Action, clip(message, 300)))
+			history = append(history, fmt.Sprintf("%d. %s: failed: %s", turn, record.Action, clip(sessionLink.ReplaceAllString(message, ""), 300)))
 		}
 		record.ActionDuration = time.Since(actionStarted)
 		failed := ""

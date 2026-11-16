@@ -490,6 +490,8 @@ class Session:
             deadline.pause(2)
         connected = deadline.cap(90)
         while True:
+            if connected.expired() and not deadline.expired():
+                raise self._ended_before_ready(target, {}, "device not connected after 90 s")
             response = self._client.request(
                 "GET", self._path("health"), deadline=connected, retry=True, worker=True
             )
@@ -502,7 +504,7 @@ class Session:
                 )
             elif response.status != 503:
                 raise self._worker_error("GET", "health", response)
-            connected.pause(2)
+            deadline.pause(2)
         if target.bundle_id:
             launched = obj(
                 self._worker(

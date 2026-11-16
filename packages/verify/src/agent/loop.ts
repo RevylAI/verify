@@ -141,6 +141,7 @@ export function localAgent(options: LocalAgentOptions): LocalAgent {
 const VALIDATION_ATTEMPTS = 3;
 const NO_TOOL_LIMIT = 3;
 const DONE_CHECKS = 2;
+const SESSION_LINK = /\s*See https?:\/\/\S+/g;
 const COORDINATES_ONLY = /^\s*[[(]?\s*\d+(\.\d+)?\s*,\s*\d+(\.\d+)?\s*[\])]?\s*$/;
 const ABORTING_CODES = new Set(['SESSION_ENDED', 'SESSION_BUSY', 'AUTH_REJECTED', 'EDGE_BLOCKED', 'MODEL_ERROR', 'TIMEOUT', 'API_ERROR', 'ACTION_UNCERTAIN']);
 
@@ -245,7 +246,7 @@ export async function runLocalStep(
     } catch (error) {
       if (isVerifyError(error) && ABORTING_CODES.has(error.code)) throw error;
       if (record.action === 'no tool call') record.action = call.name;
-      history.push(`${turn}. ${record.action}: failed: ${errorMessage(error).slice(0, 300)}`);
+      history.push(`${turn}. ${record.action}: failed: ${errorMessage(error).replace(SESSION_LINK, '').slice(0, 300)}`);
     }
     record.actionMs = Date.now() - actionStarted;
     log(`  · turn ${turn}: ${record.action}${record.ok ? '' : ' (failed)'} (model ${record.modelMs} ms, action ${record.actionMs} ms)`);

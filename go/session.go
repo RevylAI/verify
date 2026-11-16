@@ -338,10 +338,16 @@ func (s *Session) ready(ctx context.Context, target Target) error {
 	}
 	connectCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
+	notConnected := func(err error) error {
+		if ctx.Err() == nil && connectCtx.Err() != nil {
+			return s.startFailure("device not connected after 90 s", "")
+		}
+		return err
+	}
 	for {
 		r, err := s.client.send(connectCtx, "GET", s.workerPath("health"), nil, true, 30*time.Second, true)
 		if err != nil {
-			return err
+			return notConnected(err)
 		}
 		if r.status == 200 {
 			var health struct {
@@ -371,7 +377,7 @@ func (s *Session) ready(ctx context.Context, target Target) error {
 			return s.workerError("GET", "health", r)
 		}
 		if err := pause(connectCtx, 2*time.Second); err != nil {
-			return err
+			return notConnected(err)
 		}
 	}
 	if target.BundleID != "" {

@@ -1061,7 +1061,8 @@ export class DeviceSession implements Session {
       }
       await waitBeforeDeadline(deadline, `The ${this.target} device was not assigned in time.`);
     }
-    const connectDeadline = Math.min(deadline, Date.now() + DEVICE_CONNECT_TIMEOUT_MS);
+    const connectBy = Date.now() + DEVICE_CONNECT_TIMEOUT_MS;
+    const connectDeadline = Math.min(deadline, connectBy);
     for (;;) {
       const response = await this.client.worker(this.workflowRunId, 'health', { method: 'GET', retry: true, signal: this.readySignal });
       if (response.status === 200 && parseJson<WorkerHealth>(response, 'health').device_connected) return;
@@ -1070,6 +1071,7 @@ export class DeviceSession implements Session {
         throw this.startFailure(detail?.status ?? 'ended', detail?.error_message ?? undefined);
       }
       if (response.status !== 200 && response.status !== 503) throw this.workerError('GET', 'health', response);
+      if (Date.now() >= connectBy) throw this.startFailure(`device not connected after ${DEVICE_CONNECT_TIMEOUT_MS / 1000} s`, undefined);
       await waitBeforeDeadline(connectDeadline, `The ${this.target} device did not connect in time.`);
     }
   }

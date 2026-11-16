@@ -352,6 +352,7 @@ class AgentControls:
 _VALIDATION_ATTEMPTS = 3
 _NO_TOOL_LIMIT = 3
 _DONE_CHECKS = 2
+_SESSION_LINK = re.compile(r"\s*See https?://\S+")
 _COORDINATES_ONLY = re.compile(r"^\s*[\[(]?\s*\d+(\.\d+)?\s*,\s*\d+(\.\d+)?\s*[\])]?\s*$")
 _ABORTING_CODES = {
     "SESSION_ENDED",
@@ -551,7 +552,7 @@ def run_local_step(
             if isinstance(error, VerifyError) and error.code in _ABORTING_CODES:
                 raise
             message = error.message if isinstance(error, VerifyError) else str(error)
-            history.append(f"{turn}. {action}: failed: {message[:300]}")
+            history.append(f"{turn}. {action}: failed: {_SESSION_LINK.sub('', message)[:300]}")
         action_seconds = time.monotonic() - action_started
         record(action, ok, action_seconds)
         log(
