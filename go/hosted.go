@@ -154,6 +154,7 @@ func (s *Session) Open(ctx context.Context, target Target) (*Session, error) {
 				err = failure(ErrSessionStartFailed, "Revyl did not acknowledge the hosted session.")
 			} else {
 				child.runID = start.RunID
+				child.logStarting()
 			}
 		}
 	}
@@ -178,6 +179,7 @@ func (s *Session) Open(ctx context.Context, target Target) (*Session, error) {
 		defer cleanupCancel()
 		return nil, errors.Join(err, child.Close(cleanup))
 	}
+	child.logLine("ready")
 	return child, nil
 }
 
@@ -277,10 +279,7 @@ func (s *Session) Report(ctx context.Context) (map[string]any, error) {
 			_, err = s.readComputerReport(r)
 		}
 	} else {
-		r, err = s.client.send(ctx, http.MethodGet, "/api/v1/execution/device-sessions/"+url.PathEscape(s.id), nil, true, 30*time.Second, false)
-		if err == nil && (r.status < 200 || r.status >= 300) {
-			err = httpError(r)
-		}
+		return s.deviceReport(ctx)
 	}
 	if err != nil {
 		return nil, err
@@ -291,3 +290,59 @@ func (s *Session) Report(ctx context.Context) (map[string]any, error) {
 	}
 	return report, nil
 }
+
+const reportSettle = 5 * time.Second
+
+func (s *Session) deviceReport(ctx context.Context) (map[string]any, error) {
+	s.mu.Lock()
+	closing := s.closeDone
+	s.mu.Unlock()
+	if closing != nil {
+		select {
+		case <-closing:
+		case <-ctx.Done():
+			return nil, contextError(ctx)
+		}
+	}
+	read := func(ctx context.Context) (map[string]any, error) {
+		r, err := s.client.send(ctx, http.MethodGet, "/api/v1/execution/device-sessions/"+url.PathEscape(s.id), nil, true, 30*time.Second, false)
+		if err != nil {
+			return nil, err
+		}
+		if r.status < 200 || r.status >= 300 {
+			return nil, httpError(r)
+		}
+		var report map[string]any
+		if err := decode(r, &report); err != nil {
+			return nil, err
+		}
+		return report, nil
+	}
+	settleBy := time.Now().Add(reportSettle)
+	report, err := read(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for {
+		status, _ := report["status"].(string)
+		remaining := time.Until(settleBy)
+		if closing == nil || status == "" || finalStatuses[status] || remaining <= 0 {
+			return report, nil
+		}
+		if err := pause(ctx, min(500*time.Millisecond, remaining)); err != nil {
+			return nil, err
+		}
+		pollCtx, cancel := context.WithDeadline(ctx, settleBy)
+		next, err := read(pollCtx)
+		cancel()
+		if ctx.Err() != nil {
+			return nil, contextError(ctx)
+		}
+		if err != nil {
+			return report, nil
+		}
+		report = next
+	}
+}
+
+var finalStatuses = map[string]bool{"completed": true, "failed": true, "cancelled": true, "timeout": true}

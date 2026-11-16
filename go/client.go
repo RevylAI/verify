@@ -19,7 +19,7 @@ import (
 const (
 	backendURL = "https://backend.revyl.ai"
 	appURL     = "https://app.revyl.ai"
-	Version    = "0.5.2"
+	Version    = "0.5.3"
 )
 
 type client struct {
@@ -230,7 +230,7 @@ func httpError(r response) error {
 }
 
 func startRefusal(r response) error {
-	if r.status != 400 && r.status != 422 {
+	if r.status != 400 && r.status != 404 && r.status != 422 {
 		return nil
 	}
 	var body struct {
@@ -241,16 +241,17 @@ func startRefusal(r response) error {
 		return nil
 	}
 	detail = strings.TrimSpace(detail)
-	if strings.Trim(detail, "abcdefghijklmnopqrstuvwxyz0123456789_") == "" {
+	if strings.Trim(detail, "abcdefghijklmnopqrstuvwxyz0123456789_") == "" || (r.status == 404 && strings.EqualFold(detail, "not found")) {
 		return nil
 	}
 	if len(detail) > 500 {
 		detail = strings.ToValidUTF8(detail[:500], "")
 	}
-	if !strings.ContainsAny(detail[len(detail)-1:], ".!?") {
-		detail += "."
+	fix := "Change the target to a value Revyl accepts and run again."
+	if r.status == 404 {
+		fix = "Check AppID and BuildID: copy them from the app's page in Revyl, use an API key from the same organization, and upload a build if the app has none. No session was started."
 	}
-	return &Error{Code: ErrInvalidArgument, HTTPStatus: r.status, Message: fmt.Sprintf("Revyl refused to start the session (HTTP %d): %s Change the target to a value Revyl accepts and run again.", r.status, detail)}
+	return &Error{Code: ErrInvalidArgument, HTTPStatus: r.status, Message: fmt.Sprintf("Revyl refused to start the session (HTTP %d): %s %s", r.status, sentence(detail), fix)}
 }
 
 func (c *client) json(ctx context.Context, method, path string, body any, retry bool, timeout time.Duration, into any) error {

@@ -95,7 +95,7 @@ jobs:
             code=$?
             set -e
             echo "$output"
-            test "$code" -eq 2
+            test "$code" -eq 0
             grep -q 'AUTH_MISSING' <<<"$output"
             npx tsc --noEmit --strict --skipLibCheck --erasableSyntaxOnly --target es2022 --module nodenext --types node verify.config.ts verify/example.mts
             set +e

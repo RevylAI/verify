@@ -102,8 +102,13 @@ func runLocalStep(ctx context.Context, kind, task string, a *agent, platform Pla
 		modelStarted := time.Now()
 		modelCtx, cancel := context.WithTimeout(ctx, a.modelTimeout)
 		reply, err := a.model.Complete(modelCtx, ModelRequest{System: system, Text: turnText(kind, task, image, history), Image: image, Tools: tools})
+		modelTimedOut := modelCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil
 		cancel()
 		if err != nil {
+			var sdkError *Error
+			if modelTimedOut && !errors.As(err, &sdkError) {
+				return localResult{}, &Error{Code: ErrTimeout, Message: name + " did not answer in time. Raise LocalAgent ModelTimeout for slow or local models.", Cause: err}
+			}
 			return localResult{}, err
 		}
 		run.Turns = append(run.Turns, ModelTurn{Action: "no tool call", ModelDuration: time.Since(modelStarted), InputTokens: reply.Usage.InputTokens, OutputTokens: reply.Usage.OutputTokens})

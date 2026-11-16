@@ -4,7 +4,7 @@ This page is for AI coding agents (Claude Code, Cursor, Codex, and others) that 
 
 ## Workflow
 
-1. Read `verify.config.ts` to learn the target names and their platforms. If there is none, run `npx @revyl/verify init --platform ios` or `--platform android` (without `--app-id` they open the built-in Settings app), `npx @revyl/verify init --platform web --app-id <id> --url <https-url>`, or `npx @revyl/verify init --platform mac`. You can also pass a target object to `open()`.
+1. Read `verify.config.ts` to learn the target names and their platforms. If there is none, run `npx @revyl/verify init --platform ios` or `--platform android` (without `--app-id` they open the built-in Settings app), `npx @revyl/verify init --platform web --app-id <id> --url <https-url>`, or `npx @revyl/verify init --platform mac`. If `init` prints `Could not confirm a Revyl sign-in`, its files are already written: sign in with `npx @revyl/verify login` or set `REVYL_API_KEY`, then go on to step 2, and don't run `init` again. You can also pass a target object to `open()`.
 2. Check the credentials once with `npx @revyl/verify whoami`. It starts no session.
 3. Write a short script, or extend an existing one, that opens one target, runs the steps you need, and closes:
    ```ts
@@ -53,7 +53,7 @@ try {
 }
 ```
 
-The [Python](https://github.com/RevylAI/verify/blob/v0.6.2/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.6.2/go/README.md#exact-actions) READMEs state the same rule with each language's names. [api.md](api.md#exact-actions) lists every call and its errors.
+The [Python](https://github.com/RevylAI/verify/blob/v0.6.3/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.6.3/go/README.md#exact-actions) READMEs state the same rule with each language's names. [api.md](api.md#exact-actions) lists every call and its errors.
 
 ## Rules
 

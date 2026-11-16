@@ -90,8 +90,9 @@ npx @revyl/verify --version
 - iOS and Android without `--app-id` target the device's built-in Settings app by bundle id (`com.apple.Preferences`, `com.android.settings`), so the example runs before you upload a build. Web requires `--app-id`; without it, `init` writes no files and explains how to create the Web app ([web.md](web.md#create-the-web-app)).
 - `npx @revyl/verify init --platform mac` needs no app id and generates a command/file script. `--app-id` is rejected for Mac, and `--url` applies only to web.
 - `init` installs Verify from the project's lockfile when needed and signs in through Revyl's browser approval flow when no credentials are available. Use `--yes` or `--no-install` to control installation. Non-interactive runs do not prompt or open a browser and require `REVYL_API_KEY`.
+- `init` checks the sign-in after it writes the files. If it can't confirm one (no key, a rejected key, or Revyl unreachable), it prints `Could not confirm a Revyl sign-in:` with the reason, makes signing in step 1 under `Next:`, and exits 0: the files are written and need no change, so don't run `init` again. Sign in with `npx @revyl/verify login` or `REVYL_API_KEY`, check it with `whoami`, then run the example.
 - `login` signs in through Revyl's browser approval flow and saves the login to `~/.revyl/credentials.json`, which the Revyl CLI shares. It needs a terminal; in CI, set `REVYL_API_KEY`.
 - `logout` deletes `~/.revyl/credentials.json`. The API key it held keeps working until you delete it in Revyl under Settings → API keys, and a `REVYL_API_KEY` in the environment still applies.
 - `whoami` prints the Revyl account and organization your credentials belong to.
 
-Exit codes: `0` success, `1` a Revyl or file error, `2` a usage or authentication problem.
+Exit codes: `0` success, including an `init` that wrote its files but couldn't confirm a sign-in; `1` a Revyl or file error; `2` a usage or authentication problem.

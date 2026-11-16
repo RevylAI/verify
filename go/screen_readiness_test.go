@@ -209,7 +209,7 @@ func TestMobileFirstScreenBestEffortErrors(t *testing.T) {
 				t.Fatalf("optional screenshot failed Open: %v", err)
 			}
 			defer s.Close(context.Background())
-			if shots.Load() != 1 || time.Since(start) > 2*time.Second || len(logs) != 1 || !strings.Contains(logs[0], "skipped") {
+			if shots.Load() != 1 || time.Since(start) > 2*time.Second || len(logs) != 3 || !strings.Contains(logs[1], "skipped") {
 				t.Fatalf("shots = %d, elapsed = %s, logs = %v", shots.Load(), time.Since(start), logs)
 			}
 		})
@@ -254,7 +254,7 @@ func TestMobileFirstScreenBoundedExhaustion(t *testing.T) {
 	if elapsed := time.Since(start); elapsed < 10*time.Second || elapsed > 12*time.Second {
 		t.Fatalf("wait duration = %s", elapsed)
 	}
-	if shots.Load() < 2 || shots.Load() > 20 || len(logs) != 1 || !strings.Contains(logs[0], "timed out") {
+	if shots.Load() < 2 || shots.Load() > 20 || len(logs) != 3 || !strings.Contains(logs[1], "timed out") {
 		t.Fatalf("shots = %d, logs = %v", shots.Load(), logs)
 	}
 }
@@ -273,7 +273,7 @@ func TestMobileFirstScreenStartupBudgetExhaustion(t *testing.T) {
 	if elapsed := time.Since(start); elapsed < 10*time.Second || elapsed > 12*time.Second {
 		t.Fatalf("startup duration = %s", elapsed)
 	}
-	if len(logs) != 1 || !strings.Contains(logs[0], "timed out") {
+	if len(logs) != 3 || !strings.Contains(logs[1], "timed out") {
 		t.Fatalf("logs = %v", logs)
 	}
 	for _, call := range calls() {
