@@ -1242,14 +1242,10 @@ class Session:
         if not self.id:
             raise VerifyError("NOT_FOUND", "No session ID is available to read its report.")
         closed = self._closed
+        path = "/api/v1/execution/device-sessions/" + quote(self.id, safe="")
         settle_by = time.monotonic() + _REPORT_SETTLE_SECONDS
+        report = self._client.json("GET", path, deadline=Deadline(95), retry=True)
         while True:
-            report = self._client.json(
-                "GET",
-                "/api/v1/execution/device-sessions/" + quote(self.id, safe=""),
-                deadline=Deadline(95),
-                retry=True,
-            )
             status = report.get("status")
             remaining = settle_by - time.monotonic()
             if (
@@ -1260,6 +1256,15 @@ class Session:
             ):
                 return report
             time.sleep(min(0.5, remaining))
+            try:
+                report = self._client.json(
+                    "GET",
+                    path,
+                    deadline=Deadline(max(0.001, settle_by - time.monotonic())),
+                    retry=True,
+                )
+            except VerifyError:
+                return report
 
     def close(self) -> None:
         self._close_with_deadline(None)

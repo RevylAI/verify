@@ -304,8 +304,7 @@ func (s *Session) deviceReport(ctx context.Context) (map[string]any, error) {
 			return nil, contextError(ctx)
 		}
 	}
-	settleBy := time.Now().Add(reportSettle)
-	for {
+	read := func(ctx context.Context) (map[string]any, error) {
 		r, err := s.client.send(ctx, http.MethodGet, "/api/v1/execution/device-sessions/"+url.PathEscape(s.id), nil, true, 30*time.Second, false)
 		if err != nil {
 			return nil, err
@@ -317,6 +316,14 @@ func (s *Session) deviceReport(ctx context.Context) (map[string]any, error) {
 		if err := decode(r, &report); err != nil {
 			return nil, err
 		}
+		return report, nil
+	}
+	settleBy := time.Now().Add(reportSettle)
+	report, err := read(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for {
 		status, _ := report["status"].(string)
 		remaining := time.Until(settleBy)
 		if closing == nil || status == "" || finalStatuses[status] || remaining <= 0 {
@@ -325,6 +332,16 @@ func (s *Session) deviceReport(ctx context.Context) (map[string]any, error) {
 		if err := pause(ctx, min(500*time.Millisecond, remaining)); err != nil {
 			return nil, err
 		}
+		pollCtx, cancel := context.WithDeadline(ctx, settleBy)
+		next, err := read(pollCtx)
+		cancel()
+		if ctx.Err() != nil {
+			return nil, contextError(ctx)
+		}
+		if err != nil {
+			return report, nil
+		}
+		report = next
 	}
 }
 

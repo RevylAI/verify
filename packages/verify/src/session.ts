@@ -410,14 +410,24 @@ export class DeviceSession implements Session {
     if (!this.id) throw new VerifyError('NOT_FOUND', 'Cannot report a session without a known session ID.');
     const closing = this.closePromise;
     await closing?.catch(() => undefined);
-    const settleBy = Date.now() + REPORT_SETTLE_MS;
-    for (;;) {
-      const report: unknown = await this.client.getDeviceSession(this.id);
+    const id = this.id;
+    const read = async (signal?: AbortSignal): Promise<Record<string, unknown>> => {
+      const report: unknown = await this.client.getDeviceSession(id, signal);
       if (!report || typeof report !== 'object' || Array.isArray(report)) throw new VerifyError('API_ERROR', 'Revyl returned an invalid session report.');
-      const { status } = report as { status?: unknown };
+      return report as Record<string, unknown>;
+    };
+    const settleBy = Date.now() + REPORT_SETTLE_MS;
+    let report = await read();
+    for (;;) {
+      const { status } = report;
       const remaining = settleBy - Date.now();
-      if (!closing || typeof status !== 'string' || FINAL_STATUSES.has(status) || remaining <= 0) return report as Record<string, unknown>;
+      if (!closing || typeof status !== 'string' || FINAL_STATUSES.has(status) || remaining <= 0) return report;
       await delay(Math.min(500, remaining));
+      try {
+        report = await read(AbortSignal.timeout(Math.max(1, settleBy - Date.now())));
+      } catch {
+        return report;
+      }
     }
   }
 
