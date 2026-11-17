@@ -111,9 +111,9 @@ func (s *Session) step(ctx context.Context, kind, text string, timeout time.Dura
 	text = strings.TrimSpace(text)
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	if !s.expiresAt.IsZero() {
+	if expiresAt := s.ExpiresAt(); !expiresAt.IsZero() {
 		var expireCancel context.CancelFunc
-		ctx, expireCancel = context.WithDeadline(ctx, s.expiresAt)
+		ctx, expireCancel = context.WithDeadline(ctx, expiresAt)
 		defer expireCancel()
 	}
 	if s.lifetime != nil {

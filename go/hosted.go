@@ -99,9 +99,9 @@ func (s *Session) Open(ctx context.Context, target Target) (*Session, error) {
 	defer s.childOpens.Done()
 	ctx, cancel := context.WithTimeout(ctx, target.StartTimeout)
 	defer cancel()
-	if !s.expiresAt.IsZero() {
+	if expiresAt := s.ExpiresAt(); !expiresAt.IsZero() {
 		var expire context.CancelFunc
-		ctx, expire = context.WithDeadline(ctx, s.expiresAt)
+		ctx, expire = context.WithDeadline(ctx, expiresAt)
 		defer expire()
 	}
 	stop := context.AfterFunc(s.lifetime, cancel)
@@ -116,7 +116,7 @@ func (s *Session) Open(ctx context.Context, target Target) (*Session, error) {
 	if err != nil {
 		return nil, failure(ErrAPI, "Could not generate a hosted session ID.")
 	}
-	child := &Session{client: s.client, id: id, platform: target.Platform, viewer: s.viewerBase + "/sessions/" + url.PathEscape(id), stepTimeout: s.stepTimeout, log: s.log, expiresAt: s.expiresAt, lifetime: s.lifetime}
+	child := &Session{client: s.client, id: id, platform: target.Platform, viewer: s.viewerBase + "/sessions/" + url.PathEscape(id), stepTimeout: s.stepTimeout, log: s.log, host: s, lifetime: s.lifetime}
 	request := map[string]any{"platform": target.Platform, "session_id": id, "computer_session_id": s.id, "app_id": target.AppID, "build_id": target.BuildID, "idle_timeout_seconds": target.IdleTimeoutSeconds}
 	if target.Platform == Web {
 		web := map[string]any{}

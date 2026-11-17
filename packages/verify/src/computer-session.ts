@@ -15,7 +15,7 @@ const STATES = new Set(['starting', 'active', 'closing', 'stopped', 'failed', 'o
 const MAX_OUTPUT_BYTES = 1_048_576;
 const COMPUTER_AVAILABILITY = 'Mac computers need a current paid Revyl plan, and Linux computers are not generally available. Ask support@revyl.ai about access.';
 const COMPUTER_CAPACITY = 'Computer admission was refused because of queued work (including iOS) or the concurrency limit. Verify will not retry the start.';
-const ERROR_CODES = new Set(['computer_not_enabled', 'run_closed', 'inaccessible', 'invalid_handle', 'operation_not_found', 'owner_unavailable', 'invalid_request', 'unauthenticated', 'forbidden', 'runtime_unavailable', 'start_failed', 'computer_limit', 'request_conflict', 'run_conflict', 'evidence_conflict', 'evidence_unavailable', 'authentication_unavailable', 'operation_limit', 'screen_starting', 'screen_unavailable', 'screen_control_held', 'screen_control_lost', 'screen_input_unavailable', 'screen_input_uncertain', 'screen_key_unsupported', 'screen_text_unsupported', 'screen_target_not_found', 'screen_target_unavailable']);
+const ERROR_CODES = new Set(['computer_not_enabled', 'run_closed', 'stopped', 'inaccessible', 'invalid_handle', 'operation_not_found', 'owner_unavailable', 'invalid_request', 'unauthenticated', 'forbidden', 'runtime_unavailable', 'start_failed', 'computer_limit', 'request_conflict', 'run_conflict', 'evidence_conflict', 'evidence_unavailable', 'authentication_unavailable', 'operation_limit', 'screen_starting', 'screen_unavailable', 'screen_control_held', 'screen_control_lost', 'screen_input_unavailable', 'screen_input_uncertain', 'screen_key_unsupported', 'screen_text_unsupported', 'screen_target_not_found', 'screen_target_unavailable']);
 const COMPUTER_KEYS: Record<Key, string> = { enter: 'Return', backspace: 'BackSpace', tab: 'Tab', escape: 'Escape', delete: 'Delete', space: 'space', arrowup: 'Up', arrowdown: 'Down', arrowleft: 'Left', arrowright: 'Right', home: 'Home', end: 'End', pageup: 'Page_Up', pagedown: 'Page_Down' };
 const REFUSAL_NEXT_STEPS = {
   AUTH_REJECTED: "Check that REVYL_API_KEY is a current key and that its owner has the Member role or above in this computer's organization.",
@@ -57,7 +57,7 @@ export class ComputerSession implements Session {
     trackSession(session);
     try {
       session.log(`starting computer ${session.viewerUrl}`);
-      const response = await session.request('POST', '', { computer_session_id: session.id, os: target.platform === 'mac' ? 'macos' : 'linux' }, signal);
+      const response = await session.request('POST', '', { computer_session_id: session.id, os: target.platform === 'mac' ? 'macos' : 'linux', ...(target.ttlSeconds !== undefined ? { ttl_seconds: target.ttlSeconds } : {}) }, signal);
       createAcknowledged = true;
       let report = session.parseReport(response);
       for (;;) {
@@ -107,10 +107,11 @@ export class ComputerSession implements Session {
     if (this.expiresAtMs === undefined) throw new VerifyError('API_ERROR', 'The computer report must include expiry before opening a hosted child.');
     const resolved = validateHostedTarget(target);
     if ((this.platform === 'mac' && resolved.platform === 'android') || (this.platform === 'linux' && resolved.platform === 'ios')) throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'This computer cannot host the requested platform.', { reason: 'computer_cannot_host_platform' });
+    const expiresAt = () => this.expiresAt;
     const pending = DeviceSession.start(this.client, resolved, this.options, {
       id: this.id,
       signal: this.lifetime.signal,
-      expiresAt: this.expiresAt,
+      get expiresAt() { return expiresAt(); },
       register: (session) => { this.children.add(session); },
     });
     this.childStarts.add(pending);
@@ -254,6 +255,14 @@ export class ComputerSession implements Session {
 
   get expiresAt(): Date | undefined {
     return this.expiresAtMs === undefined ? undefined : new Date(this.expiresAtMs);
+  }
+
+  async extend(ttlSeconds: number): Promise<void> {
+    this.assertOpen();
+    if (!Number.isInteger(ttlSeconds) || ttlSeconds < 60 || ttlSeconds > 86_400) throw new VerifyError('INVALID_ARGUMENT', 'extend() takes an integer from 60 to 86400.');
+    const report = this.parseReport(await this.request('POST', '/extend', { ttl_seconds: ttlSeconds }, AbortSignal.timeout(30_000)));
+    if (report.expires_at == null) throw invalidResponse();
+    this.log(`lifetime extended to ${report.expires_at}`);
   }
 
   async recording(): Promise<ComputerRecording | null> {
@@ -495,6 +504,8 @@ export class ComputerSession implements Session {
       throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `Revyl refused the computer request (${detail}). ${COMPUTER_AVAILABILITY} See ${this.viewerUrl}`, refusal);
     }
     if (response.status === 429 && detail === 'computer_limit') throw new VerifyError('COMPUTER_LIMIT', `${COMPUTER_CAPACITY} See ${this.viewerUrl}`, refusal);
+    if (response.status === 429 && detail === 'computer_long_limit') throw new VerifyError('COMPUTER_LIMIT', `Revyl refused a lifetime over 2 hours: the organization already has 2 computers running longer than 2 hours (computer_long_limit). Ask for 2 hours or less, or stop one of them. See ${this.viewerUrl}`, refusal);
+    if (response.status === 409 && detail === 'extend_unsupported') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `This computer's host can't extend its lifetime (extend_unsupported); its expiry is unchanged. See ${this.viewerUrl}`, refusal);
     if (suffix === '/screen/actions') {
       if (response.status === 422 && detail === 'screen_point_outside') return response;
       if (response.status === 409 && detail === 'screen_starting') return response;
@@ -510,7 +521,7 @@ export class ComputerSession implements Session {
     }
     let code: keyof typeof REFUSAL_NEXT_STEPS = 'API_ERROR';
     if (response.status === 401 || response.status === 403) code = 'AUTH_REJECTED';
-    else if (detail === 'run_closed') code = 'SESSION_ENDED';
+    else if (detail === 'run_closed' || detail === 'stopped') code = 'SESSION_ENDED';
     else if (detail === 'inaccessible' || detail === 'invalid_handle') code = 'NOT_FOUND';
     else if (detail === 'operation_not_found' || detail === 'owner_unavailable') code = 'ACTION_UNCERTAIN';
     else if (detail === 'invalid_request' || response.status === 422) code = 'INVALID_ARGUMENT';
