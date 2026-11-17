@@ -353,6 +353,7 @@ class ComputerSession(Session):
             with self._child_condition:
                 closing = self._closed
                 if not closing:
+                    child._expires_at = self._expires_at
                     self._children.append(child)
             if closing:
                 error = VerifyError("SESSION_ENDED", "The computer is closing.")
@@ -402,15 +403,13 @@ class ComputerSession(Session):
         try:
             track(session)
             session._log(f"starting computer {session.viewer_url}")
-            response = session._request(
-                "POST",
-                "",
-                {
-                    "computer_session_id": session_id,
-                    "os": "macos" if target.platform == "mac" else "linux",
-                },
-                deadline,
-            )
+            body: dict[str, Json] = {
+                "computer_session_id": session_id,
+                "os": "macos" if target.platform == "mac" else "linux",
+            }
+            if target.timeout is not None:
+                body["timeout_seconds"] = target.timeout
+            response = session._request("POST", "", body, deadline)
             acknowledged = True
             while True:
                 report = session._report(response)
@@ -534,6 +533,23 @@ class ComputerSession(Session):
                 reason=reason,
                 http_status=response.status,
             )
+        if response.status == 429 and detail == "computer_long_limit":
+            raise VerifyError(
+                "COMPUTER_LIMIT",
+                "Revyl refused a lifetime over 2 hours: the organization already has 2 computers "
+                "running longer than 2 hours (computer_long_limit). Ask for 2 hours or less, or "
+                f"stop one of them. See {self.viewer_url}",
+                reason=reason,
+                http_status=response.status,
+            )
+        if response.status == 409 and detail == "extend_unsupported":
+            raise VerifyError(
+                "NOT_AVAILABLE_ON_PLATFORM",
+                "This computer's host can't extend its lifetime (extend_unsupported); its expiry "
+                f"is unchanged. See {self.viewer_url}",
+                reason=reason,
+                http_status=response.status,
+            )
         if suffix == "/screen/actions":
             if response.status == 422 and detail == "screen_point_outside":
                 return response
@@ -630,12 +646,28 @@ class ComputerSession(Session):
         if raw.get("computer_session_id") != self.id or raw.get("state") not in _STATES:
             raise _invalid()
         if raw.get("expires_at") is not None:
+            reported = timestamp(raw["expires_at"])
             with self._lock:
-                self._expires_at = timestamp(raw["expires_at"])
+                self._expires_at = (
+                    reported if self._expires_at is None else max(reported, self._expires_at)
+                )
+                for child in self._children:
+                    child._expires_at = self._expires_at
         return raw
 
     def report(self) -> dict[str, Json]:
         return self._report(self._request("GET", "/report", None, Deadline(30)))
+
+    def extend(self, timeout: int) -> None:
+        self._assert_computer_open()
+        if type(timeout) is not int or not 60 <= timeout <= 86_400:
+            raise VerifyError("INVALID_ARGUMENT", "extend() takes whole seconds from 60 to 86400.")
+        report = self._report(
+            self._request("POST", "/extend", {"timeout_seconds": timeout}, Deadline(30))
+        )
+        if report.get("expires_at") is None:
+            raise _invalid()
+        self._log(f"lifetime extended to {report['expires_at']}")
 
     def _assert_computer_open(self) -> None:
         with self._lock:

@@ -80,11 +80,21 @@ type Session struct {
 	size                     *Size
 	sizeFromHealth           bool
 	screenshotScale          *screenshotScale
+	host                     *Session
 }
 
-func (s *Session) ID() string           { return s.id }
-func (s *Session) ViewerURL() string    { return s.viewer }
-func (s *Session) ExpiresAt() time.Time { return s.expiresAt }
+func (s *Session) ID() string        { return s.id }
+func (s *Session) ViewerURL() string { return s.viewer }
+
+// ExpiresAt is when the computer stops; a hosted session reports its computer's. It is zero for sessions without one.
+func (s *Session) ExpiresAt() time.Time {
+	if s.host != nil {
+		return s.host.ExpiresAt()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.expiresAt
+}
 
 func openOptions(options []OpenOptions) (OpenOptions, error) {
 	if len(options) > 1 {
@@ -414,7 +424,7 @@ func (s *Session) sessionEndError() error {
 	if s.lifetime != nil && s.lifetime.Err() != nil {
 		return failure(ErrSessionEnded, "The parent session was closed.")
 	}
-	if !s.expiresAt.IsZero() && !time.Now().Before(s.expiresAt) {
+	if expiresAt := s.ExpiresAt(); !expiresAt.IsZero() && !time.Now().Before(expiresAt) {
 		return failure(ErrSessionEnded, "The session lifetime has expired.")
 	}
 	return nil
@@ -426,9 +436,9 @@ func (s *Session) worker(ctx context.Context, method, action string, body any, r
 	}
 	requestCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	if !s.expiresAt.IsZero() {
+	if expiresAt := s.ExpiresAt(); !expiresAt.IsZero() {
 		var expireCancel context.CancelFunc
-		requestCtx, expireCancel = context.WithDeadline(requestCtx, s.expiresAt)
+		requestCtx, expireCancel = context.WithDeadline(requestCtx, expiresAt)
 		defer expireCancel()
 	}
 	if s.lifetime != nil {

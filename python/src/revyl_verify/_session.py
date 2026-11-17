@@ -1369,6 +1369,9 @@ class Session:
     def recording(self) -> ComputerRecording | None:
         self._computer_only()
 
+    def extend(self, timeout: int) -> None:
+        self._computer_only()
+
 
 def _web_build(client: Client, target: Target, deadline: Deadline) -> str:
     if target.build_id:

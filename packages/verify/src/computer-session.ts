@@ -57,7 +57,7 @@ export class ComputerSession implements Session {
     trackSession(session);
     try {
       session.log(`starting computer ${session.viewerUrl}`);
-      const response = await session.request('POST', '', { computer_session_id: session.id, os: target.platform === 'mac' ? 'macos' : 'linux' }, signal);
+      const response = await session.request('POST', '', { computer_session_id: session.id, os: target.platform === 'mac' ? 'macos' : 'linux', ...(target.timeoutMs !== undefined ? { timeout_seconds: target.timeoutMs / 1_000 } : {}) }, signal);
       createAcknowledged = true;
       let report = session.parseReport(response);
       for (;;) {
@@ -107,10 +107,11 @@ export class ComputerSession implements Session {
     if (this.expiresAtMs === undefined) throw new VerifyError('API_ERROR', 'The computer report must include expiry before opening a hosted child.');
     const resolved = validateHostedTarget(target);
     if ((this.platform === 'mac' && resolved.platform === 'android') || (this.platform === 'linux' && resolved.platform === 'ios')) throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'This computer cannot host the requested platform.', { reason: 'computer_cannot_host_platform' });
+    const expiresAt = () => this.expiresAt;
     const pending = DeviceSession.start(this.client, resolved, this.options, {
       id: this.id,
       signal: this.lifetime.signal,
-      expiresAt: this.expiresAt,
+      get expiresAt() { return expiresAt(); },
       register: (session) => { this.children.add(session); },
     });
     this.childStarts.add(pending);
@@ -254,6 +255,14 @@ export class ComputerSession implements Session {
 
   get expiresAt(): Date | undefined {
     return this.expiresAtMs === undefined ? undefined : new Date(this.expiresAtMs);
+  }
+
+  async extend(timeoutMs: number): Promise<void> {
+    this.assertOpen();
+    if (!Number.isInteger(timeoutMs) || timeoutMs % 1_000 !== 0 || timeoutMs < 60_000 || timeoutMs > 86_400_000) throw new VerifyError('INVALID_ARGUMENT', 'extend() takes timeoutMs as whole seconds from 60000 to 86400000.');
+    const report = this.parseReport(await this.request('POST', '/extend', { timeout_seconds: timeoutMs / 1_000 }, AbortSignal.timeout(30_000)));
+    if (report.expires_at == null) throw invalidResponse();
+    this.log(`lifetime extended to ${report.expires_at}`);
   }
 
   async recording(): Promise<ComputerRecording | null> {
@@ -495,6 +504,8 @@ export class ComputerSession implements Session {
       throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `Revyl refused the computer request (${detail}). ${COMPUTER_AVAILABILITY} See ${this.viewerUrl}`, refusal);
     }
     if (response.status === 429 && detail === 'computer_limit') throw new VerifyError('COMPUTER_LIMIT', `${COMPUTER_CAPACITY} See ${this.viewerUrl}`, refusal);
+    if (response.status === 429 && detail === 'computer_long_limit') throw new VerifyError('COMPUTER_LIMIT', `Revyl refused a lifetime over 2 hours: the organization already has 2 computers running longer than 2 hours (computer_long_limit). Ask for 2 hours or less, or stop one of them. See ${this.viewerUrl}`, refusal);
+    if (response.status === 409 && detail === 'extend_unsupported') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `This computer's host can't extend its lifetime (extend_unsupported); its expiry is unchanged. See ${this.viewerUrl}`, refusal);
     if (suffix === '/screen/actions') {
       if (response.status === 422 && detail === 'screen_point_outside') return response;
       if (response.status === 409 && detail === 'screen_starting') return response;
@@ -550,7 +561,7 @@ export class ComputerSession implements Session {
   private parseReport(response: RawResponse): ComputerReport {
     const report = parseComputerJson<ComputerReport>(response);
     if (!report || report.computer_session_id !== this.id || !STATES.has(report.state)) throw invalidResponse();
-    if (report.expires_at != null) this.expiresAtMs = parseTimestamp(report.expires_at).getTime();
+    if (report.expires_at != null) this.expiresAtMs = Math.max(parseTimestamp(report.expires_at).getTime(), this.expiresAtMs ?? -Infinity);
     return report;
   }
 

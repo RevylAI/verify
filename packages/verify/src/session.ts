@@ -158,6 +158,8 @@ export interface OpenedSession extends Session {
   report(): Promise<Record<string, unknown>>;
   navigate(url: string): Promise<void>;
   open(target: HostedTargetConfig): Promise<OpenedSession>;
+  /** Keeps the computer running at least timeoutMs (whole seconds, 60000 to 86400000) from now, up to 24 hours after it started. Never shortens it. Computers only. */
+  extend(timeoutMs: number): Promise<void>;
   /** Taps a point in screenshot pixels, or an element Revyl locates from a description. Returns the point tapped, in screenshot pixels. */
   tap(at: Location): Promise<Point>;
   /** Taps a text field and types into it, clearing it first unless clear is false. Returns the point tapped. Browsers and devices only. */
@@ -458,6 +460,10 @@ export class DeviceSession implements Session {
 
   recording(): Promise<never> {
     return this.computerOnly('recording');
+  }
+
+  extend(): Promise<void> {
+    return this.computerOnly('extend');
   }
 
   readFile(): Promise<Buffer> {

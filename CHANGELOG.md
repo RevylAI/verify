@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Computers: choose a lifetime at create with `timeoutMs` (TypeScript, whole seconds in milliseconds), `timeout` (Python `Target`, seconds) or `Timeout` (Go `Target`), from 1 minute to 24 hours, sent as the API's `timeout_seconds`; omitted, the server's 2-hour default applies and the create request is unchanged. `extend()` / `Extend` keeps a running computer going at least that long from now, up to 24 hours after create, and updates `expiresAt` / `expires_at` / `ExpiresAt()`, including for hosted sessions. `computer_long_limit` maps to `COMPUTER_LIMIT` and `extend_unsupported` to `NOT_AVAILABLE_ON_PLATFORM`.
+
 ## 0.6.3 (2026-11-16)
 
 - An iOS or Android `open()` whose app or build Revyl can't find (HTTP 404) throws `INVALID_ARGUMENT` saying what wasn't found and how to fix it, instead of a bare `API_ERROR … failed with HTTP 404`: `Revyl refused to start the session (HTTP 404): App not found: <id>. Check app.appId and app.buildId: copy them from the app's page in Revyl, use an API key from the same organization, and upload a build if the app has none. No session was started.` Web and hosted starts still copy no server text.

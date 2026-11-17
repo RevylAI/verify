@@ -43,6 +43,7 @@ type Target struct {
 	DeviceModel        string
 	OSVersion          string
 	StartTimeout       time.Duration
+	Timeout            time.Duration
 	IdleTimeoutSeconds int
 	Viewport           *Viewport
 	SignIn             *SignIn
@@ -68,9 +69,15 @@ func (t *Target) validate(hosted bool) error {
 	}
 	if t.Platform.computer() {
 		if t.AppID != "" || t.BundleID != "" || t.URL != "" || t.BuildID != "" || t.ArtifactURL != "" || t.Branch != "" || t.DeviceModel != "" || t.OSVersion != "" || t.IdleTimeoutSeconds != 0 || t.Viewport != nil || t.SignIn != nil {
-			return bad("Computer targets accept only Platform and StartTimeout.")
+			return bad("Computer targets accept only Platform, StartTimeout, and Timeout.")
+		}
+		if t.Timeout != 0 && (t.Timeout < time.Minute || t.Timeout > 24*time.Hour || t.Timeout%time.Second != 0) {
+			return bad("Timeout must be whole seconds from 1 minute to 24 hours.")
 		}
 		return nil
+	}
+	if t.Timeout != 0 {
+		return bad("Timeout applies only to computer targets.")
 	}
 	if t.IdleTimeoutSeconds == 0 {
 		t.IdleTimeoutSeconds = 600

@@ -118,7 +118,11 @@ func startComputer(ctx context.Context, c *client, viewer string, target Target,
 	}
 	createAcknowledged := false
 	err = func() error {
-		r, err := s.computerRequest(ctx, "POST", "", map[string]string{"computer_session_id": id, "os": computerOS})
+		request := map[string]any{"computer_session_id": id, "os": computerOS}
+		if target.Timeout != 0 {
+			request["timeout_seconds"] = int64(target.Timeout / time.Second)
+		}
+		r, err := s.computerRequest(ctx, "POST", "", request)
 		if err != nil {
 			return err
 		}
@@ -451,6 +455,12 @@ func (s *Session) computerRequestTimeout(ctx context.Context, method, suffix str
 	if r.status == 429 && detail == "computer_limit" {
 		return r, responseFailure(r, ErrComputerLimit, "Computer admission was refused because of queued work (including iOS) or the concurrency limit. Verify will not retry the start. See "+s.viewer)
 	}
+	if r.status == 429 && detail == "computer_long_limit" {
+		return r, responseFailure(r, ErrComputerLimit, "Revyl refused a lifetime over 2 hours: the organization already has 2 computers running longer than 2 hours (computer_long_limit). Ask for 2 hours or less, or stop one of them. See "+s.viewer)
+	}
+	if r.status == 409 && detail == "extend_unsupported" {
+		return r, responseFailure(r, ErrNotAvailableOnPlatform, "This computer's host can't extend its lifetime (extend_unsupported); its expiry is unchanged. See "+s.viewer)
+	}
 	if method == "GET" && suffix == "/recording" && r.status == 404 && detail == "recording_unavailable" {
 		return r, nil
 	}
@@ -548,8 +558,8 @@ func (s *Session) closeComputer(ctx context.Context) error {
 
 func (s *Session) observationContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	deadline := time.Now().Add(computerObservationTimeout)
-	if !s.expiresAt.IsZero() && s.expiresAt.Before(deadline) {
-		deadline = s.expiresAt
+	if expiresAt := s.ExpiresAt(); !expiresAt.IsZero() && expiresAt.Before(deadline) {
+		deadline = expiresAt
 	}
 	ctx, cancel := context.WithDeadline(ctx, deadline)
 	stop := context.AfterFunc(s.lifetime, cancel)
@@ -983,6 +993,34 @@ func (s *Session) computerScreenshot(ctx context.Context, paths ...string) ([]by
 		}
 	}
 	return data, nil
+}
+
+// Extend asks Revyl to keep the computer running until at least timeout from now, at most 24 hours after it started. It never shortens the lifetime, so retrying is safe.
+func (s *Session) Extend(ctx context.Context, timeout time.Duration) error {
+	if err := s.assertComputerOpen(); err != nil {
+		return err
+	}
+	if timeout < time.Minute || timeout > 24*time.Hour || timeout%time.Second != 0 {
+		return failure(ErrInvalidArgument, "Extend takes whole seconds from 1 minute to 24 hours.")
+	}
+	r, err := s.computerRequest(ctx, "POST", "/extend", map[string]int64{"timeout_seconds": int64(timeout / time.Second)})
+	if err != nil {
+		return err
+	}
+	report, err := s.readComputerReport(r)
+	if err != nil {
+		return err
+	}
+	if report.ExpiresAt == nil {
+		return invalidComputerResponse()
+	}
+	s.mu.Lock()
+	if report.ExpiresAt.After(s.expiresAt) {
+		s.expiresAt = *report.ExpiresAt
+	}
+	s.mu.Unlock()
+	s.logLine("lifetime extended to " + report.ExpiresAt.Format(time.RFC3339))
+	return nil
 }
 
 func (s *Session) Recording(ctx context.Context) (*ComputerRecording, error) {
