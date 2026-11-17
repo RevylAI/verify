@@ -649,9 +649,7 @@ class ComputerSession(Session):
             reported = timestamp(raw["expires_at"])
             with self._lock:
                 self._expires_at = (
-                    reported
-                    if self._expires_at is None
-                    else max(reported, self._expires_at)
+                    reported if self._expires_at is None else max(reported, self._expires_at)
                 )
                 for child in self._children:
                     child._expires_at = self._expires_at
