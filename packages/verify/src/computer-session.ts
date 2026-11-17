@@ -15,7 +15,7 @@ const STATES = new Set(['starting', 'active', 'closing', 'stopped', 'failed', 'o
 const MAX_OUTPUT_BYTES = 1_048_576;
 const COMPUTER_AVAILABILITY = 'Mac computers need a current paid Revyl plan, and Linux computers are not generally available. Ask support@revyl.ai about access.';
 const COMPUTER_CAPACITY = 'Computer admission was refused because of queued work (including iOS) or the concurrency limit. Verify will not retry the start.';
-const ERROR_CODES = new Set(['computer_not_enabled', 'run_closed', 'stopped', 'inaccessible', 'invalid_handle', 'operation_not_found', 'owner_unavailable', 'invalid_request', 'unauthenticated', 'forbidden', 'runtime_unavailable', 'start_failed', 'computer_limit', 'request_conflict', 'run_conflict', 'evidence_conflict', 'evidence_unavailable', 'authentication_unavailable', 'operation_limit', 'screen_starting', 'screen_unavailable', 'screen_control_held', 'screen_control_lost', 'screen_input_unavailable', 'screen_input_uncertain', 'screen_key_unsupported', 'screen_text_unsupported', 'screen_target_not_found', 'screen_target_unavailable']);
+const ERROR_CODES = new Set(['computer_not_enabled', 'run_closed', 'inaccessible', 'invalid_handle', 'operation_not_found', 'owner_unavailable', 'invalid_request', 'unauthenticated', 'forbidden', 'runtime_unavailable', 'start_failed', 'computer_limit', 'request_conflict', 'run_conflict', 'evidence_conflict', 'evidence_unavailable', 'authentication_unavailable', 'operation_limit', 'screen_starting', 'screen_unavailable', 'screen_control_held', 'screen_control_lost', 'screen_input_unavailable', 'screen_input_uncertain', 'screen_key_unsupported', 'screen_text_unsupported', 'screen_target_not_found', 'screen_target_unavailable']);
 const COMPUTER_KEYS: Record<Key, string> = { enter: 'Return', backspace: 'BackSpace', tab: 'Tab', escape: 'Escape', delete: 'Delete', space: 'space', arrowup: 'Up', arrowdown: 'Down', arrowleft: 'Left', arrowright: 'Right', home: 'Home', end: 'End', pageup: 'Page_Up', pagedown: 'Page_Down' };
 const REFUSAL_NEXT_STEPS = {
   AUTH_REJECTED: "Check that REVYL_API_KEY is a current key and that its owner has the Member role or above in this computer's organization.",
@@ -521,7 +521,7 @@ export class ComputerSession implements Session {
     }
     let code: keyof typeof REFUSAL_NEXT_STEPS = 'API_ERROR';
     if (response.status === 401 || response.status === 403) code = 'AUTH_REJECTED';
-    else if (detail === 'run_closed' || detail === 'stopped') code = 'SESSION_ENDED';
+    else if (detail === 'run_closed') code = 'SESSION_ENDED';
     else if (detail === 'inaccessible' || detail === 'invalid_handle') code = 'NOT_FOUND';
     else if (detail === 'operation_not_found' || detail === 'owner_unavailable') code = 'ACTION_UNCERTAIN';
     else if (detail === 'invalid_request' || response.status === 422) code = 'INVALID_ARGUMENT';

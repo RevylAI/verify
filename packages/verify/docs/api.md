@@ -237,7 +237,7 @@ Mac sessions provide `exec(argv: string[], options?)`, `readFile(path, options?)
 
 ### `session.extend(ttlSeconds: number): Promise<void>`
 
-Computers only. Keeps a running computer going at least `ttlSeconds` (an integer from 60 to 86400) from now, up to 24 hours after it was created, and updates `expiresAt`. It never shortens the lifetime, so retrying is safe. Throws `COMPUTER_LIMIT` with reason `computer_long_limit` when the organization already has 2 computers running longer than 2 hours, `NOT_AVAILABLE_ON_PLATFORM` when the computer's host can't extend, and `SESSION_ENDED` when the computer has stopped. Devices reject this call locally with `NOT_AVAILABLE_ON_PLATFORM`.
+Computers only. Keeps a running computer going at least `ttlSeconds` (an integer from 60 to 86400) from now, up to 24 hours after it was created, and updates `expiresAt`. It never shortens the lifetime, so retrying is safe. Throws `COMPUTER_LIMIT` with reason `computer_long_limit` when the organization already has 2 computers running longer than 2 hours and `NOT_AVAILABLE_ON_PLATFORM` when the computer's host can't extend. Devices reject this call locally with `NOT_AVAILABLE_ON_PLATFORM`.
 
 ### `session.recording(): Promise<ComputerRecording | null>`
 

@@ -57,7 +57,6 @@ _TERMINAL = ("stopped", "failed", "owner_lost")
 _ERRORS = {
     "computer_not_enabled",
     "run_closed",
-    "stopped",
     "inaccessible",
     "invalid_handle",
     "operation_not_found",
@@ -567,7 +566,7 @@ class ComputerSession(Session):
         code = "API_ERROR"
         if response.status in {401, 403}:
             code = "AUTH_REJECTED"
-        elif detail in {"run_closed", "stopped"}:
+        elif detail == "run_closed":
             code = "SESSION_ENDED"
         elif detail in {"inaccessible", "invalid_handle"}:
             code = "NOT_FOUND"

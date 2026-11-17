@@ -494,7 +494,7 @@ func (s *Session) computerRequestTimeout(ctx context.Context, method, suffix str
 	switch {
 	case r.status == 401 || r.status == 403:
 		code = ErrAuthRejected
-	case detail == "run_closed" || detail == "stopped":
+	case detail == "run_closed":
 		code = ErrSessionEnded
 	case detail == "inaccessible" || detail == "invalid_handle":
 		code = ErrNotFound
@@ -513,7 +513,7 @@ func (s *Session) computerRequestTimeout(ctx context.Context, method, suffix str
 	}
 	reason := fmt.Sprintf("HTTP %d", r.status)
 	switch detail {
-	case "computer_not_enabled", "run_closed", "stopped", "inaccessible", "invalid_handle", "operation_not_found", "owner_unavailable", "invalid_request", "unauthenticated", "forbidden", "runtime_unavailable", "start_failed", "computer_limit", "request_conflict", "run_conflict", "evidence_conflict", "evidence_unavailable", "authentication_unavailable", "operation_limit", "screen_starting", "screen_unavailable", "screen_control_held", "screen_control_lost", "screen_input_unavailable", "screen_input_uncertain", "screen_key_unsupported", "screen_text_unsupported", "screen_target_not_found", "screen_target_unavailable":
+	case "computer_not_enabled", "run_closed", "inaccessible", "invalid_handle", "operation_not_found", "owner_unavailable", "invalid_request", "unauthenticated", "forbidden", "runtime_unavailable", "start_failed", "computer_limit", "request_conflict", "run_conflict", "evidence_conflict", "evidence_unavailable", "authentication_unavailable", "operation_limit", "screen_starting", "screen_unavailable", "screen_control_held", "screen_control_lost", "screen_input_unavailable", "screen_input_uncertain", "screen_key_unsupported", "screen_text_unsupported", "screen_target_not_found", "screen_target_unavailable":
 		reason = detail
 	}
 	next := computerRefusalNextSteps[code]
