@@ -1015,7 +1015,9 @@ func (s *Session) Extend(ctx context.Context, ttl time.Duration) error {
 		return invalidComputerResponse()
 	}
 	s.mu.Lock()
-	s.expiresAt = *report.ExpiresAt
+	if report.ExpiresAt.After(s.expiresAt) {
+		s.expiresAt = *report.ExpiresAt
+	}
 	s.mu.Unlock()
 	s.logLine("lifetime extended to " + report.ExpiresAt.Format(time.RFC3339))
 	return nil

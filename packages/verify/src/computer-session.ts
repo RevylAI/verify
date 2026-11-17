@@ -561,7 +561,7 @@ export class ComputerSession implements Session {
   private parseReport(response: RawResponse): ComputerReport {
     const report = parseComputerJson<ComputerReport>(response);
     if (!report || report.computer_session_id !== this.id || !STATES.has(report.state)) throw invalidResponse();
-    if (report.expires_at != null) this.expiresAtMs = parseTimestamp(report.expires_at).getTime();
+    if (report.expires_at != null) this.expiresAtMs = Math.max(parseTimestamp(report.expires_at).getTime(), this.expiresAtMs ?? -Infinity);
     return report;
   }
 

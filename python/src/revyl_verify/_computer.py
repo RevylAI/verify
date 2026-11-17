@@ -646,8 +646,13 @@ class ComputerSession(Session):
         if raw.get("computer_session_id") != self.id or raw.get("state") not in _STATES:
             raise _invalid()
         if raw.get("expires_at") is not None:
+            reported = timestamp(raw["expires_at"])
             with self._lock:
-                self._expires_at = timestamp(raw["expires_at"])
+                self._expires_at = (
+                    reported
+                    if self._expires_at is None
+                    else max(reported, self._expires_at)
+                )
                 for child in self._children:
                     child._expires_at = self._expires_at
         return raw
