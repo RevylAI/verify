@@ -171,8 +171,8 @@ class AsyncSession:
     async def recording(self) -> ComputerRecording | None:
         return await self._call(self._session.recording)
 
-    async def extend(self, ttl_seconds: int) -> None:
-        await self._call(functools.partial(self._session.extend, ttl_seconds))
+    async def extend(self, timeout: int) -> None:
+        await self._call(functools.partial(self._session.extend, timeout))
 
     async def exec(
         self, argv: list[str], *, stdin: bytes | str = b"", timeout: float = 30, check: bool = True

@@ -62,9 +62,9 @@ Give exactly one of `appId`, `buildId`, `artifactUrl`, or `bundleId`.
 | --- | --- |
 | `platform: 'mac'` | A cloud macOS computer, without `app` or `device` configuration |
 | `startTimeout` | Milliseconds to wait for the computer to become active; default 600000, range 10000..1800000 |
-| `ttlSeconds` | Seconds the computer runs from create; range 60..86400. Omit it for the server's 2 hours |
+| `timeoutMs` | Milliseconds the computer runs from create, in whole seconds; range 60000..86400000. Omit it for the server's 2 hours |
 
-Computers do not accept `idleTimeoutSeconds`, image, provider, or cwd. The server bounds a run to its lifetime from create (2 hours by default, up to 24 hours with `ttlSeconds`, and `extend()` lengthens a running computer up to 24 hours from create); per-operation timeout defaults to 30000 ms and accepts 1..300000 ms. See [computers.md](computers.md).
+Computers do not accept `idleTimeoutSeconds`, image, provider, or cwd. The server bounds a run to its lifetime from create (2 hours by default, up to 24 hours with `timeoutMs`, and `extend()` lengthens a running computer up to 24 hours from create); per-operation timeout defaults to 30000 ms and accepts 1..300000 ms. See [computers.md](computers.md).
 
 ## Environment variables
 

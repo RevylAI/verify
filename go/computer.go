@@ -119,8 +119,8 @@ func startComputer(ctx context.Context, c *client, viewer string, target Target,
 	createAcknowledged := false
 	err = func() error {
 		request := map[string]any{"computer_session_id": id, "os": computerOS}
-		if target.TTL != 0 {
-			request["ttl_seconds"] = int64(target.TTL / time.Second)
+		if target.Timeout != 0 {
+			request["timeout_seconds"] = int64(target.Timeout / time.Second)
 		}
 		r, err := s.computerRequest(ctx, "POST", "", request)
 		if err != nil {
@@ -995,15 +995,15 @@ func (s *Session) computerScreenshot(ctx context.Context, paths ...string) ([]by
 	return data, nil
 }
 
-// Extend asks Revyl to keep the computer running until at least ttl from now, at most 24 hours after it started. It never shortens the lifetime, so retrying is safe.
-func (s *Session) Extend(ctx context.Context, ttl time.Duration) error {
+// Extend asks Revyl to keep the computer running until at least timeout from now, at most 24 hours after it started. It never shortens the lifetime, so retrying is safe.
+func (s *Session) Extend(ctx context.Context, timeout time.Duration) error {
 	if err := s.assertComputerOpen(); err != nil {
 		return err
 	}
-	if ttl < time.Minute || ttl > 24*time.Hour || ttl%time.Second != 0 {
+	if timeout < time.Minute || timeout > 24*time.Hour || timeout%time.Second != 0 {
 		return failure(ErrInvalidArgument, "Extend takes whole seconds from 1 minute to 24 hours.")
 	}
-	r, err := s.computerRequest(ctx, "POST", "/extend", map[string]int64{"ttl_seconds": int64(ttl / time.Second)})
+	r, err := s.computerRequest(ctx, "POST", "/extend", map[string]int64{"timeout_seconds": int64(timeout / time.Second)})
 	if err != nil {
 		return err
 	}

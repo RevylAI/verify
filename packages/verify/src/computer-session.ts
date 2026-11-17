@@ -57,7 +57,7 @@ export class ComputerSession implements Session {
     trackSession(session);
     try {
       session.log(`starting computer ${session.viewerUrl}`);
-      const response = await session.request('POST', '', { computer_session_id: session.id, os: target.platform === 'mac' ? 'macos' : 'linux', ...(target.ttlSeconds !== undefined ? { ttl_seconds: target.ttlSeconds } : {}) }, signal);
+      const response = await session.request('POST', '', { computer_session_id: session.id, os: target.platform === 'mac' ? 'macos' : 'linux', ...(target.timeoutMs !== undefined ? { timeout_seconds: target.timeoutMs / 1_000 } : {}) }, signal);
       createAcknowledged = true;
       let report = session.parseReport(response);
       for (;;) {
@@ -257,10 +257,10 @@ export class ComputerSession implements Session {
     return this.expiresAtMs === undefined ? undefined : new Date(this.expiresAtMs);
   }
 
-  async extend(ttlSeconds: number): Promise<void> {
+  async extend(timeoutMs: number): Promise<void> {
     this.assertOpen();
-    if (!Number.isInteger(ttlSeconds) || ttlSeconds < 60 || ttlSeconds > 86_400) throw new VerifyError('INVALID_ARGUMENT', 'extend() takes an integer from 60 to 86400.');
-    const report = this.parseReport(await this.request('POST', '/extend', { ttl_seconds: ttlSeconds }, AbortSignal.timeout(30_000)));
+    if (!Number.isInteger(timeoutMs) || timeoutMs % 1_000 !== 0 || timeoutMs < 60_000 || timeoutMs > 86_400_000) throw new VerifyError('INVALID_ARGUMENT', 'extend() takes timeoutMs as whole seconds from 60000 to 86400000.');
+    const report = this.parseReport(await this.request('POST', '/extend', { timeout_seconds: timeoutMs / 1_000 }, AbortSignal.timeout(30_000)));
     if (report.expires_at == null) throw invalidResponse();
     this.log(`lifetime extended to ${report.expires_at}`);
   }

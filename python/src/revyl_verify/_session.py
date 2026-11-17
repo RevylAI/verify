@@ -1369,7 +1369,7 @@ class Session:
     def recording(self) -> ComputerRecording | None:
         self._computer_only()
 
-    def extend(self, ttl_seconds: int) -> None:
+    def extend(self, timeout: int) -> None:
         self._computer_only()
 
 

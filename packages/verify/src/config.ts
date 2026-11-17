@@ -49,8 +49,8 @@ export interface MobileTargetConfig {
 export interface ComputerTargetConfig {
   platform: ComputerPlatform;
   startTimeout?: number;
-  /** How long the computer runs, in seconds: 60 to 86400. Defaults to Revyl's 2 hours. */
-  ttlSeconds?: number;
+  /** How long the computer runs from create, in milliseconds: whole seconds from 60000 to 86400000. Defaults to Revyl's 2 hours. */
+  timeoutMs?: number;
 }
 
 export type TargetConfig = WebTargetConfig | MobileTargetConfig | ComputerTargetConfig;
@@ -168,9 +168,11 @@ function parseTarget(raw: unknown, name: string, path: string, fail: Fail, hoste
   }
   const startTimeout = integer(target.startTimeout, `${path}.startTimeout`, 10_000, 1_800_000, 600_000, fail);
   if (platform === 'mac' || platform === 'linux') {
-    rejectUnknownKeys(target, ['platform', 'startTimeout', 'ttlSeconds'], path, fail);
-    if (target.ttlSeconds === undefined) return { name, startTimeout, platform };
-    return { name, startTimeout, platform, ttlSeconds: integer(target.ttlSeconds, `${path}.ttlSeconds`, 60, 86_400, undefined, fail) };
+    rejectUnknownKeys(target, ['platform', 'startTimeout', 'timeoutMs'], path, fail);
+    if (target.timeoutMs === undefined) return { name, startTimeout, platform };
+    const timeoutMs = integer(target.timeoutMs, `${path}.timeoutMs`, 60_000, 86_400_000, undefined, fail);
+    if (timeoutMs % 1_000 !== 0) fail(`${path}.timeoutMs`, 'must be whole seconds.');
+    return { name, startTimeout, platform, timeoutMs };
   }
   const common = {
     name,

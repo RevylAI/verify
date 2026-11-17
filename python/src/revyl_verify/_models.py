@@ -45,7 +45,7 @@ class Target:
     idle_timeout_seconds: int | None = None
     viewport: Viewport | None = None
     sign_in: SignIn | None = None
-    ttl_seconds: int | None = None
+    timeout: int | None = None
 
     def validate(self, *, hosted: bool = False) -> None:
         def bad(message: str) -> None:
@@ -91,16 +91,16 @@ class Target:
             if any(
                 getattr(self, field.name) is not None
                 for field in fields(self)
-                if field.name not in ("platform", "start_timeout", "ttl_seconds")
+                if field.name not in ("platform", "start_timeout", "timeout")
             ):
-                bad("Computer targets accept only platform, start_timeout, and ttl_seconds.")
-            if self.ttl_seconds is not None and (
-                type(self.ttl_seconds) is not int or not 60 <= self.ttl_seconds <= 86_400
+                bad("Computer targets accept only platform, start_timeout, and timeout.")
+            if self.timeout is not None and (
+                type(self.timeout) is not int or not 60 <= self.timeout <= 86_400
             ):
-                bad("ttl_seconds must be an integer from 60 to 86400.")
+                bad("timeout must be an integer number of seconds from 60 to 86400.")
             return
-        if self.ttl_seconds is not None:
-            bad("ttl_seconds applies only to mac and linux targets.")
+        if self.timeout is not None:
+            bad("timeout applies only to mac and linux targets.")
         if self.idle_timeout_seconds is not None and (
             type(self.idle_timeout_seconds) is not int
             or not 60 <= self.idle_timeout_seconds <= 3600

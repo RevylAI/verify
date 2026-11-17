@@ -407,8 +407,8 @@ class ComputerSession(Session):
                 "computer_session_id": session_id,
                 "os": "macos" if target.platform == "mac" else "linux",
             }
-            if target.ttl_seconds is not None:
-                body["ttl_seconds"] = target.ttl_seconds
+            if target.timeout is not None:
+                body["timeout_seconds"] = target.timeout
             response = session._request("POST", "", body, deadline)
             acknowledged = True
             while True:
@@ -658,12 +658,12 @@ class ComputerSession(Session):
     def report(self) -> dict[str, Json]:
         return self._report(self._request("GET", "/report", None, Deadline(30)))
 
-    def extend(self, ttl_seconds: int) -> None:
+    def extend(self, timeout: int) -> None:
         self._assert_computer_open()
-        if type(ttl_seconds) is not int or not 60 <= ttl_seconds <= 86_400:
-            raise VerifyError("INVALID_ARGUMENT", "extend() takes an integer from 60 to 86400.")
+        if type(timeout) is not int or not 60 <= timeout <= 86_400:
+            raise VerifyError("INVALID_ARGUMENT", "extend() takes whole seconds from 60 to 86400.")
         report = self._report(
-            self._request("POST", "/extend", {"ttl_seconds": ttl_seconds}, Deadline(30))
+            self._request("POST", "/extend", {"timeout_seconds": timeout}, Deadline(30))
         )
         if report.get("expires_at") is None:
             raise _invalid()

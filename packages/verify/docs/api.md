@@ -235,9 +235,9 @@ For owning computers, cleanup must be confirmed; a terminal state alone does not
 
 Mac sessions provide `exec(argv: string[], options?)`, `readFile(path, options?)` returning `Buffer`, `writeFile(path, string | Uint8Array, options?)`, `stat(path, options?)` returning `{ kind, size }`, `processes(options?)` returning `{ id, state, exitCode? }[]`, and `terminate(id, options?)`. They throw `NOT_AVAILABLE_ON_PLATFORM` on web/iOS/Android. See [computers.md](computers.md) for complete signatures, limits, timeouts, and examples. Both support `screenshot()`, and computers take `tap({ x, y })`, `screenSize()`, `typeFocused(text, { clear: false })` and `pressKey` on the screen (see [computers.md](computers.md#screen)); instruction/validation do not run on computers.
 
-### `session.extend(ttlSeconds: number): Promise<void>`
+### `session.extend(timeoutMs: number): Promise<void>`
 
-Computers only. Keeps a running computer going at least `ttlSeconds` (an integer from 60 to 86400) from now, up to 24 hours after it was created, and updates `expiresAt`. It never shortens the lifetime, so retrying is safe. Throws `COMPUTER_LIMIT` with reason `computer_long_limit` when the organization already has 2 computers running longer than 2 hours and `NOT_AVAILABLE_ON_PLATFORM` when the computer's host can't extend. Devices reject this call locally with `NOT_AVAILABLE_ON_PLATFORM`.
+Computers only. Keeps a running computer going at least `timeoutMs` (whole seconds in milliseconds, from 60000 to 86400000) from now, up to 24 hours after it was created, and updates `expiresAt`. It never shortens the lifetime, so retrying is safe. Throws `COMPUTER_LIMIT` with reason `computer_long_limit` when the organization already has 2 computers running longer than 2 hours and `NOT_AVAILABLE_ON_PLATFORM` when the computer's host can't extend. Devices reject this call locally with `NOT_AVAILABLE_ON_PLATFORM`.
 
 ### `session.recording(): Promise<ComputerRecording | null>`
 
@@ -252,7 +252,7 @@ Computers only. First reads the report and requires terminal state plus confirme
 | `viewerUrl` | The session in Revyl: a live view while it runs, its recording/report after. Use `revyl device report --session-id <id>` for web/mobile, or `revyl computer report <id>` for computers. |
 | `id` | Revyl's session id |
 | `platform` | `'web'`, `'ios'`, `'android'`, or `'mac'` |
-| `expiresAt` | **Since 0.2.0.** Validated API expiry as a `Date`, or undefined for devices and older APIs. Computers have a hard lifetime from create (2 hours by default, up to 24 hours with `ttlSeconds`); this value is the authoritative deadline, and `extend()` updates it. Operations/screenshot observation are bounded by expiry; close and recording remain possible. |
+| `expiresAt` | **Since 0.2.0.** Validated API expiry as a `Date`, or undefined for devices and older APIs. Computers have a hard lifetime from create (2 hours by default, up to 24 hours with `timeoutMs`); this value is the authoritative deadline, and `extend()` updates it. Operations/screenshot observation are bounded by expiry; close and recording remain possible. |
 | `target` | The target name, or the platform for a target object |
 | `closed` | Whether `close()` was called |
 
@@ -271,7 +271,7 @@ While a session is open, Verify attempts best-effort cleanup with a 15-second bu
 - on an uncaught error, such as a failed validation that nothing catches: it prints the error, attempts cleanup, then exits with 1;
 - when the script finishes without calling `close()`: it attempts cleanup and prints a reminder.
 
-Verify skips installing a signal or error handler when that event already has listeners, so test runners and apps that manage their own shutdown keep control of it. Always close in `try/finally` or an `after` hook; automatic cleanup cannot guarantee success. A process that is killed outright, or calls `process.exit()` with sessions open, leaves browser/mobile sessions running until their idle timeout (10 minutes by default). Computers have a hard lifetime from create instead (2 hours by default, up to 24 hours with `ttlSeconds` or `extend()`; `expiresAt` is authoritative); no idle timeout is configurable.
+Verify skips installing a signal or error handler when that event already has listeners, so test runners and apps that manage their own shutdown keep control of it. Always close in `try/finally` or an `after` hook; automatic cleanup cannot guarantee success. A process that is killed outright, or calls `process.exit()` with sessions open, leaves browser/mobile sessions running until their idle timeout (10 minutes by default). Computers have a hard lifetime from create instead (2 hours by default, up to 24 hours with `timeoutMs` or `extend()`; `expiresAt` is authoritative); no idle timeout is configurable.
 
 ## defineConfig(config)
 

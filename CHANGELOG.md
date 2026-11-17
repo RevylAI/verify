@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Computers: choose a lifetime at create with `ttlSeconds` (TypeScript), `ttl_seconds` (Python `Target`) or `TTL` (Go `Target`), from 1 minute to 24 hours; omitted, the server's 2-hour default applies and the create request is unchanged. `extend()` / `Extend` keeps a running computer going at least that long from now, up to 24 hours after create, and updates `expiresAt` / `expires_at` / `ExpiresAt()`, including for hosted sessions. `computer_long_limit` maps to `COMPUTER_LIMIT` and `extend_unsupported` to `NOT_AVAILABLE_ON_PLATFORM`.
+- Computers: choose a lifetime at create with `timeoutMs` (TypeScript, whole seconds in milliseconds), `timeout` (Python `Target`, seconds) or `Timeout` (Go `Target`), from 1 minute to 24 hours, sent as the API's `timeout_seconds`; omitted, the server's 2-hour default applies and the create request is unchanged. `extend()` / `Extend` keeps a running computer going at least that long from now, up to 24 hours after create, and updates `expiresAt` / `expires_at` / `ExpiresAt()`, including for hosted sessions. `computer_long_limit` maps to `COMPUTER_LIMIT` and `extend_unsupported` to `NOT_AVAILABLE_ON_PLATFORM`.
 
 ## 0.6.3 (2026-11-16)
 
