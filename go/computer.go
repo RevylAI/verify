@@ -475,7 +475,7 @@ func (s *Session) computerRequestTimeout(ctx context.Context, method, suffix str
 		case detail == "screen_target_unavailable":
 			return r, responseFailure(r, ErrAPI, "Nothing was clicked: Revyl could not look up the described target just now (screen_target_unavailable). It is safe to try again. See "+s.viewer)
 		case detail == "screen_control_held":
-			return r, responseFailure(r, ErrSessionBusy, "Nothing happened: someone else is controlling this computer's screen in the viewer (screen_control_held). Try again after they release it; control frees itself after 2 minutes without input. See "+s.viewer)
+			return r, responseFailure(r, ErrSessionBusy, "Nothing happened: control of this computer's screen was changing hands (screen_control_held). Try again; this clears on its own within 2 minutes. See "+s.viewer)
 		case detail == "screen_input_uncertain" || detail == "screen_unavailable" || detail == "screen_input_unavailable":
 			return r, responseFailure(r, ErrActionUncertain, fmt.Sprintf("The screen action may have happened (%s). Verify will not repeat it; take a Screenshot to check before you do. See %s", detail, s.viewer))
 		case r.status == 403:
@@ -485,7 +485,7 @@ func (s *Session) computerRequestTimeout(ctx context.Context, method, suffix str
 		case detail == "screen_text_unsupported":
 			return r, responseFailure(r, ErrInvalidArgument, "Nothing was typed: this computer can't type some of these characters (screen_text_unsupported). See "+s.viewer)
 		case detail == "screen_control_lost":
-			return r, responseFailure(r, ErrSessionBusy, "Nothing happened: control of this computer's screen changed hands before the action was sent (screen_control_lost). Try again; if someone is controlling the screen in the viewer, wait until they release it, which happens on its own after 2 minutes without input. See "+s.viewer)
+			return r, responseFailure(r, ErrSessionBusy, "Nothing happened: control of this computer's screen changed hands before the action was sent (screen_control_lost). Try again. See "+s.viewer)
 		case detail == "screen_key_unsupported":
 			return r, responseFailure(r, ErrInvalidArgument, "Nothing was pressed: this computer can't press that key (screen_key_unsupported). Use a key PressKey lists in the docs, or TypeFocused for a printable character. See "+s.viewer)
 		}
