@@ -249,6 +249,20 @@ A failed action returns `ErrActionFailed`, including when Revyl cannot find an e
 
 Exact actions return when Revyl has accepted them, not when the screen has finished changing. After `Swipe`, `Drag`, `GoHome`, `OpenURL` or `LaunchApp`, let the screen settle or check it before you `Locate` or tap coordinates. `Locate` returns Revyl's best match on the current screen and can return a point for an element that is off screen, so bring the element on screen first. A point outside `ScreenSize` is off screen, and an action at it is refused.
 
+**Fast input: `Settle: new(false)`.** On Web, the browser runtime waits after every `Tap`, `DoubleTap`, `LongPress`, `Type`, `TypeFocused`, `Swipe`, `Drag` and `PressKey` until the page stops changing, for up to about 6 seconds. A running game or animation never stops changing, so each call takes the whole wait and the next one queues behind it. Set `Settle` to point to `false` in the call's options (`TapOptions` for `Tap` and `DoubleTap`, `DragOptions` for `Drag`, and `LongPressOptions`, `TypeOptions`, `SwipeOptions` or `KeyOptions` for the rest) for games, animations and rapid input, such as pressing an arrow key every few hundred milliseconds: the call returns as soon as the input is sent, usually within a second. The catch is that it returns before the screen may have changed, so when you need to see the result, take a `Screenshot` or run a `Validation`, and don't rely on the next screenshot showing it. A `verify.Element` is still found before the input; `Settle` skips only the wait after it. iOS, Android and Mac computers don't wait for the screen after these calls, so `Settle` is accepted there and changes nothing. Leaving `Settle` unset, or pointing it to `true`, keeps the wait.
+
+```go
+for range 10 {
+	if err := s.PressKey(ctx, verify.KeyArrowLeft, verify.KeyOptions{Settle: new(false)}); err != nil { // returns without waiting for the page to settle
+		return err
+	}
+	time.Sleep(300 * time.Millisecond)
+}
+if _, err := s.Validation(ctx, "The player is at the left edge"); err != nil { // check the result when you need it
+	return err
+}
+```
+
 **Coordinates.** Prefer a description, such as `Tap(ctx, verify.Element("Sign in button"))`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `verify.Point{X, Y}` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `Screenshot` returns. So a position you read off a screenshot goes to `Tap`, `Type`, `Swipe` and every other exact action unchanged. `ScreenSize` returns the screenshot's width and height, and `Locate` and the points `Tap`, `DoubleTap`, `LongPress` and `Type` return use the same pixels. A point outside the screenshot is refused with `ErrInvalidArgument` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they equal CSS pixels at the default device scale factor of 1, and you still pass screenshot pixels at any other. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points. On a Mac computer a point is in screenshot pixels too, and a tap on a `verify.Element` returns the point it clicked in the same pixels. Verify refuses a negative point before sending it, and Revyl refuses one past the screen's edge without clicking; both return `ErrInvalidArgument` naming the valid range.
 
 ```go

@@ -93,6 +93,8 @@ type KeyOptions struct {
 	// Modifiers are held while the key is pressed: up to four of ModifierCtrl, ModifierShift, ModifierAlt and
 	// ModifierMeta. Web and Mac computers, where ModifierMeta is Command.
 	Modifiers []KeyModifier
+	// Settle waits for the screen to settle before the call returns. Defaults to true; see TapOptions.Settle.
+	Settle *bool
 }
 
 // LongPressOptions configures LongPress.
@@ -100,7 +102,26 @@ type LongPressOptions struct {
 	// Duration is how long to hold, in whole milliseconds from 1 millisecond to 5 seconds. Zero leaves it to
 	// Revyl, which holds for 1.5 seconds.
 	Duration time.Duration
+	// Settle waits for the screen to settle before the call returns. Defaults to true; see TapOptions.Settle.
+	Settle *bool
 }
+
+// TapOptions configures Tap and DoubleTap.
+type TapOptions struct {
+	// Settle waits for the screen to settle before the call returns. Defaults to true. On Web the runtime otherwise
+	// waits up to about 6 seconds after each action for the page to stop changing; new(false) returns as soon as the
+	// input is sent, so the screen may not show the result yet. iOS, Android and computers don't wait, so false
+	// changes nothing there.
+	Settle *bool
+}
+
+// DragOptions configures Drag.
+type DragOptions struct {
+	// Settle waits for the screen to settle before the call returns. Defaults to true; see TapOptions.Settle.
+	Settle *bool
+}
+
+func skipSettle(settle *bool) bool { return settle != nil && !*settle }
 
 const invalidModifiers = "PressKey modifiers are up to four of ModifierCtrl, ModifierShift, ModifierAlt and ModifierMeta."
 
@@ -135,12 +156,16 @@ func checkKey(platform Platform, key Key, modifiers []KeyModifier) error {
 type TypeOptions struct {
 	// Clear empties the field before typing. Defaults to true.
 	Clear *bool
+	// Settle waits for the screen to settle before the call returns. Defaults to true; see TapOptions.Settle.
+	Settle *bool
 }
 
 // SwipeOptions configures Swipe.
 type SwipeOptions struct {
 	// From is where the swipe starts. Defaults to the screen's center.
 	From Location
+	// Settle waits for the screen to settle before the call returns. Defaults to true; see TapOptions.Settle.
+	Settle *bool
 }
 
 func validDirection(direction SwipeDirection) bool {
@@ -165,7 +190,10 @@ func checkLocation(at Location) (Location, error) {
 
 // Tap taps a point in screenshot pixels, or an element Revyl locates from a description, and returns the point
 // tapped in screenshot pixels.
-func (s *Session) Tap(ctx context.Context, at Location) (Point, error) {
+func (s *Session) Tap(ctx context.Context, at Location, options ...TapOptions) (Point, error) {
+	if len(options) > 1 {
+		return Point{}, failure(ErrInvalidArgument, "Tap accepts at most one options value.")
+	}
 	if s.platform.computer() {
 		return s.computerTap(ctx, at)
 	}
@@ -181,7 +209,7 @@ func (s *Session) Tap(ctx context.Context, at Location) (Point, error) {
 			return Point{}, err
 		}
 	}
-	point, err := s.perform(ctx, deviceAction{kind: "tap", at: at}, "")
+	point, err := s.perform(ctx, deviceAction{kind: "tap", at: at, skipSettle: len(options) == 1 && skipSettle(options[0].Settle)}, "")
 	if err != nil {
 		return Point{}, err
 	}
@@ -212,7 +240,7 @@ func (s *Session) Type(ctx context.Context, at Location, text string, options ..
 		}
 	}
 	clearFirst := len(options) == 0 || options[0].Clear == nil || *options[0].Clear
-	point, err := s.perform(ctx, deviceAction{kind: "type", at: at, text: text, clear: clearFirst}, "")
+	point, err := s.perform(ctx, deviceAction{kind: "type", at: at, text: text, clear: clearFirst, skipSettle: len(options) == 1 && skipSettle(options[0].Settle)}, "")
 	if err != nil {
 		return Point{}, err
 	}
@@ -230,7 +258,7 @@ func (s *Session) Swipe(ctx context.Context, direction SwipeDirection, options .
 	if !validDirection(direction) {
 		return failure(ErrInvalidArgument, "Swipe takes SwipeUp, SwipeDown, SwipeLeft or SwipeRight.")
 	}
-	action := deviceAction{kind: "swipe", direction: direction}
+	action := deviceAction{kind: "swipe", direction: direction, skipSettle: len(options) == 1 && skipSettle(options[0].Settle)}
 	if len(options) == 1 && options[0].From != nil {
 		from, err := checkLocation(options[0].From)
 		if err != nil {
@@ -261,17 +289,20 @@ func (s *Session) TypeFocused(ctx context.Context, text string, options ...TypeO
 		return failure(ErrInvalidArgument, "TypeFocused takes text of at most 16384 characters.")
 	}
 	clearFirst := len(options) == 0 || options[0].Clear == nil || *options[0].Clear
-	_, err := s.perform(ctx, deviceAction{kind: "type_focused", text: text, clear: clearFirst}, "")
+	_, err := s.perform(ctx, deviceAction{kind: "type_focused", text: text, clear: clearFirst, skipSettle: len(options) == 1 && skipSettle(options[0].Settle)}, "")
 	return err
 }
 
 // DoubleTap double-taps a point in screenshot pixels, or an element Revyl locates from a description, and returns
 // the point in screenshot pixels.
-func (s *Session) DoubleTap(ctx context.Context, at Location) (Point, error) {
+func (s *Session) DoubleTap(ctx context.Context, at Location, options ...TapOptions) (Point, error) {
 	if s.platform.computer() {
 		return Point{}, s.computerAgentUnavailable("DoubleTap")
 	}
-	return s.pointAction(ctx, deviceAction{kind: "double_tap", at: at})
+	if len(options) > 1 {
+		return Point{}, failure(ErrInvalidArgument, "DoubleTap accepts at most one options value.")
+	}
+	return s.pointAction(ctx, deviceAction{kind: "double_tap", at: at, skipSettle: len(options) == 1 && skipSettle(options[0].Settle)})
 }
 
 // LongPress presses and holds a point in screenshot pixels, or an element Revyl locates from a description, and
@@ -283,7 +314,7 @@ func (s *Session) LongPress(ctx context.Context, at Location, options ...LongPre
 	if len(options) > 1 {
 		return Point{}, failure(ErrInvalidArgument, "LongPress accepts at most one options value.")
 	}
-	action := deviceAction{kind: "long_press", at: at}
+	action := deviceAction{kind: "long_press", at: at, skipSettle: len(options) == 1 && skipSettle(options[0].Settle)}
 	if len(options) == 1 && options[0].Duration != 0 {
 		duration := options[0].Duration
 		if duration < time.Millisecond || duration > 5*time.Second || duration%time.Millisecond != 0 {
@@ -315,9 +346,12 @@ func (s *Session) pointAction(ctx context.Context, action deviceAction) (Point, 
 }
 
 // Drag presses at one location, moves to another and releases, such as to reorder a list or move a slider.
-func (s *Session) Drag(ctx context.Context, from, to Location) error {
+func (s *Session) Drag(ctx context.Context, from, to Location, options ...DragOptions) error {
 	if s.platform.computer() {
 		return s.computerAgentUnavailable("Drag")
+	}
+	if len(options) > 1 {
+		return failure(ErrInvalidArgument, "Drag accepts at most one options value.")
 	}
 	start, err := checkLocation(from)
 	if err != nil {
@@ -333,7 +367,7 @@ func (s *Session) Drag(ctx context.Context, from, to Location) error {
 	if end, err = s.toDevice(ctx, end); err != nil {
 		return err
 	}
-	_, err = s.perform(ctx, deviceAction{kind: "drag", at: start, to: end}, "")
+	_, err = s.perform(ctx, deviceAction{kind: "drag", at: start, to: end, skipSettle: len(options) == 1 && skipSettle(options[0].Settle)}, "")
 	return err
 }
 
@@ -354,7 +388,7 @@ func (s *Session) PressKey(ctx context.Context, key Key, options ...KeyOptions) 
 	if err := checkKey(s.platform, key, modifiers); err != nil {
 		return err
 	}
-	_, err := s.perform(ctx, deviceAction{kind: "key", key: key, modifiers: slices.Clone(modifiers)}, "")
+	_, err := s.perform(ctx, deviceAction{kind: "key", key: key, modifiers: slices.Clone(modifiers), skipSettle: len(options) == 1 && skipSettle(options[0].Settle)}, "")
 	return err
 }
 
@@ -611,13 +645,13 @@ func (s *Session) perform(ctx context.Context, action deviceAction, screenToken 
 		if err != nil {
 			return nil, err
 		}
-		return &point, s.act(ctx, "tap", pointBody(point, token, action.at))
+		return &point, s.act(ctx, "tap", s.settleBody(pointBody(point, token, action.at), action))
 	case "double_tap":
 		point, token, err := s.resolve(ctx, action.at, screenToken)
 		if err != nil {
 			return nil, err
 		}
-		return &point, s.act(ctx, "double_tap", pointBody(point, token, action.at))
+		return &point, s.act(ctx, "double_tap", s.settleBody(pointBody(point, token, action.at), action))
 	case "long_press":
 		point, token, err := s.resolve(ctx, action.at, screenToken)
 		if err != nil {
@@ -627,7 +661,7 @@ func (s *Session) perform(ctx context.Context, action deviceAction, screenToken 
 		if action.durationMs != 0 {
 			body["duration_ms"] = action.durationMs
 		}
-		return &point, s.act(ctx, "longpress", body)
+		return &point, s.act(ctx, "longpress", s.settleBody(body, action))
 	case "type":
 		point, token, err := s.resolve(ctx, action.at, screenToken)
 		if err != nil {
@@ -635,9 +669,9 @@ func (s *Session) perform(ctx context.Context, action deviceAction, screenToken 
 		}
 		body := pointBody(point, token, action.at)
 		body["text"], body["clear_first"] = action.text, action.clear
-		return &point, s.act(ctx, "input", body)
+		return &point, s.act(ctx, "input", s.settleBody(body, action))
 	case "type_focused":
-		return nil, s.act(ctx, "input", map[string]any{"text": action.text, "clear_first": action.clear})
+		return nil, s.act(ctx, "input", s.settleBody(map[string]any{"text": action.text, "clear_first": action.clear}, action))
 	case "drag":
 		from, _, err := s.resolve(ctx, action.at, screenToken)
 		if err != nil {
@@ -647,7 +681,7 @@ func (s *Session) perform(ctx context.Context, action deviceAction, screenToken 
 		if err != nil {
 			return nil, err
 		}
-		return nil, s.act(ctx, "drag", map[string]any{"start_x": from.X, "start_y": from.Y, "end_x": to.X, "end_y": to.Y})
+		return nil, s.act(ctx, "drag", s.settleBody(map[string]any{"start_x": from.X, "start_y": from.Y, "end_x": to.X, "end_y": to.Y}, action))
 	case "swipe":
 		var point Point
 		var token string
@@ -668,7 +702,7 @@ func (s *Session) perform(ctx context.Context, action deviceAction, screenToken 
 			direction = map[SwipeDirection]SwipeDirection{SwipeUp: SwipeDown, SwipeDown: SwipeUp, SwipeLeft: SwipeRight, SwipeRight: SwipeLeft}[direction]
 		}
 		body["direction"], body["duration_ms"] = string(direction), 500
-		return nil, s.act(ctx, "swipe", body)
+		return nil, s.act(ctx, "swipe", s.settleBody(body, action))
 	case "key":
 		key := strings.ToUpper(string(action.key))
 		if s.platform == Web {
@@ -681,7 +715,7 @@ func (s *Session) perform(ctx context.Context, action deviceAction, screenToken 
 		if len(action.modifiers) > 0 {
 			body["modifiers"] = action.modifiers
 		}
-		return nil, s.act(ctx, "key", body)
+		return nil, s.act(ctx, "key", s.settleBody(body, action))
 	case "go_home":
 		return nil, s.act(ctx, "go_home", map[string]any{})
 	case "back":
@@ -775,6 +809,15 @@ func (s *Session) uncertain(ctx context.Context, action string, err error) error
 		return &Error{Code: ErrActionUncertain, Message: "The step deadline passed while " + action + " was in flight, so it may have been applied. Verify did not repeat it. See " + s.viewer, Cause: err}
 	}
 	return err
+}
+
+// settleBody asks the web runtime to return without waiting for the page to settle. Only Web waits, so iOS and
+// Android never get the field.
+func (s *Session) settleBody(body map[string]any, action deviceAction) map[string]any {
+	if action.skipSettle && s.platform == Web {
+		body["skip_settle"] = true
+	}
+	return body
 }
 
 func (s *Session) withSession(body map[string]any) map[string]any {

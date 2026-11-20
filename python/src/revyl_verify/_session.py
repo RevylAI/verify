@@ -660,23 +660,27 @@ class Session:
         if result["success"] is not True:
             raise VerifyError("ACTION_FAILED", "Revyl did not confirm web navigation.")
 
-    def tap(self, at: Location) -> Point:
+    def tap(self, at: Location, *, settle: bool = True) -> Point:
+        _check_settle(settle)
         location = self._to_device(_location(at))
         if self.platform == "ios":
             self._read_screenshot_size()
-        return self._to_screenshot(cast(Point, self._perform(Tap(location))))
+        return self._to_screenshot(cast(Point, self._perform(Tap(location), settle=settle)))
 
-    def type(self, at: Location, text: str, *, clear: bool = True) -> Point:
+    def type(self, at: Location, text: str, *, clear: bool = True, settle: bool = True) -> Point:
         if not isinstance(text, str) or text_length(text) > 16_384:
             raise VerifyError("INVALID_ARGUMENT", "type() takes text of at most 16384 characters.")
         if not isinstance(clear, bool):
             raise VerifyError("INVALID_ARGUMENT", "clear must be a boolean.")
+        _check_settle(settle)
         location = self._to_device(_location(at))
         if self.platform == "ios":
             self._read_screenshot_size()
-        return self._to_screenshot(cast(Point, self._perform(TypeText(location, text, clear))))
+        return self._to_screenshot(
+            cast(Point, self._perform(TypeText(location, text, clear), settle=settle))
+        )
 
-    def type_focused(self, text: str, *, clear: bool = True) -> None:
+    def type_focused(self, text: str, *, clear: bool = True, settle: bool = True) -> None:
         if self.platform != "web":
             raise VerifyError(
                 "NOT_AVAILABLE_ON_PLATFORM",
@@ -689,15 +693,19 @@ class Session:
             )
         if not isinstance(clear, bool):
             raise VerifyError("INVALID_ARGUMENT", "clear must be a boolean.")
-        self._perform(TypeFocused(text, clear))
+        _check_settle(settle)
+        self._perform(TypeFocused(text, clear), settle=settle)
 
-    def double_tap(self, at: Location) -> Point:
+    def double_tap(self, at: Location, *, settle: bool = True) -> Point:
+        _check_settle(settle)
         location = self._to_device(_location(at))
         if self.platform == "ios":
             self._read_screenshot_size()
-        return self._to_screenshot(cast(Point, self._perform(DoubleTap(location))))
+        return self._to_screenshot(cast(Point, self._perform(DoubleTap(location), settle=settle)))
 
-    def long_press(self, at: Location, *, duration: float | None = None) -> Point:
+    def long_press(
+        self, at: Location, *, duration: float | None = None, settle: bool = True
+    ) -> Point:
         if duration is not None and (
             isinstance(duration, bool)
             or not isinstance(duration, (int, float))
@@ -710,24 +718,36 @@ class Session:
                 "long_press() duration is 0.001 to 5 seconds, in whole milliseconds.",
             )
         duration_ms = None if duration is None else round(duration * 1000)
+        _check_settle(settle)
         location = self._to_device(_location(at))
         if self.platform == "ios":
             self._read_screenshot_size()
-        return self._to_screenshot(cast(Point, self._perform(LongPress(location, duration_ms))))
-
-    def swipe(self, direction: SwipeDirection, *, from_: Location | None = None) -> None:
-        if direction not in ("up", "down", "left", "right"):
-            raise VerifyError("INVALID_ARGUMENT", "swipe() takes 'up', 'down', 'left' or 'right'.")
-        self._perform(
-            Swipe(direction, None if from_ is None else self._to_device(_location(from_)))
+        return self._to_screenshot(
+            cast(Point, self._perform(LongPress(location, duration_ms), settle=settle))
         )
 
-    def drag(self, start: Location, end: Location) -> None:
-        start_at, end_at = _location(start), _location(end)
-        self._perform(Drag(self._to_device(start_at), self._to_device(end_at)))
+    def swipe(
+        self, direction: SwipeDirection, *, from_: Location | None = None, settle: bool = True
+    ) -> None:
+        if direction not in ("up", "down", "left", "right"):
+            raise VerifyError("INVALID_ARGUMENT", "swipe() takes 'up', 'down', 'left' or 'right'.")
+        _check_settle(settle)
+        self._perform(
+            Swipe(direction, None if from_ is None else self._to_device(_location(from_))),
+            settle=settle,
+        )
 
-    def press_key(self, key: Key | str, *, modifiers: Sequence[KeyModifier] = ()) -> None:
-        self._perform(PressKey(*check_key(self.platform, key, modifiers)))
+    def drag(self, start: Location, end: Location, *, settle: bool = True) -> None:
+        start_at, end_at = _location(start), _location(end)
+        _check_settle(settle)
+        self._perform(Drag(self._to_device(start_at), self._to_device(end_at)), settle=settle)
+
+    def press_key(
+        self, key: Key | str, *, modifiers: Sequence[KeyModifier] = (), settle: bool = True
+    ) -> None:
+        checked = check_key(self.platform, key, modifiers)
+        _check_settle(settle)
+        self._perform(PressKey(*checked), settle=settle)
 
     def back(self) -> None:
         self._perform(Back())
@@ -900,6 +920,8 @@ class Session:
         action: DeviceAction,
         screen_token: str | None = None,
         deadline: Deadline | None = None,
+        *,
+        settle: bool = True,
     ) -> Point | None:
         uncertain = deadline is not None
         deadline = deadline or Deadline(self._step_timeout, self._cancellation)
@@ -922,28 +944,34 @@ class Session:
                     )
                 return Point(js_round(x), js_round(y))
             point, token = self._resolve(action.at, screen_token, deadline)
-            self._act("tap", _point_body(point, token, action.at), deadline, uncertain)
+            self._act("tap", _point_body(point, token, action.at), deadline, uncertain, settle)
             return point
         if isinstance(action, DoubleTap):
             point, token = self._resolve(action.at, screen_token, deadline)
-            self._act("double_tap", _point_body(point, token, action.at), deadline, uncertain)
+            self._act(
+                "double_tap", _point_body(point, token, action.at), deadline, uncertain, settle
+            )
             return point
         if isinstance(action, LongPress):
             point, token = self._resolve(action.at, screen_token, deadline)
             body = _point_body(point, token, action.at)
             if action.duration_ms is not None:
                 body["duration_ms"] = action.duration_ms
-            self._act("longpress", body, deadline, uncertain)
+            self._act("longpress", body, deadline, uncertain, settle)
             return point
         if isinstance(action, TypeText):
             point, token = self._resolve(action.at, screen_token, deadline)
             body = _point_body(point, token, action.at)
             body.update(text=action.text, clear_first=action.clear)
-            self._act("input", body, deadline, uncertain)
+            self._act("input", body, deadline, uncertain, settle)
             return point
         if isinstance(action, TypeFocused):
             self._act(
-                "input", {"text": action.text, "clear_first": action.clear}, deadline, uncertain
+                "input",
+                {"text": action.text, "clear_first": action.clear},
+                deadline,
+                uncertain,
+                settle,
             )
             return None
         if isinstance(action, Drag):
@@ -954,6 +982,7 @@ class Session:
                 {"start_x": start.x, "start_y": start.y, "end_x": end.x, "end_y": end.y},
                 deadline,
                 uncertain,
+                settle,
             )
             return None
         if isinstance(action, Swipe):
@@ -969,7 +998,7 @@ class Session:
                 else action.direction,
                 duration_ms=500,
             )
-            self._act("swipe", body, deadline, uncertain)
+            self._act("swipe", body, deadline, uncertain, settle)
             return None
         if isinstance(action, PressKey):
             body = {
@@ -979,7 +1008,7 @@ class Session:
             }
             if action.modifiers:
                 body["modifiers"] = list(action.modifiers)
-            self._act("key", body, deadline, uncertain)
+            self._act("key", body, deadline, uncertain, settle)
             return None
         if isinstance(action, GoHome):
             self._act("go_home", {}, deadline, uncertain)
@@ -1027,8 +1056,17 @@ class Session:
         token = result.get("screen_token")
         return Point(js_round(x), js_round(y)), token if isinstance(token, str) and token else None
 
-    def _act(self, action: str, body: dict[str, Json], deadline: Deadline, uncertain: bool) -> None:
+    def _act(
+        self,
+        action: str,
+        body: dict[str, Json],
+        deadline: Deadline,
+        uncertain: bool,
+        settle: bool = True,
+    ) -> None:
         deadline.remaining()
+        if not settle and self.platform == "web":
+            body = {**body, "skip_settle": True}
         result = self._post(action, body, deadline, uncertain)
         if result.get("success") is not True:
             error = result.get("error")
@@ -1414,6 +1452,15 @@ def _web_build(client: Client, target: Target, deadline: Deadline) -> str:
             "Revyl app has no web build. Set url or create a web build first.",
         )
     return build_id
+
+
+def _check_settle(settle: object) -> None:
+    if not isinstance(settle, bool):
+        raise VerifyError(
+            "INVALID_ARGUMENT",
+            "settle takes True or False, such as press_key(key, settle=False). "
+            "Leave it out to wait for the screen to settle.",
+        )
 
 
 def _location(at: object) -> Location:
