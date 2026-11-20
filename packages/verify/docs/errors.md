@@ -71,8 +71,8 @@ Clicks, typing and keys on a Mac computer's screen map Revyl's answers to these 
 
 | Revyl's answer | `code` | What it means |
 | --- | --- | --- |
-| 409 `screen_control_held` | `SESSION_BUSY` | Nothing happened: someone controls the screen in the viewer. Try again after they release it; control frees itself after 2 minutes without input |
-| 409 `screen_control_lost` | `SESSION_BUSY` | Nothing happened: control of the screen changed hands before the action was sent. Try again; if someone controls the screen in the viewer, wait until they release it |
+| 409 `screen_control_held` | `SESSION_BUSY` | Nothing happened: control of the screen was changing hands. Try again; this clears on its own within 2 minutes |
+| 409 `screen_control_lost` | `SESSION_BUSY` | Nothing happened: control of the screen changed hands before the action was sent. Try again |
 | 409 `screen_starting` for more than 30 seconds | `SESSION_BUSY` | Nothing happened: the screen is still starting. Try again after the number of seconds the message names |
 | 422 `screen_target_not_found` | `ACTION_FAILED` | Nothing was clicked: Revyl didn't find the described target. A target that isn't there can also be clicked as a look-alike, so check the point `tap({ target })` returns |
 | 503 `screen_target_unavailable` | `API_ERROR` | Nothing was clicked: Revyl couldn't look the target up just then. It is safe to try again |

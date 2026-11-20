@@ -95,15 +95,15 @@ A described click takes several seconds, because Revyl takes a screenshot and fi
 
 Each call returns when Revyl has accepted the action, not when the app has finished reacting, so take a screenshot before you rely on what changed. Verify never repeats a screen action, with one exception: when Revyl answers `screen_starting`, nothing happened, so Verify waits as long as Revyl asks and tries again, for up to 30 seconds. Window positions and the desktop size aren't fixed, so for a script that runs unattended, run it once up to the screenshot, read the points off that image, and then write them into the script.
 
-A script that controls the screen keeps control for 120 seconds after its last action. During that time a teammate can't take control of the screen in the Revyl viewer. The other way round, while someone controls the screen in the viewer, the script's actions throw `SESSION_BUSY`.
+Screen control is shared, as on a live phone session. A script's actions and teammates controlling the screen in the Revyl viewer act on the same screen at the same time, and neither locks the other out, so agree with teammates when a script needs the screen to itself.
 
 | What happened | Error | What to do |
 | --- | --- | --- |
 | A point past the screen's edge (`screen_point_outside`), or a negative or fractional one | `INVALID_ARGUMENT`, and nothing was clicked | The message names the valid range |
 | `typeFocused` without `{ clear: false }`, with control characters other than `\n` and `\t`, or with more than 16,384 characters | `INVALID_ARGUMENT` before anything is sent | The message says how to fix the call |
 | The computer can't type some of the characters (`screen_text_unsupported`) | `INVALID_ARGUMENT`, and nothing was typed | Type those characters another way, such as writing a file with `writeFile` |
-| Someone controls the screen in the viewer (`screen_control_held`) | `SESSION_BUSY`, and nothing happened | Try again after they release it; control frees itself after 2 minutes without input |
-| Control of the screen changed hands before the action was sent (`screen_control_lost`) | `SESSION_BUSY`, and nothing happened | Try again; if someone controls the screen in the viewer, wait until they release it |
+| Control of the screen was changing hands (`screen_control_held`) | `SESSION_BUSY`, and nothing happened | Try again; this clears on its own within 2 minutes |
+| Control of the screen changed hands before the action was sent (`screen_control_lost`) | `SESSION_BUSY`, and nothing happened | Try again |
 | The computer refused a click at a point (`invalid_request` on `tap({ x, y })`), as when the point is no longer on its screen after its display size changed | `INVALID_ARGUMENT`, and nothing was clicked | Take a new screenshot and pick the point from it |
 | The computer refused typing or a key (`invalid_request`) | `INVALID_ARGUMENT`; part of it may have run | Take a `screenshot()` before you try again |
 | The computer can't press that key (`screen_key_unsupported`) | `INVALID_ARGUMENT`, and nothing was pressed | Use a key `pressKey` lists, or `typeFocused` for a printable character |

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Computers: screen control is shared, as on a live phone session. A script's actions and teammates controlling the screen in the Revyl viewer no longer lock each other out, so the docs drop the 120-second lockout, and the `SESSION_BUSY` messages for `screen_control_held` and `screen_control_lost` now say to try again instead of waiting for someone to release the screen. Error codes and requests are unchanged.
 - Computers: choose a lifetime at create with `timeoutMs` (TypeScript, whole seconds in milliseconds), `timeout` (Python `Target`, seconds) or `Timeout` (Go `Target`), from 1 minute to 24 hours, sent as the API's `timeout_seconds`; omitted, the server's 2-hour default applies and the create request is unchanged. `extend()` / `Extend` keeps a running computer going at least that long from now, up to 24 hours after create, and updates `expiresAt` / `expires_at` / `ExpiresAt()`, including for hosted sessions. `computer_long_limit` maps to `COMPUTER_LIMIT` and `extend_unsupported` to `NOT_AVAILABLE_ON_PLATFORM`.
 - Docs: the API page and the Python and Go READMEs no longer say a web session stays `running` after `close()` until its recording is saved. Revyl now gives a stopped web session its final status in about 2 seconds, inside `report()`'s 5-second wait, and saves the recording a few seconds later. The rule is the same on web, iOS and Android: if a report still reads `running`, call `report()` again. No SDK change.
 

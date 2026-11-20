@@ -142,9 +142,8 @@ def _screen_error(status: int, detail: str | None) -> tuple[str, str] | None:
     if detail == "screen_control_held":
         return (
             "SESSION_BUSY",
-            "Nothing happened: someone else is controlling this computer's screen in the "
-            "viewer (screen_control_held). Try again after they release it; control frees "
-            "itself after 2 minutes without input.",
+            "Nothing happened: control of this computer's screen was changing hands "
+            "(screen_control_held). Try again; this clears on its own within 2 minutes.",
         )
     if detail in {
         "screen_input_uncertain",
@@ -179,9 +178,7 @@ def _screen_error(status: int, detail: str | None) -> tuple[str, str] | None:
         return (
             "SESSION_BUSY",
             "Nothing happened: control of this computer's screen changed hands before the "
-            "action was sent (screen_control_lost). Try again; if someone is controlling the "
-            "screen in the viewer, wait until they release it, which happens on its own after "
-            "2 minutes without input.",
+            "action was sent (screen_control_lost). Try again.",
         )
     if detail == "screen_key_unsupported":
         return (
