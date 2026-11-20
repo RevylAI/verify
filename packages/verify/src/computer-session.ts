@@ -8,7 +8,7 @@ import { trackSession, untrackSession } from './cleanup.js';
 import { validateHostedTarget, type HostedTargetConfig, type ResolvedComputerTarget } from './config.js';
 import { VerifyError, isVerifyError, type VerifyErrorCode } from './errors.js';
 import { WEB_KEYS, checkKey, type Key, type KeyModifier, type Location, type Point } from './agent/loop.js';
-import { DeviceSession, checkLocation, pngSize, type ComputerProcess, type ComputerRecording, type ExecOptions, type ExecResult, type FileStat, type OpenedSession, type OperationOptions, type Session, type SessionOptions, type StepResult } from './session.js';
+import { DeviceSession, checkLocation, checkSettle, pngSize, type ActionOptions, type ComputerProcess, type ComputerRecording, type ExecOptions, type ExecResult, type FileStat, type OpenedSession, type OperationOptions, type Session, type SessionOptions, type StepResult } from './session.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATES = new Set(['starting', 'active', 'closing', 'stopped', 'failed', 'owner_lost']);
@@ -132,8 +132,9 @@ export class ComputerSession implements Session {
   }
 
   /** Clicks a point in screenshot pixels, or an element Revyl finds from a description, with the left button. Returns the point clicked. */
-  async tap(at: Location): Promise<Point> {
+  async tap(at: Location, options: ActionOptions = {}): Promise<Point> {
     if (at && typeof at === 'object' && 'target' in at && ('x' in at || 'y' in at)) throw new VerifyError('INVALID_ARGUMENT', 'tap() takes a point { x, y } or a description { target }, not both.');
+    checkSettle(options.settle);
     const location = checkLocation(at);
     if ('target' in location) return this.tapTarget(location.target);
     const { x, y } = location;
@@ -172,7 +173,8 @@ export class ComputerSession implements Session {
   }
 
   /** Types into whatever has keyboard focus. Computers can't clear a field, so pass { clear: false }. */
-  async typeFocused(text: string, options: { clear?: boolean } = {}): Promise<void> {
+  async typeFocused(text: string, options: { clear?: boolean } & ActionOptions = {}): Promise<void> {
+    checkSettle(options.settle);
     if (options.clear !== false) throw new VerifyError('INVALID_ARGUMENT', "On a computer, typeFocused() can't clear the field first, so pass { clear: false } to type at the cursor: typeFocused(text, { clear: false }). To replace text, select it first, for example with pressKey('a', { modifiers: ['meta'] }) (Command+A on a Mac computer).");
     if (typeof text !== 'string' || text.length > 16_384) throw new VerifyError('INVALID_ARGUMENT', 'typeFocused() takes text of at most 16384 characters.');
     const control = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.exec(text);
@@ -220,8 +222,9 @@ export class ComputerSession implements Session {
   }
 
   /** Presses a key with modifiers held. 'meta' is the Command key on a Mac computer, and 'alt' is Option. */
-  async pressKey(key: Key | string, options: { modifiers?: KeyModifier[] } = {}): Promise<void> {
+  async pressKey(key: Key | string, options: { modifiers?: KeyModifier[] } & ActionOptions = {}): Promise<void> {
     const checked = checkKey('web', key, options.modifiers ?? []);
+    checkSettle(options.settle);
     const name = checked.key in WEB_KEYS ? COMPUTER_KEYS[checked.key as Key] : checked.key;
     const modifiers = [...new Set(checked.modifiers)].map((modifier) => (modifier === 'meta' ? 'cmd' : modifier));
     await this.act({ action: 'key', keys: [...modifiers, name].join('+') });

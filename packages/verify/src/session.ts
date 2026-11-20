@@ -76,6 +76,16 @@ export interface ValidationOptions extends StepOptions {
   soft?: boolean;
 }
 
+/** Options every tap, doubleTap, longPress, type, typeFocused, swipe, drag and pressKey takes. */
+export interface ActionOptions {
+  /**
+   * Wait for the screen to settle before the call returns. Defaults to true. On web the runtime otherwise waits up to
+   * about 6 seconds after each action for the page to stop changing; false returns as soon as the input is sent, so the
+   * screen may not show the result yet. iOS, Android and computers don't wait, so false changes nothing there.
+   */
+  settle?: boolean;
+}
+
 export interface OperationOptions {
   /** Milliseconds Revyl lets the operation run on the computer, up to 300000. Defaults to 30000. */
   timeout?: number;
@@ -160,22 +170,25 @@ export interface OpenedSession extends Session {
   open(target: HostedTargetConfig): Promise<OpenedSession>;
   /** Keeps the computer running at least timeoutMs (whole seconds, 60000 to 86400000) from now, up to 24 hours after it started. Never shortens it. Computers only. */
   extend(timeoutMs: number): Promise<void>;
-  /** Taps a point in screenshot pixels, or an element Revyl locates from a description. Returns the point tapped, in screenshot pixels. */
-  tap(at: Location): Promise<Point>;
+  /**
+   * Taps a point in screenshot pixels, or an element Revyl locates from a description. Returns the point tapped, in screenshot pixels.
+   * On web, { settle: false } returns without waiting for the page to settle; see ActionOptions.
+   */
+  tap(at: Location, options?: ActionOptions): Promise<Point>;
   /** Taps a text field and types into it, clearing it first unless clear is false. Returns the point tapped. Browsers and devices only. */
-  type(at: Location, text: string, options?: { clear?: boolean }): Promise<Point>;
+  type(at: Location, text: string, options?: { clear?: boolean } & ActionOptions): Promise<Point>;
   /** Types into the field that already has focus, without tapping, replacing its content unless clear is false. Web and Mac computers, where clear must be false; on iOS and Android, use type(location, text). */
-  typeFocused(text: string, options?: { clear?: boolean }): Promise<void>;
+  typeFocused(text: string, options?: { clear?: boolean } & ActionOptions): Promise<void>;
   /** Double-taps a point in screenshot pixels, or an element Revyl locates from a description. Returns the point, in screenshot pixels. Browsers and devices only. */
-  doubleTap(at: Location): Promise<Point>;
+  doubleTap(at: Location, options?: ActionOptions): Promise<Point>;
   /** Presses and holds a point or element for duration milliseconds (1 to 5000, default 1500). Returns the point, in screenshot pixels. Browsers and devices only. */
-  longPress(at: Location, options?: { duration?: number }): Promise<Point>;
+  longPress(at: Location, options?: { duration?: number } & ActionOptions): Promise<Point>;
   /** Swipes from a point or the screen's center. 'up' moves the finger up, which scrolls content down. Browsers and devices only. */
-  swipe(direction: SwipeDirection, options?: { from?: Location }): Promise<void>;
+  swipe(direction: SwipeDirection, options?: { from?: Location } & ActionOptions): Promise<void>;
   /** Presses at one point or element, moves to another and releases. Browsers and devices only. */
-  drag(from: Location, to: Location): Promise<void>;
+  drag(from: Location, to: Location, options?: ActionOptions): Promise<void>;
   /** Presses a key on the focused element. iOS and Android take 'enter' and 'backspace'; Web and Mac computers also take the other Key names, and modifiers, with which a lowercase letter or digit also works. On a Mac computer 'meta' is Command. */
-  pressKey(key: Key | string, options?: { modifiers?: KeyModifier[] }): Promise<void>;
+  pressKey(key: Key | string, options?: { modifiers?: KeyModifier[] } & ActionOptions): Promise<void>;
   /** Goes back: browser history on Web, the back button on Android. Not on iOS. */
   back(): Promise<void>;
   /** Goes to the home screen on iOS and Android. Not on Web. */
@@ -635,59 +648,67 @@ export class DeviceSession implements Session {
   }
 
   /** Taps a point in screenshot pixels, or an element Revyl locates from a description. Returns the point tapped, in screenshot pixels. */
-  async tap(at: Location): Promise<Point> {
+  async tap(at: Location, options: ActionOptions = {}): Promise<Point> {
+    const settle = checkSettle(options.settle);
     const location = await this.toDevice(checkLocation(at));
     if (this.platform === 'ios') await this.readScreenshotSize();
-    return this.toScreenshot((await this.perform({ kind: 'tap', at: location }))!);
+    return this.toScreenshot((await this.perform({ kind: 'tap', at: location }, undefined, undefined, settle))!);
   }
 
   /** Taps a text field and types into it, clearing it first unless clear is false. Returns the point tapped. */
-  async type(at: Location, text: string, options: { clear?: boolean } = {}): Promise<Point> {
+  async type(at: Location, text: string, options: { clear?: boolean } & ActionOptions = {}): Promise<Point> {
     if (typeof text !== 'string' || text.length > 16_384) throw new VerifyError('INVALID_ARGUMENT', 'type() takes text of at most 16384 characters.');
+    const settle = checkSettle(options.settle);
     const location = await this.toDevice(checkLocation(at));
     if (this.platform === 'ios') await this.readScreenshotSize();
-    return this.toScreenshot((await this.perform({ kind: 'type', at: location, text, clear: options.clear !== false }))!);
+    return this.toScreenshot((await this.perform({ kind: 'type', at: location, text, clear: options.clear !== false }, undefined, undefined, settle))!);
   }
 
   /** Types into the field that already has focus, without tapping, replacing its content unless clear is false. Web only. */
-  async typeFocused(text: string, options: { clear?: boolean } = {}): Promise<void> {
+  async typeFocused(text: string, options: { clear?: boolean } & ActionOptions = {}): Promise<void> {
     if (this.platform !== 'web') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'typeFocused() is available only on web sessions; on iOS and Android, use type(location, text), which taps the field first.');
     if (typeof text !== 'string' || text.length > 16_384) throw new VerifyError('INVALID_ARGUMENT', 'typeFocused() takes text of at most 16384 characters.');
-    await this.perform({ kind: 'type_focused', text, clear: options.clear !== false });
+    const settle = checkSettle(options.settle);
+    await this.perform({ kind: 'type_focused', text, clear: options.clear !== false }, undefined, undefined, settle);
   }
 
   /** Double-taps a point in screenshot pixels, or an element Revyl locates from a description. Returns the point, in screenshot pixels. */
-  async doubleTap(at: Location): Promise<Point> {
+  async doubleTap(at: Location, options: ActionOptions = {}): Promise<Point> {
+    const settle = checkSettle(options.settle);
     const location = await this.toDevice(checkLocation(at));
     if (this.platform === 'ios') await this.readScreenshotSize();
-    return this.toScreenshot((await this.perform({ kind: 'double_tap', at: location }))!);
+    return this.toScreenshot((await this.perform({ kind: 'double_tap', at: location }, undefined, undefined, settle))!);
   }
 
   /** Presses and holds a point or element for duration milliseconds (1 to 5000, default 1500). Returns the point, in screenshot pixels. */
-  async longPress(at: Location, options: { duration?: number } = {}): Promise<Point> {
+  async longPress(at: Location, options: { duration?: number } & ActionOptions = {}): Promise<Point> {
     const { duration } = options;
     if (duration !== undefined && (!Number.isInteger(duration) || duration < 1 || duration > 5_000)) throw new VerifyError('INVALID_ARGUMENT', 'longPress() duration is whole milliseconds from 1 to 5000.');
+    const settle = checkSettle(options.settle);
     const location = await this.toDevice(checkLocation(at));
     if (this.platform === 'ios') await this.readScreenshotSize();
-    return this.toScreenshot((await this.perform({ kind: 'long_press', at: location, ...(duration !== undefined ? { durationMs: duration } : {}) }))!);
+    return this.toScreenshot((await this.perform({ kind: 'long_press', at: location, ...(duration !== undefined ? { durationMs: duration } : {}) }, undefined, undefined, settle))!);
   }
 
   /** Swipes from a point or the screen's center. 'up' moves the finger up, which scrolls content down. */
-  async swipe(direction: SwipeDirection, options: { from?: Location } = {}): Promise<void> {
+  async swipe(direction: SwipeDirection, options: { from?: Location } & ActionOptions = {}): Promise<void> {
     if (!['up', 'down', 'left', 'right'].includes(direction)) throw new VerifyError('INVALID_ARGUMENT', "swipe() takes 'up', 'down', 'left' or 'right'.");
-    await this.perform({ kind: 'swipe', direction, ...(options.from ? { from: await this.toDevice(checkLocation(options.from)) } : {}) });
+    const settle = checkSettle(options.settle);
+    await this.perform({ kind: 'swipe', direction, ...(options.from ? { from: await this.toDevice(checkLocation(options.from)) } : {}) }, undefined, undefined, settle);
   }
 
   /** Presses at one point or element, moves to another and releases. */
-  async drag(from: Location, to: Location): Promise<void> {
+  async drag(from: Location, to: Location, options: ActionOptions = {}): Promise<void> {
     const [start, end] = [checkLocation(from), checkLocation(to)];
-    await this.perform({ kind: 'drag', from: await this.toDevice(start), to: await this.toDevice(end) });
+    const settle = checkSettle(options.settle);
+    await this.perform({ kind: 'drag', from: await this.toDevice(start), to: await this.toDevice(end) }, undefined, undefined, settle);
   }
 
   /** Presses a key on the focused element, with modifiers held on Web. */
-  async pressKey(key: Key | string, options: { modifiers?: KeyModifier[] } = {}): Promise<void> {
+  async pressKey(key: Key | string, options: { modifiers?: KeyModifier[] } & ActionOptions = {}): Promise<void> {
     const checked = checkKey(this.platform, key, options.modifiers ?? []);
-    await this.perform({ kind: 'key', key: checked.key, ...(checked.modifiers.length ? { modifiers: checked.modifiers } : {}) });
+    const settle = checkSettle(options.settle);
+    await this.perform({ kind: 'key', key: checked.key, ...(checked.modifiers.length ? { modifiers: checked.modifiers } : {}) }, undefined, undefined, settle);
   }
 
   /** Goes back: browser history on Web, the back button on Android. Not on iOS. */
@@ -797,7 +818,7 @@ export class DeviceSession implements Session {
     return { png: response.body, ...(screenToken ? { screenToken } : {}) };
   }
 
-  private async perform(action: DeviceAction, screenToken?: string, signal?: AbortSignal): Promise<Point | undefined> {
+  private async perform(action: DeviceAction, screenToken?: string, signal?: AbortSignal, settle = true): Promise<Point | undefined> {
     switch (action.kind) {
       case 'tap': {
         if ('target' in action.at && this.platform !== 'web') {
@@ -811,41 +832,41 @@ export class DeviceSession implements Session {
           return { x: Math.round(result.x), y: Math.round(result.y) };
         }
         const point = await this.resolve(action.at, screenToken, signal);
-        await this.act('tap', pointBody(point, action.at), signal);
+        await this.act('tap', pointBody(point, action.at), signal, settle);
         return { x: point.x, y: point.y };
       }
       case 'double_tap': {
         const point = await this.resolve(action.at, screenToken, signal);
-        await this.act('double_tap', pointBody(point, action.at), signal);
+        await this.act('double_tap', pointBody(point, action.at), signal, settle);
         return { x: point.x, y: point.y };
       }
       case 'long_press': {
         const point = await this.resolve(action.at, screenToken, signal);
-        await this.act('longpress', { ...pointBody(point, action.at), ...(action.durationMs !== undefined ? { duration_ms: action.durationMs } : {}) }, signal);
+        await this.act('longpress', { ...pointBody(point, action.at), ...(action.durationMs !== undefined ? { duration_ms: action.durationMs } : {}) }, signal, settle);
         return { x: point.x, y: point.y };
       }
       case 'type': {
         const point = await this.resolve(action.at, screenToken, signal);
-        await this.act('input', { ...pointBody(point, action.at), text: action.text, clear_first: action.clear }, signal);
+        await this.act('input', { ...pointBody(point, action.at), text: action.text, clear_first: action.clear }, signal, settle);
         return { x: point.x, y: point.y };
       }
       case 'type_focused':
-        await this.act('input', { text: action.text, clear_first: action.clear }, signal);
+        await this.act('input', { text: action.text, clear_first: action.clear }, signal, settle);
         return undefined;
       case 'drag': {
         const from = await this.resolve(action.from, screenToken, signal);
         const to = await this.resolve(action.to, screenToken, signal);
-        await this.act('drag', { start_x: from.x, start_y: from.y, end_x: to.x, end_y: to.y }, signal);
+        await this.act('drag', { start_x: from.x, start_y: from.y, end_x: to.x, end_y: to.y }, signal, settle);
         return undefined;
       }
       case 'swipe': {
         const point = action.from ? await this.resolve(action.from, screenToken, signal) : await this.readScreenSize(signal).then((size) => ({ x: Math.floor(size.width / 2), y: Math.floor(size.height / 2) }));
         const direction = this.platform === 'web' ? ({ up: 'down', down: 'up', left: 'right', right: 'left' } as const)[action.direction] : action.direction;
-        await this.act('swipe', { ...pointBody(point, action.from), direction, duration_ms: 500 }, signal);
+        await this.act('swipe', { ...pointBody(point, action.from), direction, duration_ms: 500 }, signal, settle);
         return undefined;
       }
       case 'key':
-        await this.act('key', { key: this.platform === 'web' ? (WEB_KEYS[action.key as Key] ?? action.key) : action.key.toUpperCase(), ...(action.modifiers?.length ? { modifiers: action.modifiers } : {}) }, signal);
+        await this.act('key', { key: this.platform === 'web' ? (WEB_KEYS[action.key as Key] ?? action.key) : action.key.toUpperCase(), ...(action.modifiers?.length ? { modifiers: action.modifiers } : {}) }, signal, settle);
         return undefined;
       case 'go_home':
         await this.act('go_home', undefined, signal);
@@ -875,9 +896,10 @@ export class DeviceSession implements Session {
     return { x: Math.round(result.x), y: Math.round(result.y), ...(result.screen_token ? { screenToken: result.screen_token } : {}) };
   }
 
-  private async act(action: string, body: Record<string, unknown> | undefined, signal?: AbortSignal): Promise<void> {
+  private async act(action: string, body: Record<string, unknown> | undefined, signal?: AbortSignal, settle = true): Promise<void> {
     signal?.throwIfAborted();
-    const result = parseJson<WorkerActionResult>(await this.worker('POST', action, { body: body ?? {}, ...(signal ? { signal } : {}) }), action);
+    const sent = settle || this.platform !== 'web' ? body ?? {} : { ...body, skip_settle: true };
+    const result = parseJson<WorkerActionResult>(await this.worker('POST', action, { body: sent, ...(signal ? { signal } : {}) }), action);
     if (result.success !== true) throw new VerifyError('ACTION_FAILED', `${action} failed on the ${this.target} session: ${result.error ?? 'no reason given'}. See ${this.viewerUrl}`);
   }
 
@@ -1100,6 +1122,11 @@ export function pngSize(bytes: Uint8Array): { width: number; height: number } | 
   const width = view.getUint32(16);
   const height = view.getUint32(20);
   return width > 0 && height > 0 ? { width, height } : undefined;
+}
+
+export function checkSettle(settle: unknown): boolean {
+  if (settle !== undefined && typeof settle !== 'boolean') throw new VerifyError('INVALID_ARGUMENT', 'settle takes true or false, such as pressKey(key, { settle: false }). Leave it out to wait for the screen to settle.');
+  return settle !== false;
 }
 
 export function checkLocation(at: Location): Location {
