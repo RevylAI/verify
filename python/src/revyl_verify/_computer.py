@@ -34,7 +34,7 @@ from ._models import (
     Target,
     text_length,
 )
-from ._session import Session, _location, png_size, save_screenshot
+from ._session import Session, _check_settle, _location, png_size, save_screenshot
 from ._transport import (
     Cancellation,
     Client,
@@ -1042,11 +1042,13 @@ class ComputerSession(Session):
     ) -> NoReturn:
         self._unavailable("validation")
 
-    def tap(self, at: Location) -> Point:
+    def tap(self, at: Location, *, settle: bool = True) -> Point:
         """Clicks a point in screenshot pixels, or an element Revyl finds from a description.
 
-        Returns the point clicked, in screenshot pixels.
+        Returns the point clicked, in screenshot pixels. A computer doesn't wait for the screen to
+        settle, so settle changes nothing here.
         """
+        _check_settle(settle)
         point = _location(at)
         if isinstance(point, str):
             return self._tap_target(point)
@@ -1105,12 +1107,13 @@ class ComputerSession(Session):
             )
         return Point(x, y)
 
-    def type(self, at: Location, text: str, *, clear: bool = True) -> NoReturn:
+    def type(self, at: Location, text: str, *, clear: bool = True, settle: bool = True) -> NoReturn:
         self._unavailable("type")
 
-    def type_focused(self, text: str, *, clear: bool = True) -> None:
+    def type_focused(self, text: str, *, clear: bool = True, settle: bool = True) -> None:
         """Types into whatever has keyboard focus. Computers can't clear a field: pass
         clear=False."""
+        _check_settle(settle)
         if clear is not False:
             raise VerifyError(
                 "INVALID_ARGUMENT",
@@ -1166,22 +1169,29 @@ class ComputerSession(Session):
                 ) from error
             typed += len(part)
 
-    def double_tap(self, at: Location) -> NoReturn:
+    def double_tap(self, at: Location, *, settle: bool = True) -> NoReturn:
         self._unavailable("double_tap")
 
-    def long_press(self, at: Location, *, duration: float | None = None) -> NoReturn:
+    def long_press(
+        self, at: Location, *, duration: float | None = None, settle: bool = True
+    ) -> NoReturn:
         self._unavailable("long_press")
 
-    def swipe(self, direction: SwipeDirection, *, from_: Location | None = None) -> NoReturn:
+    def swipe(
+        self, direction: SwipeDirection, *, from_: Location | None = None, settle: bool = True
+    ) -> NoReturn:
         self._unavailable("swipe")
 
-    def drag(self, start: Location, end: Location) -> NoReturn:
+    def drag(self, start: Location, end: Location, *, settle: bool = True) -> NoReturn:
         self._unavailable("drag")
 
-    def press_key(self, key: Key | str, *, modifiers: Sequence[KeyModifier] = ()) -> None:
+    def press_key(
+        self, key: Key | str, *, modifiers: Sequence[KeyModifier] = (), settle: bool = True
+    ) -> None:
         """Presses a key with modifiers held. 'meta' is the Command key on a Mac computer, and
         'alt' is Option."""
         name, checked = check_key("web", key, modifiers)
+        _check_settle(settle)
         keys = ["cmd" if modifier == "meta" else modifier for modifier in dict.fromkeys(checked)]
         keys.append(_COMPUTER_KEYS[name] if name in WEB_KEYS else name)
         self._screen_action({"action": "key", "keys": "+".join(keys)})
