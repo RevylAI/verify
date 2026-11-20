@@ -34,6 +34,7 @@ Issues = "https://github.com/RevylAI/verify/issues"
 [dependency-groups]
 dev = [
   "mypy>=1.15",
+  "playwright>=1.65",
   "pytest>=8.3",
   "ruff>=0.11",
   "tomli>=2.2",

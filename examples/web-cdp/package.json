@@ -1,0 +1,17 @@
+{
+  "name": "verify-example-web-cdp",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Verify example: Playwright attached to a Revyl cloud browser over CDP",
+  "type": "module",
+  "scripts": {
+    "playwright": "node verify/playwright.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@revyl/verify": "0.6.3",
+    "@types/node": "^22.10.0",
+    "playwright-core": "^1.65.1",
+    "typescript": "^5.9.0"
+  }
+}

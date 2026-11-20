@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { inspect } from 'node:util';
 import {
   RevylClient,
   apiError,
@@ -46,6 +47,8 @@ const REPORT_SETTLE_MS = 5_000;
 const STEP_TERMINAL_STATUSES = new Set(['completed', 'failed']);
 const SESSION_NOT_RUNNING = /session is (not running|not active|stopping)/i;
 const UNCERTAIN_ERROR_CODES = new Set(['request_timeout', 'connection_closed', 'protocol_error']);
+const CDP_SESSION_NOT_FOUND = 'Session not found';
+export const CDP_WEB_ONLY = 'cdp() is available only on web sessions. On iOS and Android, use instruction(), validation(), screenshot() and exact actions such as tap(); a Mac computer has no browser CDP endpoint, so use exec() and screenshot().';
 const WEB_TARGET_ERRORS = new Set(['stale_target', 'target_unstable', 'invalid_coordinates', 'target_not_found', 'unsupported_web_element', 'invalid_action', 'grounding_failed', 'password_field_required', 'password_focus_changed']);
 
 export type StepType = LiveStepType;
@@ -114,6 +117,25 @@ export interface ComputerRecording {
 }
 
 /**
+ * A Chrome DevTools Protocol browser endpoint for a web session, from cdp(). The url is a credential: it works for one
+ * connection and expires at expiresAt, 60 seconds after cdp() returned it. Don't log it or store it.
+ */
+export interface CDPEndpoint {
+  /** The CDP browser websocket URL, for chromium.connectOverCDP(url) or puppeteer.connect({ browserWSEndpoint: url }). */
+  url: string;
+  /** When the url stops accepting a connection. */
+  expiresAt: Date;
+}
+
+class IssuedCDPEndpoint implements CDPEndpoint {
+  constructor(readonly url: string, readonly expiresAt: Date) {}
+
+  [inspect.custom](): string {
+    return `CDPEndpoint { url: '[redacted]', expiresAt: ${this.expiresAt.toISOString()} }`;
+  }
+}
+
+/**
  * One live Revyl session: a cloud browser, an iOS or Android device, or a computer.
  * A call the session's platform does not offer throws NOT_AVAILABLE_ON_PLATFORM.
  */
@@ -158,6 +180,11 @@ export interface OpenedSession extends Session {
   report(): Promise<Record<string, unknown>>;
   navigate(url: string): Promise<void>;
   open(target: HostedTargetConfig): Promise<OpenedSession>;
+  /**
+   * A Chrome DevTools Protocol endpoint for this web session's browser, to attach Playwright, Puppeteer or chromedp while
+   * instruction() and validation() keep working. Each connection needs a fresh url: it works once and expires after 60 seconds. Web only.
+   */
+  cdp(): Promise<CDPEndpoint>;
   /** Keeps the computer running at least timeoutMs (whole seconds, 60000 to 86400000) from now, up to 24 hours after it started. Never shortens it. Computers only. */
   extend(timeoutMs: number): Promise<void>;
   /** Taps a point in screenshot pixels, or an element Revyl locates from a description. Returns the point tapped, in screenshot pixels. */
@@ -448,6 +475,31 @@ export class DeviceSession implements Session {
     const result = parseJson<{ success?: boolean; action?: string; status_code?: number }>(response, 'open_url');
     if (!result || typeof result !== 'object' || typeof result.success !== 'boolean' || (result.action !== undefined && result.action !== 'navigate') || (result.status_code !== undefined && (!Number.isInteger(result.status_code) || result.status_code < 100 || result.status_code > 599))) throw new VerifyError('API_ERROR', 'Revyl returned an invalid navigation response.');
     if (!result.success) throw new VerifyError('ACTION_FAILED', `Revyl did not confirm navigation. See ${this.viewerUrl}`);
+  }
+
+  /**
+   * A Chrome DevTools Protocol endpoint for this web session's browser, to attach Playwright, Puppeteer or chromedp while
+   * instruction() and validation() keep working. Each connection needs a fresh url: it works once and expires after 60 seconds. Web only.
+   */
+  async cdp(): Promise<CDPEndpoint> {
+    if (this.platform !== 'web') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', CDP_WEB_ONLY);
+    const response = await this.worker('POST', 'cdp', { body: {}, retry: true, allow: (response) => [400, 404, 503].includes(response.status) });
+    if (response.status === 400 && responseErrorCode(response) === 'not_available_on_platform') {
+      throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `Revyl does not offer CDP on this session (not_available_on_platform). Use instruction(), validation() and the exact actions instead. See ${this.viewerUrl}`, { reason: 'not_available_on_platform', httpStatus: 400 });
+    }
+    if (response.status === 404 && responseDetail(response) !== CDP_SESSION_NOT_FOUND) {
+      throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `The Revyl backend at ${this.client.backendUrl} does not offer CDP yet, so cdp() has no endpoint to return. Use instruction(), validation() and the exact actions until it does.`, { httpStatus: 404 });
+    }
+    if (response.status === 503) {
+      throw new VerifyError('API_ERROR', `Revyl could not hand out a CDP endpoint just then (HTTP 503). It is safe to call cdp() again. See ${this.viewerUrl}`, { reason: responseRefusalReason(response), httpStatus: 503 });
+    }
+    if (response.status === 400 || response.status === 404) throw this.workerError('POST', 'cdp', response);
+    const body = parseJson<{ url?: unknown; expires_at?: unknown } | null>(response, 'cdp');
+    const expiresAt = typeof body?.expires_at === 'string' ? new Date(body.expires_at) : undefined;
+    if (typeof body?.url !== 'string' || !/^wss?:\/\/\S+$/i.test(body.url) || !expiresAt || !Number.isFinite(expiresAt.getTime())) {
+      throw new VerifyError('API_ERROR', 'Revyl returned an invalid CDP endpoint response.');
+    }
+    return new IssuedCDPEndpoint(body.url, expiresAt);
   }
 
   exec(): Promise<ExecResult> {

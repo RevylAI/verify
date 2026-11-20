@@ -12,6 +12,7 @@ from typing import Literal, TypeVar
 from ._agent import Key, KeyModifier, LocalAgent, Location, ModelOption, SwipeDirection
 from ._cleanup import _close, install_signal_cleanup
 from ._models import (
+    CDPEndpoint,
     ComputerProcess,
     ComputerRecording,
     ExecResult,
@@ -164,6 +165,9 @@ class AsyncSession:
 
     async def navigate(self, url: str) -> None:
         await self._call(functools.partial(self._session.navigate, url))
+
+    async def cdp(self) -> CDPEndpoint:
+        return await self._call(self._session.cdp)
 
     async def report(self) -> dict[str, Json]:
         return await self._call(self._session.report)

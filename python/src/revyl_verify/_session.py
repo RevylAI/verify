@@ -46,6 +46,7 @@ from ._agent import (
 from ._cleanup import track, untrack
 from ._models import (
     UUID_PATTERN,
+    CDPEndpoint,
     ComputerProcess,
     ComputerRecording,
     ExecResult,
@@ -70,6 +71,7 @@ from ._transport import (
     obj,
     refusal_reason,
     seconds,
+    timestamp,
 )
 
 _FINAL_STATUSES: tuple[str, ...] = ("completed", "failed", "cancelled", "timeout")
@@ -86,6 +88,11 @@ _PAGE_DIRECTION: dict[SwipeDirection, SwipeDirection] = {
 # before its run is listed.
 _LIVE_STEP_GRACE_SECONDS = 10.0
 _LIVE_STEP_NOT_FOUND = re.compile(r"live step not found", re.I)
+_CDP_WEB_ONLY = (
+    "cdp() is available only on web sessions. On iOS and Android, use instruction(), "
+    "validation(), screenshot() and exact actions such as tap(); a Mac computer has no "
+    "browser CDP endpoint, so use exec() and screenshot()."
+)
 _WEB_TARGET_ERRORS = {
     "stale_target",
     "target_unstable",
@@ -1230,6 +1237,61 @@ class Session:
         finally:
             with self._lock:
                 self._step_running = False
+
+    def cdp(self) -> CDPEndpoint:
+        """A Chrome DevTools Protocol endpoint for this web session's browser.
+
+        Attach Playwright, Puppeteer or chromedp with its url while instruction() and
+        validation() keep working. Each connection needs a fresh url: it works once and
+        expires after 60 seconds. Web only.
+        """
+        if self.platform != "web":
+            raise VerifyError("NOT_AVAILABLE_ON_PLATFORM", _CDP_WEB_ONLY)
+        response = self._worker(
+            "POST",
+            "cdp",
+            {},
+            deadline=Deadline(95, self._cancellation),
+            retry=True,
+            allow=lambda response: response.status in (400, 404, 503),
+        )
+        try:
+            refusal = obj(response.json()) if response.status in (400, 404) else {}
+        except VerifyError:
+            refusal = {}
+        if response.status == 400:
+            if refusal.get("error") != "not_available_on_platform":
+                raise self._worker_error("POST", response)
+            raise VerifyError(
+                "NOT_AVAILABLE_ON_PLATFORM",
+                "Revyl does not offer CDP on this session (not_available_on_platform). Use "
+                f"instruction(), validation() and the exact actions instead. See {self.viewer_url}",
+                reason="not_available_on_platform",
+                http_status=400,
+            )
+        if response.status == 404:
+            if refusal.get("detail") == "Session not found":
+                raise self._worker_error("POST", response)
+            raise VerifyError(
+                "NOT_AVAILABLE_ON_PLATFORM",
+                f"The Revyl backend at {self._client.base} does not offer CDP yet, so cdp() has "
+                "no endpoint to return. Use instruction(), validation() and the exact actions "
+                "until it does.",
+                http_status=404,
+            )
+        if response.status == 503:
+            raise VerifyError(
+                "API_ERROR",
+                "Revyl could not hand out a CDP endpoint just then (HTTP 503). "
+                f"It is safe to call cdp() again. See {self.viewer_url}",
+                reason=refusal_reason(response),
+                http_status=503,
+            )
+        raw = obj(response.json())
+        url = raw.get("url")
+        if not isinstance(url, str) or not re.fullmatch(r"wss?://\S+", url, re.I):
+            raise VerifyError("API_ERROR", "Revyl returned an invalid CDP endpoint response.")
+        return CDPEndpoint(url=url, expires_at=timestamp(raw.get("expires_at")))
 
     def screenshot(self, *, path: str | Path | None = None) -> bytes:
         response = self._worker(

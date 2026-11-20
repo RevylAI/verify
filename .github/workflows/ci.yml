@@ -58,6 +58,11 @@ jobs:
         run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test -race ./...
+      - name: CDP example (its own module, so chromedp stays out of the SDK)
+        working-directory: go/examples/cdp
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
 
   test:
     name: Node ${{ matrix.node }}
