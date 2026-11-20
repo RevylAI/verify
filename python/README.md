@@ -275,8 +275,8 @@ with open(Target(platform="web", app_id="<web app id>")) as session:
 
 It returns a `CDPEndpoint` with `url` (`str`) and `expires_at` (a timezone-aware `datetime`). [`examples/cdp_playwright.py`](examples/cdp_playwright.py) runs a full script: DOM, locators, a console message, network requests and a Verify validation while attached (`cd python && uv run python examples/cdp_playwright.py` with `REVYL_WEB_APP_ID` set).
 
-- **The url is a single-use credential.** It accepts one connection and expires at `expires_at`, 60 seconds after `cdp()` returns it. Call `cdp()` again for each new connection. Don't log it, store it or pass it on; `repr()` of the endpoint leaves it out.
-- **One connection at a time.** A second connection to the same session is refused until the first disconnects.
+- **The url is a single-use credential.** It accepts one connection and expires at `expires_at`, 60 seconds after `cdp()` returns it. Call `cdp()` again for each new connection. Don't log it, store it or pass it on; `repr()` of the endpoint leaves it out, but Playwright's connection errors can include it, so remove it before you log one. Any connection attempt uses the url up, even one that fails, so call `cdp()` again before you retry.
+- **One connection at a time.** A second connection to the same session is refused until the first disconnects. Once `browser.close()` has returned, the next url from `cdp()` connects.
 - **The connection ends with the session.** `close()`, the session's timeout or a failure closes it. After `close()`, `cdp()` raises `SESSION_ENDED` without a request, and an earlier url no longer works.
 - **Use the session's page.** In Playwright that is `browser.contexts[0].pages[0]`. `browser.new_context()` is refused, because a session has one browser context; new tabs from `context.new_page()` work. In Puppeteer, connect with `defaultViewport: null` and use `(await browser.pages())[0]`.
 - **`browser.close()` only disconnects.** In Playwright and Puppeteer it disconnects the script, and the session keeps running; call `session.close()` to end it. In Puppeteer, `browser.disconnect()` is the explicit form.
