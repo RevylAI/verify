@@ -25,6 +25,7 @@ import type {
   WorkerHealth,
 } from './api/types.js';
 import { trackSession, untrackSession } from './cleanup.js';
+import { missingBranchNotice, profileFailedError, profileNotReportedError, reportedSessionProfile, withRepositoryRetry, type ReportedSessionProfile, type SessionProfilePlan } from './session-profile.js';
 import type { HostedTargetConfig, ResolvedDeviceTarget } from './config.js';
 import { VerifyError, errorMessage, isVerifyError } from './errors.js';
 import { screenHasContent } from './screen-readiness.js';
@@ -195,6 +196,8 @@ export interface SessionOptions {
   log: ((line: string) => void) | undefined;
   appUrl?: string;
   agent?: LocalAgent;
+  /** The session profile to send and wait on. */
+  profile?: SessionProfilePlan;
 }
 
 export interface HostingParent {
@@ -269,8 +272,9 @@ export class DeviceSession implements Session {
             ? { sign_in: { path: target.signIn.path, secret_name: target.signIn.secret, ...(target.signIn.persona ? { persona: target.signIn.persona } : {}) } }
             : {}),
         },
+        ...options.profile?.fields,
       };
-      const response = await client.startDevice(request);
+      const response = await withRepositoryRetry(() => client.startDevice(request, undefined, options.profile));
       if (response.session_id !== sessionId) {
         throw new VerifyError(
           'SESSION_START_FAILED',
@@ -278,7 +282,10 @@ export class DeviceSession implements Session {
         );
       }
       const session = new DeviceSession(client, target, sessionId, response.workflow_run_id ?? '', options);
-      await session.untilReady(() => session.waitForWebReady(deadline));
+      await session.untilReady(async () => {
+        session.startProfile(response);
+        await session.waitForWebReady(deadline);
+      });
       return session;
     }
 
@@ -292,8 +299,9 @@ export class DeviceSession implements Session {
       ...(app.artifactUrl ? { app_url: app.artifactUrl } : {}),
       ...(target.device?.model ? { device_model: target.device.model } : {}),
       ...(target.device?.osVersion ? { os_version: target.device.osVersion } : {}),
+      ...options.profile?.fields,
     };
-    const response = await client.startDevice(request);
+    const response = await withRepositoryRetry(() => client.startDevice(request, undefined, options.profile));
     if (!response.workflow_run_id) {
       throw new VerifyError(
         'SESSION_START_FAILED',
@@ -302,7 +310,9 @@ export class DeviceSession implements Session {
     }
     const session = new DeviceSession(client, target, response.session_id ?? '', response.workflow_run_id, options);
     await session.untilReady(async () => {
+      session.startProfile(response);
       await session.waitForDeviceReady(deadline);
+      if (options.profile?.name) await session.waitForProfile(deadline);
       if (app.bundleId) await session.launch(app.bundleId);
       await session.waitForScreenContent(deadline);
     });
@@ -997,16 +1007,58 @@ export class DeviceSession implements Session {
     try {
       await waitForReady();
     } catch (error) {
-      await this.close().catch(() => undefined);
+      if (isVerifyError(error) && error.code === 'SESSION_PROFILE_FAILED') {
+        this.closePromise ??= Promise.resolve();
+        untrackSession(this);
+      } else {
+        await this.close().catch(() => undefined);
+      }
       throw error;
     }
     this.log('ready');
+  }
+
+  /** Logs the profile's missing-branch notice and wait, and fails at once on a profile the start response already reports failed. */
+  private startProfile(response: StartDeviceResponse): void {
+    const plan = this.options.profile;
+    if (!plan?.name) return;
+    const profile = reportedSessionProfile(response);
+    const notice = missingBranchNotice(profile, plan);
+    if (notice) this.log(notice);
+    if (profile?.status === 'failed') throw profileFailedError(profile, plan, this.viewerUrl);
+    this.log(`waiting for session profile ${plan.name}`);
+  }
+
+  /** True once the named profile succeeded; throws when it failed or the active session doesn't report it. */
+  private profileDone(profile: ReportedSessionProfile | undefined, active: boolean): boolean {
+    const plan = this.options.profile;
+    if (!plan?.name) return true;
+    if (profile?.status === 'failed') throw profileFailedError(profile, plan, this.viewerUrl);
+    if (!active) return false;
+    if (!profile) throw profileNotReportedError(this.platform, this.viewerUrl);
+    return profile.status === 'succeeded';
+  }
+
+  private async waitForProfile(deadline: number): Promise<void> {
+    if (!this.id) throw profileNotReportedError(this.platform, this.viewerUrl);
+    for (;;) {
+      this.readySignal?.throwIfAborted();
+      const detail = await this.client.getDeviceSession(this.id, this.readySignal);
+      const profile = reportedSessionProfile(detail);
+      if (profile?.status !== 'failed' && ENDED_STATUSES.has(detail.status)) {
+        throw new VerifyError('SESSION_START_FAILED', `The ${this.target} session ended before session profile ${this.options.profile?.name} finished (${detail.status}): ${detail.error_message ?? 'no reason given'}. See ${this.viewerUrl}`);
+      }
+      if (this.profileDone(profile, detail.status === 'running')) return;
+      await waitBeforeDeadline(deadline, `Session profile ${this.options.profile?.name} did not finish before the ${this.target} session's start timeout. See ${this.viewerUrl}`);
+    }
   }
 
   private async waitForWebReady(deadline: number): Promise<void> {
     for (;;) {
       this.readySignal?.throwIfAborted();
       const detail = await this.client.getDeviceSession(this.id, this.readySignal);
+      const profile = reportedSessionProfile(detail);
+      if (this.options.profile?.name && profile?.status === 'failed') this.profileDone(profile, false);
       if (ENDED_STATUSES.has(detail.status)) {
         throw new VerifyError(
           'SESSION_START_FAILED',
@@ -1016,8 +1068,9 @@ export class DeviceSession implements Session {
       if (detail.status === 'running' && detail.workflow_run_id) {
         this.workflowRunId = detail.workflow_run_id;
         const response = await this.client.worker(this.workflowRunId, 'screenshot', { method: 'GET', signal: this.readySignal });
-        if (response.status === 200 && pngSize(response.body)) return;
-        if (response.status !== 503 && response.status !== 409 && responseErrorCode(response) !== 'not_ready') {
+        if (response.status === 200 && pngSize(response.body)) {
+          if (this.profileDone(profile, true)) return;
+        } else if (response.status !== 503 && response.status !== 409 && responseErrorCode(response) !== 'not_ready') {
           throw this.workerError('GET', 'screenshot', response);
         }
       }
@@ -1031,6 +1084,7 @@ export class DeviceSession implements Session {
       const connection = await this.client.getWorkerConnection(this.workflowRunId, this.readySignal);
       if (connection.status === 'ready' && connection.worker_ws_url) break;
       if (connection.status === 'cancelled' || connection.status === 'stopped' || connection.status === 'failed') {
+        if (this.options.profile?.name && this.id) this.profileDone(reportedSessionProfile(await this.client.getDeviceSession(this.id, this.readySignal).catch(() => undefined)), false);
         throw new VerifyError(
           'SESSION_START_FAILED',
           `The ${this.target} device did not start (${connection.status}): ${connection.message ?? 'no reason given'}`,

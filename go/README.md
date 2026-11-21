@@ -1,6 +1,6 @@
 # Verify for Go
 
-Open a Revyl cloud browser or mobile device for instruction and validation steps, or a Mac computer for commands and files. This is a standard-library-only Go SDK, not a test runner. It does not provide `test`, `describe`, or `expect`.
+Open a Revyl cloud browser or mobile device for instruction and validation steps, or a Mac computer for commands and files. This Go SDK uses the standard library plus `gopkg.in/yaml.v3`, which reads `.revyl/config.yaml` for session profiles. It is not a test runner. It does not provide `test`, `describe`, or `expect`.
 
 ## Install
 
@@ -152,12 +152,82 @@ Run with `go test -v -timeout 6m`. `t.Fatal` runs deferred cleanup. The URL and 
 - **Mac computers:** `Target{Platform: verify.Mac}` creates a workspace; only `StartTimeout` is accepted alongside the platform. Mac computers are available to organizations on a current paid Revyl plan. A 429 `ErrComputerLimit` means queued work or a concurrency limit; Verify does not guess which cause applies or retry creation. See [computer availability](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#availability-and-errors).
 - `Target.StartTimeout` bounds startup (default 10 minutes); on web/mobile, `IdleTimeoutSeconds` sets the session's idle timeout (default 600 seconds). All methods also honor the caller's context.
 - `Open` takes at most one `OpenOptions` value, plus `WithModel`, `WithCustomModel` or `WithAgent` to run steps on your own model; `Instruction` and `Validation` take the same options for one step. `OpenOptions{StepTimeout: 3*time.Minute}` changes the default step timeout. Per-call `StepOptions{Timeout: time.Minute}` and `ValidationOptions{Timeout: time.Minute, Soft: true}` override it. Run one step at a time per session.
+- `OpenOptions{Profile: "signed-in"}` runs a session profile from your project's `.revyl/config.yaml` before `Open` returns; `Profile: "none"` runs no profile. Left empty, the project's `session.default_profile` runs when it sets one. Web, iOS, Android and Mac computers. See [Session profiles](#session-profiles).
 - Redirects are rejected, not followed with credentials.
 - `OpenOptions{Log: func(line string) { ... }}` opts into progress lines: `<platform>: starting <platform> session <link>` as soon as the session ID exists, before the browser or device is ready, then `ready`, on web, iOS, Android and hosted sessions; computer lifecycle; evidence-gap messages; mobile best-effort first-screen debug notes; and the turns of steps run on your own model. The default is quiet for all targets, so pass `Log: func(line string) { log.Println(line) }` to see the session link while a slow start runs. Keep that callback concurrency-safe if operations run concurrently. A confirmed execution result remains usable when its report evidence is pending or failed; the callback identifies that gap without logging private output or recording URLs.
 
 Requests have bounded deadlines even when passed `context.Background()`: ordinary HTTP requests use 30 seconds, device session creation up to 2 minutes, and accepted-step cancellation up to 5 seconds on a fresh context. Ordinary responses are limited to 16 MiB; computer screenshots allow up to 128 MiB of decoded image data. Safe reads and idempotent device build-registration/stop requests retry at most twice on transient failures; session creation, launch, and step/operation submission are never replayed. Caller cancellation remains detectable with `errors.Is(err, context.Canceled)` or `context.DeadlineExceeded`, alongside `verify.ErrTimeout` for device operations; interrupted computer mutation observation returns `verify.ErrActionUncertain`.
 
 The Go SDK does not read `verify.config.ts`, resolve named targets, or provide an init CLI. Every step runs on the live session; there is no cached replay. Instruction and validation methods on computers return `ErrNotAvailableOnPlatform` locally; computer-only methods on web/mobile do the same.
+
+## Session profiles
+
+A session profile is a script from your Revyl project that prepares a session before your first step: it signs a user in, seeds data, or sets launch values. Revyl runs the script, never Verify: on Revyl's hosted runner for a browser or an iOS or Android device, and on the Mac itself for a Mac computer. `Open` returns once Revyl reports that the profile succeeded.
+
+```go
+// Run the "signed-in" profile from session.profiles in .revyl/config.yaml
+s, err := verify.Open(ctx, verify.Target{Platform: verify.Web, AppID: "…", BuildID: "…"}, verify.OpenOptions{Profile: "signed-in"})
+
+// Start without any profile, not even the project's default
+bare, err := verify.Open(ctx, verify.Target{Platform: verify.Web, AppID: "…", BuildID: "…"}, verify.OpenOptions{Profile: "none"})
+```
+
+| `Profile` | What Verify sends |
+| --- | --- |
+| `"signed-in"` | That profile, with the project and the script from this checkout. |
+| `""` (left out) | The project's `session.default_profile`, the same way, when `.revyl/config.yaml` sets one. Otherwise nothing, so the start request is the same as before profiles existed. |
+| `"none"` | No profile, not even the default. Needs no `.revyl/config.yaml`. |
+
+Profiles work on web, iOS, Android and Mac computers. On a Linux computer, `Profile` returns `ErrNotAvailableOnPlatform` before anything is sent, and no default runs. Hosted sessions (`computer.Open`), `Attach` and `CurrentComputer` never run a profile and ignore `Profile`.
+
+### Where Verify reads the profile
+
+Verify reads `.revyl/config.yaml` in the working directory (`os.Getwd()`) or the nearest folder above it that has one: the file `revyl init` writes in your app's checkout. In `go test`, the working directory is the package's folder, so the file is found when it sits in that folder or above it. Verify needs `project.id` and the profile under `session.profiles`, and reads nothing else from the file:
+
+```yaml
+project:
+  id: 0b9e6f3a-1c2d-4e5f-8a9b-0c1d2e3f4a5b    # your Revyl project's id
+session:
+  default_profile: signed-in                  # optional: runs when you leave Profile empty
+  profiles:
+    signed-in:
+      script: scripts/sign-in.sh              # has a "/": a file path from the project folder, the one holding .revyl/
+      requires_repository_checkout: true      # optional: Revyl clones the repository before the script runs
+    seeded-cart:
+      script: seed-cart                       # no "/": .revyl/scripts/seed-cart.js, .py, .sh or .ts, else the Library Script named seed-cart
+```
+
+With the profile's name, Verify sends:
+
+- **The project:** `project.id`, and the checkout's Git branch from `git rev-parse --abbrev-ref HEAD` in the project folder. Verify leaves the branch out on a detached HEAD or when Git fails. Revyl reads the files it needs from Git at the head of that branch. When Git doesn't have the branch, Revyl reads the default branch, and Verify logs `Git has no branch "<branch>", so session profile <name> reads the repository's default branch instead`.
+- **The script from this checkout:** the profile's definition and its script file as they are on disk, uncommitted changes included, so you can edit a script and run it without committing. A path script must stay inside the repository (under the nearest folder that holds `.git`, or the project folder outside Git) and be executable (`chmod +x`, with a `#!` line). A script file must be UTF-8 text of at most 64 KiB. A script name with no file in `.revyl/scripts` is a Library Script, which Revyl reads from your organization.
+
+On a browser or device, the script runs on Revyl's hosted runner, not on your machine: it doesn't see your localhost, your files or your Revyl login. On a Mac computer, it runs on that Mac. The script's environment variables and the output files it writes are Revyl's contract: see [Session profiles](https://docs.revyl.com/devices/session-profiles) in the Revyl docs.
+
+### Waiting
+
+`Open` returns when the session is ready and Revyl reports the profile's status as `succeeded`, within the target's `StartTimeout` (10 minutes by default) and the caller's context. While it waits, it logs `<platform>: waiting for session profile <name>` through `OpenOptions.Log`. Verify never shows the script's output: Revyl doesn't send it, because setup scripts often print secrets.
+
+### Session profile errors
+
+Neither errors nor logs contain the script's content or output. Check the code with `errors.Is(err, verify.ErrSessionProfileFailed)` and read the details with `errors.As(err, &sdkError)`. A refusal keeps Revyl's code in `sdkError.Reason`, such as `verify.ReasonProjectNotFound` (`project_not_found`), and Revyl's sentence in the message.
+
+| Error | When | What to do |
+| --- | --- | --- |
+| `ErrInvalidArgument` | `Profile` isn't a profile name (1-64 lowercase letters, digits or hyphens) or `"none"` | Pass a name from `session.profiles`, or `"none"` |
+| `ErrNotAvailableOnPlatform` | A Linux computer; or this Revyl backend doesn't run session profiles on that platform yet. When a session starts without reporting its profile, Verify stops it | Leave out `Profile`, or pass `Profile: "none"` |
+| `ErrConfigNotFound` | `Profile` names a profile, but no `.revyl/config.yaml` is in the working directory or above it | Run from your app's checkout, or pass `Profile: "none"` |
+| `ErrConfigInvalid` | `.revyl/config.yaml` isn't valid YAML, `project.id` isn't a UUID, or `session.profiles` doesn't define the name (the message lists the ones it does); or Revyl refused with `session_profile_undefined`, `project_not_found` (`project.id` isn't in this API key's organization) or `repository_connection_missing` (connect the repository's GitHub or GitLab app to the project in Revyl) | The message names the file and the fix |
+| `ErrSessionProfileFailed` | Verify couldn't send the script (missing, outside the repository, not executable, over 64 KiB or not UTF-8); Revyl couldn't find it (`session_profile_script_unavailable`); or the profile ran and failed. `sdkError.Outcome` says how and `sdkError.FailureReason` says why | Follow the message, as the next table says. Revyl stops a session whose profile failed, so Verify doesn't |
+| `ErrAPI` | Revyl couldn't read the repository in 3 attempts (`repository_unavailable`). Verify repeats the same start twice before it gives up | Try again in a few minutes |
+
+| `sdkError.Outcome` | Meaning | Fix |
+| --- | --- | --- |
+| `script_failed` | The script exited with an error | Run the script yourself from the project folder to see its output |
+| `script_timed_out` | The script ran past Revyl's 300-second limit | Make it finish sooner |
+| `script_unavailable` | The script isn't in this checkout or in Git, or the Library Script is missing | Commit the script or add it to `.revyl/scripts`, or create the Library Script |
+| `output_invalid` | A file the script wrote broke a rule; `FailureReason` names the file and the line | Fix what the script writes there |
+| `runner_failed` | Something failed on Revyl's side | Open the session again |
 
 ## Which call works where
 
