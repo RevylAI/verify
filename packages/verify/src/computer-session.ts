@@ -8,7 +8,7 @@ import { trackSession, untrackSession } from './cleanup.js';
 import { validateHostedTarget, type HostedTargetConfig, type ResolvedComputerTarget } from './config.js';
 import { VerifyError, isVerifyError, type VerifyErrorCode } from './errors.js';
 import { WEB_KEYS, checkKey, type Key, type KeyModifier, type Location, type Point } from './agent/loop.js';
-import { DeviceSession, checkLocation, pngSize, type ComputerProcess, type ComputerRecording, type ExecOptions, type ExecResult, type FileStat, type OpenedSession, type OperationOptions, type Session, type SessionOptions, type StepResult } from './session.js';
+import { CDP_WEB_ONLY, DeviceSession, checkLocation, pngSize, type CDPEndpoint, type ComputerProcess, type ComputerRecording, type ExecOptions, type ExecResult, type FileStat, type OpenedSession, type OperationOptions, type Session, type SessionOptions, type StepResult } from './session.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATES = new Set(['starting', 'active', 'closing', 'stopped', 'failed', 'owner_lost']);
@@ -129,6 +129,10 @@ export class ComputerSession implements Session {
 
   navigate(): Promise<never> {
     return this.unavailable('navigate');
+  }
+
+  cdp(): Promise<CDPEndpoint> {
+    return Promise.reject(new VerifyError('NOT_AVAILABLE_ON_PLATFORM', CDP_WEB_ONLY));
   }
 
   /** Clicks a point in screenshot pixels, or an element Revyl finds from a description, with the left button. Returns the point clicked. */

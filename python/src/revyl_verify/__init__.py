@@ -32,6 +32,7 @@ from ._model import (
     openai_compatible,
 )
 from ._models import (
+    CDPEndpoint,
     ComputerProcess,
     ComputerRecording,
     ExecResult,
@@ -52,6 +53,7 @@ from ._transport import Cancellation, CleanupStatus, RefusalReason, VerifyError,
 __version__ = "0.4.3"
 __all__ = [
     "AsyncSession",
+    "CDPEndpoint",
     "ComputerProcess",
     "ComputerRecording",
     "ComputerSession",

@@ -82,6 +82,44 @@ The initial Web build uses HTTPS. After start, `navigate()` can also reach `http
 
 Web only, hosted or normal. Sends one deterministic `open_url` action and checks the returned navigation outcome. Accepts an HTTP(S) URL without credentials, whitespace, control characters or backslashes. Loopback addresses are accepted on every Web session: a hosted browser can reach its parent computer's loopback address; a normal cloud browser's localhost is its own runtime, not your machine. A cold development server may need a warm-up request before navigation succeeds; after an uncertain timeout, re-navigating is the caller's choice because the original request may still commit. The runtime is responsible for enforcing its navigation network policy. Navigation is not replayed by Verify and does not run an agent step. It resolves with no value, or throws a typed error. Computer and native sessions reject it locally.
 
+## CDP (Playwright, Puppeteer)
+
+Web only. `session.cdp()` returns a Chrome DevTools Protocol (CDP) endpoint for the session's cloud browser, so a script can attach Playwright, Puppeteer or another CDP client next to Verify's steps. `instruction()`, `validation()`, `screenshot()` and the exact actions keep working while the script is attached.
+
+```ts
+import { open } from '@revyl/verify';
+import { chromium } from 'playwright-core';             // npm install playwright-core; it downloads no browser
+
+const session = await open('web');
+try {
+  const { url } = await session.cdp();                  // connect once, within 60 seconds
+  const browser = await chromium.connectOverCDP(url);
+  const page = browser.contexts()[0]!.pages()[0]!;       // the session's own tab
+  await page.locator('#user-name').fill('standard_user');
+  await session.validation('The username field shows standard_user');
+  await browser.close();                                  // only disconnects Playwright
+} finally {
+  await session.close();                                  // ends the session
+}
+```
+
+It resolves with a `CDPEndpoint`, `{ url: string; expiresAt: Date }`. In Puppeteer, connect with `puppeteer.connect({ browserWSEndpoint: url, defaultViewport: null })` and use `(await browser.pages())[0]`, which is the session's tab while it is the only one. [examples/web-cdp](https://github.com/RevylAI/verify/tree/main/examples/web-cdp) runs a full Playwright script: DOM, locators, a console message, network requests and a Verify validation while attached.
+
+- **The url is a single-use credential.** It accepts one connection and expires at `expiresAt`, 60 seconds after `cdp()` returns it. Call `cdp()` again for each new connection. Don't log it, store it or pass it on; `console.log` of the endpoint shows the url as `[redacted]`, but Playwright's and Puppeteer's connection errors can include it, so remove it before you log one. Any connection attempt uses the url up, even one that fails, so call `cdp()` again before you retry.
+- **One connection at a time.** A second connection to the same session is refused until the first disconnects. Once `browser.close()`, or Puppeteer's `browser.disconnect()`, has resolved, the next url from `cdp()` connects.
+- **The connection ends with the session.** `close()`, the session's timeout or a failure closes it. After `close()`, `cdp()` throws `SESSION_ENDED` without a request, and an earlier url no longer works.
+- **Use the session's page.** In Playwright that is `browser.contexts()[0].pages()[0]`. `browser.newContext()` is refused, because a session has one browser context. A tab you open with `context.newPage()` becomes the session's active tab: Verify steps, screenshots and the recording follow it until you close it, and then return to the session's tab. While another tab is open, `pages()[0]` may not be the session's tab, so find it by URL.
+- **`browser.close()` only disconnects.** In Playwright and Puppeteer it disconnects the script, and the session keeps running; call `session.close()` to end it. In Puppeteer, `browser.disconnect()` is the explicit form.
+- **Navigation is http(s) and `about:blank` only.** `file://`, `chrome://`, `data:`, `javascript:` and other schemes are refused with a CDP error.
+- **Downloads are off.** Download-behavior commands are accepted, but nothing is downloaded and no download path can be set.
+- **The window size is fixed.** Viewport and window-size emulation (`page.setViewportSize()`, Puppeteer's `setViewport()`) and `Browser.close` are refused; the browser keeps the size the session opened with. Set the target's `viewport` to choose it.
+- **Refusals are CDP errors that start with `Revyl:`**, so the script sees why.
+- **A reply over 24 MB is dropped** with the CDP error `Revyl: the reply was larger than 24 MB and was dropped` (Playwright reports it from `page.evaluate` as "Execution context was destroyed"); the connection and the session keep working.
+- **Files come from your machine.** Playwright's `setInputFiles()` with files from the script's machine works; file paths on the browser's host are refused.
+- Everything else works as with a local Chrome: locators, DOM, `evaluate`, console and network events, request interception and screenshots.
+
+On iOS, Android and Mac computers `cdp()` throws `NOT_AVAILABLE_ON_PLATFORM` before any request; use `instruction()`, `validation()`, `screenshot()` and the exact actions there, or `exec()` and `screenshot()` on a computer. A session that is no longer running throws `SESSION_ENDED`, a view-only session `AUTH_REJECTED`, and a Revyl backend without CDP `NOT_AVAILABLE_ON_PLATFORM` saying so. HTTP 503 throws `API_ERROR`, and calling `cdp()` again is safe.
+
 ## Exact actions
 
 **Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. On a Mac computer's screen, `tap` (by point or by description), `screenSize`, `typeFocused` and `pressKey` are new in TypeScript 0.6.0, Python 0.4.0 and Go v0.5.0. The [Python](https://github.com/RevylAI/verify/blob/v0.6.3/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.6.3/go/README.md#exact-actions) READMEs show them with each language's names. Web, iOS and Android sessions, and a Mac computer's screen, take device actions that need no agent.
@@ -98,6 +136,7 @@ Web only, hosted or normal. Sends one deterministic `open_url` action and checks
 | `openUrl(url)` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No |
 | `launchApp(bundleId)` | No, use `openUrl` or `navigate` | Yes | Yes | No |
 | `navigate(url)` | Yes | No, use `openUrl` | No, use `openUrl` | No |
+| `cdp()`, for Playwright and Puppeteer | Yes, see [CDP](#cdp-playwright-puppeteer) | No | No | No |
 | `instruction`, `validation`, your own model | Yes | Yes | Yes | No, use `exec()` and the screen calls above |
 | `screenshot()` | Yes | Yes | Yes | Yes |
 | `exec`, files, processes | No, open a Mac computer | No, open a Mac computer | No, open a Mac computer | Yes |
