@@ -23,10 +23,12 @@ def check_metadata(content: bytes, name: str, version: str) -> None:
     assert metadata["Version"] == version, "Unexpected distribution version"
     assert metadata["Requires-Python"] == ">=3.10", "Unexpected supported Python versions"
     assert metadata["License-Expression"] == "Apache-2.0", "Missing Apache license metadata"
-    dependencies = metadata.get_all("Requires-Dist", [])
-    assert len(dependencies) == 1 and re.fullmatch(
-        r"pillow>=11\.0", dependencies[0], re.IGNORECASE
-    ), "Pillow must be the only runtime dependency"
+    dependencies = sorted(metadata.get_all("Requires-Dist", []), key=str.lower)
+    assert (
+        len(dependencies) == 2
+        and re.fullmatch(r"pillow>=11\.0", dependencies[0], re.IGNORECASE)
+        and re.fullmatch(r"pyyaml>=6\.0", dependencies[1], re.IGNORECASE)
+    ), "Pillow and PyYAML must be the only runtime dependencies"
     assert "#" in metadata.get_payload(), "Missing package README"
 
 

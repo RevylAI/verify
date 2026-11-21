@@ -35,6 +35,15 @@ from ._models import (
     text_length,
 )
 from ._session import Session, _check_settle, _location, png_size, save_screenshot
+from ._session_profile import (
+    REPOSITORY_RETRY_DELAYS,
+    SessionProfilePlan,
+    missing_branch_notice,
+    profile_failed_error,
+    profile_not_reported_error,
+    profile_refusal_error,
+    reported_session_profile,
+)
 from ._transport import (
     Cancellation,
     Client,
@@ -379,6 +388,7 @@ class ComputerSession(Session):
         *,
         computer_session_id: str | None = None,
         expires_at: datetime | None = None,
+        profile: SessionProfilePlan | None = None,
     ) -> ComputerSession:
         if (
             target.platform not in {"mac", "linux"}
@@ -399,6 +409,7 @@ class ComputerSession(Session):
         session._cancellation = cancellation
         deadline = Deadline(target.start_timeout, cancellation)
         session._log_callback = log
+        session._profile = profile
         acknowledged = False
         try:
             track(session)
@@ -409,15 +420,38 @@ class ComputerSession(Session):
             }
             if target.timeout is not None:
                 body["timeout_seconds"] = target.timeout
-            response = session._request("POST", "", body, deadline)
+            if profile is not None:
+                body.update(profile.fields)
+            for attempt in range(len(REPOSITORY_RETRY_DELAYS) + 1):
+                try:
+                    response = session._request("POST", "", body, deadline)
+                    break
+                except VerifyError as error:
+                    if error.reason != "repository_unavailable" or attempt == len(
+                        REPOSITORY_RETRY_DELAYS
+                    ):
+                        raise
+                    deadline.pause(REPOSITORY_RETRY_DELAYS[attempt])
             acknowledged = True
+            report = session._report(response)
+            plan = profile if profile is not None and profile.name is not None else None
+            if plan is not None:
+                notice = missing_branch_notice(reported_session_profile(report), plan)
+                if notice:
+                    session._log(notice)
+                session._log(f"waiting for session profile {plan.name}")
             while True:
-                report = session._report(response)
+                reported = reported_session_profile(report) if plan is not None else None
+                if plan is not None and reported is not None and reported.status == "failed":
+                    raise profile_failed_error(reported, plan, session.viewer_url)
                 if report["state"] == "active":
-                    session._screen_ready_until = time.monotonic() + 30
-                    session._log("ready")
-                    return session
-                if report["state"] != "starting":
+                    if plan is not None and reported is None:
+                        raise profile_not_reported_error(session.platform, session.viewer_url)
+                    if reported is None or reported.status == "succeeded":
+                        session._screen_ready_until = time.monotonic() + 30
+                        session._log("ready")
+                        return session
+                elif report["state"] != "starting":
                     reason = ""
                     if report.get("failure_reason") == "no_host":
                         reason = (
@@ -432,7 +466,7 @@ class ComputerSession(Session):
                         f"({report['state']}).{reason} See {session.viewer_url}",
                     )
                 deadline.pause(2)
-                response = session._request("GET", "/report", None, deadline)
+                report = session._report(session._request("GET", "/report", None, deadline))
         except BaseException as error:
             timed_out = isinstance(error, VerifyError) and (
                 error.code == "TIMEOUT"
@@ -445,15 +479,19 @@ class ComputerSession(Session):
             refused = (
                 not acknowledged
                 and isinstance(error, VerifyError)
-                and error.code
-                in {
-                    "AUTH_REJECTED",
-                    "EDGE_BLOCKED",
-                    "NOT_AVAILABLE_ON_PLATFORM",
-                    "INVALID_ARGUMENT",
-                    "COMPUTER_LIMIT",
-                }
-            )
+                and (
+                    error.code
+                    in {
+                        "AUTH_REJECTED",
+                        "EDGE_BLOCKED",
+                        "NOT_AVAILABLE_ON_PLATFORM",
+                        "INVALID_ARGUMENT",
+                        "COMPUTER_LIMIT",
+                        "CONFIG_INVALID",
+                    }
+                    or error.reason == "repository_unavailable"
+                )
+            ) or (isinstance(error, VerifyError) and error.code == "SESSION_PROFILE_FAILED")
             if refused:
                 session._closed = True
                 untrack(session)
@@ -505,6 +543,10 @@ class ComputerSession(Session):
         blocked = edge_blocked_error(response)
         if blocked is not None:
             raise blocked
+        if suffix == "" and method == "POST" and self._profile is not None:
+            profile_refusal = profile_refusal_error(response, self._profile, self.platform)
+            if profile_refusal is not None:
+                raise profile_refusal
         reason = refusal_reason(response)
         detail = reason or _detail(response)
         if suffix == "/recording" and response.status == 404 and detail == "recording_unavailable":

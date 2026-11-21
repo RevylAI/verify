@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from ._models import Platform
 
 CleanupStatus = Literal["not_attempted", "not_required", "acknowledged", "confirmed", "unconfirmed"]
-RefusalReason = Literal[
+_ResponseRefusalReason = Literal[
     "web_runtime_unavailable",
     "web_runtime_not_configured",
     "computer_limit",
@@ -49,6 +49,24 @@ RefusalReason = Literal[
     "request_timeout",
     "protocol_error",
 ]
+RefusalReason = Literal[
+    _ResponseRefusalReason,
+    "session_profile_undefined",
+    "session_profile_source_required",
+    "session_profile_files_need_named",
+    "session_profile_script_unavailable",
+    "repository_connection_missing",
+    "project_not_found",
+    "repository_unavailable",
+]
+SessionProfileOutcome = Literal[
+    "succeeded",
+    "script_failed",
+    "script_timed_out",
+    "script_unavailable",
+    "output_invalid",
+    "runner_failed",
+]
 
 Json: TypeAlias = "None | bool | int | float | str | list[Json] | dict[str, Json]"
 
@@ -62,12 +80,16 @@ class VerifyError(Exception):
         result: object | None = None,
         reason: RefusalReason | None = None,
         http_status: int | None = None,
+        outcome: SessionProfileOutcome | None = None,
+        failure_reason: str | None = None,
     ) -> None:
         self.code = code
         self.message = message
         self.result = result
         self.reason: RefusalReason | None = reason
         self.http_status: int | None = http_status
+        self.outcome: SessionProfileOutcome | None = outcome
+        self.failure_reason: str | None = failure_reason
         self.platform: Platform | None = None
         self.session_id: str | None = None
         self.workflow_run_id: str | None = None
@@ -353,7 +375,7 @@ def refusal_reason(response: Response) -> RefusalReason | None:
         raw.get("error"),
     )
     for value in candidates:
-        if isinstance(value, str) and value in get_args(RefusalReason):
+        if isinstance(value, str) and value in get_args(_ResponseRefusalReason):
             return cast(RefusalReason, value)
     return None
 

@@ -59,6 +59,16 @@ from ._models import (
     Target,
     text_length,
 )
+from ._session_profile import (
+    REPOSITORY_RETRY_DELAYS,
+    ReportedSessionProfile,
+    SessionProfilePlan,
+    missing_branch_notice,
+    profile_failed_error,
+    profile_not_reported_error,
+    profile_refusal_error,
+    reported_session_profile,
+)
 from ._transport import (
     Cancellation,
     CleanupStatus,
@@ -83,6 +93,8 @@ _PAGE_DIRECTION: dict[SwipeDirection, SwipeDirection] = {
     "left": "right",
     "right": "left",
 }
+
+_ENDED_STATUSES = ("completed", "failed", "cancelled", "timeout", "stopping")
 
 # Revyl can briefly answer a just-accepted step's status with 404 "Live step not found"
 # before its run is listed.
@@ -182,6 +194,7 @@ class Session:
         self._size: ScreenSize | None = None
         self._size_from_health = False
         self._screenshot_size: tuple[ScreenSize, ScreenSize] | None = None
+        self._profile: SessionProfilePlan | None = None
 
     def _log(self, message: str) -> None:
         if self._log_callback:
@@ -254,6 +267,7 @@ class Session:
         *,
         computer_session_id: str | None = None,
         expires_at: datetime | None = None,
+        profile: SessionProfilePlan | None = None,
     ) -> Session:
         cancellation = cancellation or Cancellation()
         deadline = Deadline(target.start_timeout, cancellation)
@@ -302,6 +316,8 @@ class Session:
             ):
                 if value is not None:
                     body[key] = value
+        if profile is not None:
+            body.update(profile.fields)
         session = cls(
             client,
             proposed_id if target.platform == "web" or hosted else "",
@@ -313,6 +329,7 @@ class Session:
         session._log_callback = log
         session._cancellation = cancellation
         session._expires_at = expires_at
+        session._profile = profile
         submitted = False
         refused = False
         try:
@@ -322,17 +339,34 @@ class Session:
             submitted = True
             if session.id:
                 track(session)
-            response = client.request(
-                "POST", "/api/v1/execution/start_device", body, deadline=deadline, timeout=120
-            )
-            if not 200 <= response.status < 300:
+            for attempt in range(len(REPOSITORY_RETRY_DELAYS) + 1):
+                refused = False
+                response = client.request(
+                    "POST", "/api/v1/execution/start_device", body, deadline=deadline, timeout=120
+                )
+                if 200 <= response.status < 300:
+                    break
                 refused = response.status in (400, 401, 403, 404, 405, 422, 429)
                 from ._transport import http_error, start_refusal
 
                 mobile = not hosted and target.platform != "web"
-                error = (start_refusal(response) if mobile else None) or http_error(
-                    response, hosted=hosted
+                profile_refusal = (
+                    profile_refusal_error(response, profile, target.platform)
+                    if profile is not None
+                    else None
                 )
+                error = (
+                    profile_refusal
+                    or (start_refusal(response) if mobile else None)
+                    or http_error(response, hosted=hosted)
+                )
+                if profile_refusal is not None:
+                    refused = True
+                    if error.reason == "repository_unavailable" and attempt < len(
+                        REPOSITORY_RETRY_DELAYS
+                    ):
+                        deadline.pause(REPOSITORY_RETRY_DELAYS[attempt])
+                        continue
                 if (
                     target.platform == "web"
                     and response.status == 409
@@ -386,6 +420,7 @@ class Session:
                 raise VerifyError(
                     "SESSION_START_FAILED", "Revyl did not acknowledge the new session."
                 )
+            session._start_profile(start)
             session._ready(target, deadline)
             if target.platform != "web":
                 session._wait_first_screen(deadline.cap(10))
@@ -393,6 +428,9 @@ class Session:
                 deadline.remaining()
             session._log("ready")
         except BaseException as error:
+            if isinstance(error, VerifyError) and error.code == "SESSION_PROFILE_FAILED":
+                refused = True
+                session._closed = True
             session._startup_failure(
                 error,
                 cleanup=submitted and not refused and bool(session.id or session._run_id),
@@ -406,22 +444,73 @@ class Session:
     def _path(self, action: str) -> str:
         return "/api/v1/execution/device-proxy/" + quote(self._run_id, safe="") + "/" + action
 
+    def _start_profile(self, start: dict[str, Json]) -> None:
+        plan = self._profile
+        if plan is None or plan.name is None:
+            return
+        profile = reported_session_profile(start)
+        notice = missing_branch_notice(profile, plan)
+        if notice:
+            self._log(notice)
+        if profile is not None and profile.status == "failed":
+            raise profile_failed_error(profile, plan, self.viewer_url)
+        self._log(f"waiting for session profile {plan.name}")
+
+    def _profile_done(self, profile: ReportedSessionProfile | None, active: bool) -> bool:
+        plan = self._profile
+        if plan is None or plan.name is None:
+            return True
+        if profile is not None and profile.status == "failed":
+            raise profile_failed_error(profile, plan, self.viewer_url)
+        if not active:
+            return False
+        if profile is None:
+            raise profile_not_reported_error(self.platform, self.viewer_url)
+        return profile.status == "succeeded"
+
+    def _device_session(self, deadline: Deadline) -> dict[str, Json]:
+        return self._client.json(
+            "GET",
+            "/api/v1/execution/device-sessions/" + quote(self.id, safe=""),
+            deadline=deadline,
+            retry=True,
+        )
+
+    def _wait_for_profile(self, deadline: Deadline) -> None:
+        name = self._profile.name if self._profile is not None else None
+        if not self.id:
+            raise profile_not_reported_error(self.platform, self.viewer_url)
+        while True:
+            detail = self._device_session(deadline)
+            profile = reported_session_profile(detail)
+            status = detail.get("status")
+            if (profile is None or profile.status != "failed") and status in _ENDED_STATUSES:
+                message = detail.get("error_message")
+                raise VerifyError(
+                    "SESSION_START_FAILED",
+                    f"The {self.platform} session ended before session profile {name} finished "
+                    f"({status}): {message if isinstance(message, str) else 'no reason given'}. "
+                    f"See {self.viewer_url}",
+                )
+            if self._profile_done(profile, status == "running"):
+                return
+            if deadline.expired():
+                raise VerifyError(
+                    "TIMEOUT",
+                    f"Session profile {name} did not finish before the {self.platform} "
+                    f"session's start timeout. See {self.viewer_url}",
+                )
+            deadline.pause(2)
+
     def _ready(self, target: Target, deadline: Deadline) -> None:
+        named = self._profile is not None and self._profile.name is not None
         if self.platform == "web":
             while True:
-                detail = self._client.json(
-                    "GET",
-                    "/api/v1/execution/device-sessions/" + quote(self.id, safe=""),
-                    deadline=deadline,
-                    retry=True,
-                )
-                if detail.get("status") in (
-                    "completed",
-                    "failed",
-                    "cancelled",
-                    "timeout",
-                    "stopping",
-                ):
+                detail = self._device_session(deadline)
+                profile = reported_session_profile(detail)
+                if named and profile is not None and profile.status == "failed":
+                    self._profile_done(profile, False)
+                if detail.get("status") in _ENDED_STATUSES:
                     raise VerifyError(
                         "SESSION_START_FAILED",
                         "Web session ended before becoming ready. See " + self.viewer_url,
@@ -436,8 +525,9 @@ class Session:
                     )
                     if response.status == 200:
                         png_size(response.body)
-                        return
-                    if response.status not in (409, 503):
+                        if self._profile_done(profile, True):
+                            return
+                    elif response.status not in (409, 503):
                         raise self._worker_error("GET", response)
                 deadline.pause(2)
         while True:
@@ -454,6 +544,12 @@ class Session:
             ):
                 break
             if connection.get("status") in ("cancelled", "stopped", "failed"):
+                if named and self.id:
+                    try:
+                        reported = reported_session_profile(self._device_session(deadline))
+                    except VerifyError:
+                        reported = None
+                    self._profile_done(reported, False)
                 raise VerifyError("SESSION_START_FAILED", "Device assignment failed.")
             deadline.pause(2)
         connected = deadline.cap(90)
@@ -467,6 +563,8 @@ class Session:
             elif response.status != 503:
                 raise self._worker_error("GET", response)
             connected.pause(2)
+        if named:
+            self._wait_for_profile(deadline)
         if target.bundle_id:
             launched = obj(
                 self._worker(

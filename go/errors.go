@@ -35,6 +35,14 @@ const (
 	ReasonNotAvailableOnPlatform     RefusalReason = "not_available_on_platform"
 	ReasonRequestTimeout             RefusalReason = "request_timeout"
 	ReasonProtocolError              RefusalReason = "protocol_error"
+
+	ReasonSessionProfileUndefined         RefusalReason = "session_profile_undefined"
+	ReasonSessionProfileSourceRequired    RefusalReason = "session_profile_source_required"
+	ReasonSessionProfileFilesNeedNamed    RefusalReason = "session_profile_files_need_named"
+	ReasonSessionProfileScriptUnavailable RefusalReason = "session_profile_script_unavailable"
+	ReasonRepositoryConnectionMissing     RefusalReason = "repository_connection_missing"
+	ReasonProjectNotFound                 RefusalReason = "project_not_found"
+	ReasonRepositoryUnavailable           RefusalReason = "repository_unavailable"
 )
 
 func (c Code) Error() string { return string(c) }
@@ -63,6 +71,7 @@ const (
 	ErrAccessDenied           Code = "ACCESS_DENIED"
 	ErrModelError             Code = "MODEL_ERROR"
 	ErrModelKeyMissing        Code = "MODEL_KEY_MISSING"
+	ErrSessionProfileFailed   Code = "SESSION_PROFILE_FAILED"
 	ErrTimeout                Code = "TIMEOUT"
 )
 
@@ -73,6 +82,10 @@ type Error struct {
 	Message    string
 	Cause      error
 	ExecResult *ExecResult
+	// Outcome is set on ErrSessionProfileFailed: how the profile's run ended, such as "script_failed".
+	Outcome string
+	// FailureReason is set on ErrSessionProfileFailed: Revyl's reason, which never holds a secret or the script's output.
+	FailureReason string
 }
 
 func (e *Error) Error() string { return fmt.Sprintf("%s: %s", e.Code, e.Message) }
