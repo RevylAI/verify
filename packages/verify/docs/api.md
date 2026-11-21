@@ -71,7 +71,7 @@ On a browser or device, the script runs on Revyl's hosted runner, not on your ma
 
 ### Waiting
 
-`open()` returns when the session is ready and Revyl reports the profile's status as `succeeded`, within the target's `startTimeout` (10 minutes by default). While it waits, it logs `<platform>: waiting for session profile <name>`. Verify never shows the script's output: Revyl doesn't send it, because setup scripts often print secrets.
+`open()` returns when the session is ready and Revyl reports the profile's status as `succeeded`, within the target's `startTimeout` (10 minutes by default). While it waits, it logs `<platform>: waiting for session profile <name>`. Verify never shows the script's output: Revyl doesn't send it, because setup scripts often print secrets. On a Mac computer, Revyl refuses commands and screen actions with HTTP 409 `session_profile_running` while the profile runs, without running them. If a call on a computer, such as one you `attach()` to, still gets that refusal, Verify waits and sends the same call again, for up to the start timeout (10 minutes for `attach()`), then throws `TIMEOUT` naming the profile. It repeats only calls Revyl refused that way.
 
 ### Session profile errors
 

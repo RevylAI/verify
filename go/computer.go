@@ -111,7 +111,7 @@ func startComputer(ctx context.Context, c *client, viewer string, target Target,
 		return nil, failure(ErrAPI, "Could not generate a computer session ID.")
 	}
 	lifetime, stop := context.WithCancel(context.Background())
-	s := &Session{client: c, id: id, platform: target.Platform, viewer: viewer + "/sessions/" + url.PathEscape(id) + "?kind=computer", viewerBase: viewer, lifetime: lifetime, stopLifetime: stop, log: options.Log, stepTimeout: options.StepTimeout, profile: profile}
+	s := &Session{client: c, id: id, platform: target.Platform, viewer: viewer + "/sessions/" + url.PathEscape(id) + "?kind=computer", viewerBase: viewer, lifetime: lifetime, stopLifetime: stop, log: options.Log, stepTimeout: options.StepTimeout, profile: profile, startTimeout: target.StartTimeout}
 	s.logLine("starting " + string(s.platform) + " computer " + s.viewer)
 	computerOS := "macos"
 	if target.Platform == Linux {
@@ -436,7 +436,33 @@ func (s *Session) computerRequestTimeout(ctx context.Context, method, suffix str
 	if suffix != "" {
 		path += "/" + s.id + suffix
 	}
-	r, err := s.client.send(ctx, method, path, body, method == "GET" && suffix != "/screen/screenshot", timeout, false)
+	var r response
+	var err error
+	var profileDeadline time.Time
+	for attempt := 0; ; attempt++ {
+		r, err = s.client.send(ctx, method, path, body, method == "GET" && suffix != "/screen/screenshot", timeout, false)
+		if err != nil || r.status != 409 || responseTopLevelCode(r) != "session_profile_running" {
+			break
+		}
+		if profileDeadline.IsZero() {
+			startTimeout := s.startTimeout
+			if startTimeout == 0 {
+				startTimeout = 10 * time.Minute
+			}
+			profileDeadline = time.Now().Add(startTimeout)
+		}
+		wait := 5 * time.Second
+		if attempt < 3 {
+			wait = time.Second << attempt
+		}
+		if time.Now().Add(wait).After(profileDeadline) || ctx.Err() != nil || pause(ctx, wait) != nil {
+			name := ""
+			if s.profile != nil && s.profile.name != "" {
+				name = " " + s.profile.name
+			}
+			return r, &Error{Code: ErrTimeout, HTTPStatus: 409, Message: fmt.Sprintf("The %s computer's session profile%s is still running, so Revyl refused this call without running it (session_profile_running), and Verify stopped waiting at its timeout. Wait for the profile to finish, then try again. See %s", s.platform, name, s.viewer)}
+		}
+	}
 	if err != nil {
 		var typed *Error
 		cause := err
@@ -555,6 +581,15 @@ func (s *Session) computerRequestTimeout(ctx context.Context, method, suffix str
 		next = "Nothing on the computer changed; it is safe to try again."
 	}
 	return r, responseFailure(r, code, fmt.Sprintf("Revyl refused the computer request (%s). %s See %s", reason, next, s.viewer))
+}
+
+func responseTopLevelCode(r response) string {
+	var body map[string]any
+	if json.Unmarshal(r.body, &body) != nil {
+		return ""
+	}
+	code, _ := body["code"].(string)
+	return code
 }
 
 func (s *Session) closeComputer(ctx context.Context) error {
