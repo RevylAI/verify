@@ -25,6 +25,10 @@ type OpenOptions struct {
 	StepTimeout time.Duration
 	Log         func(string)
 	StopOnClose *bool
+	// Profile names a session profile from session.profiles in .revyl/config.yaml, such as "signed-in", that Revyl runs before
+	// Open returns, or "none" for no profile. Left empty, the project's session.default_profile runs when it sets one. Open reads
+	// .revyl/config.yaml from the working directory upward. Web, iOS, Android and Mac only.
+	Profile string
 }
 
 // OpenOption configures Open: an OpenOptions value, or an Option from WithModel, WithCustomModel or WithAgent.
@@ -81,6 +85,8 @@ type Session struct {
 	sizeFromHealth           bool
 	screenshotScale          *screenshotScale
 	host                     *Session
+	profile                  *sessionProfilePlan
+	startTimeout             time.Duration
 }
 
 func (s *Session) ID() string        { return s.id }
@@ -128,6 +134,11 @@ func Open(ctx context.Context, target Target, options ...OpenOption) (*Session, 
 	if err != nil {
 		return nil, err
 	}
+	cwd, _ := os.Getwd()
+	profile, err := planSessionProfile(opt.Profile, target.Platform, cwd)
+	if err != nil {
+		return nil, err
+	}
 	callerCtx := ctx
 	ctx, cancel := context.WithTimeout(callerCtx, target.StartTimeout)
 	defer cancel()
@@ -139,7 +150,7 @@ func Open(ctx context.Context, target Target, options ...OpenOption) (*Session, 
 		return nil, err
 	}
 	if target.Platform.computer() {
-		return startComputer(ctx, c, viewer, target, opt)
+		return startComputer(ctx, c, viewer, target, opt, profile)
 	}
 	request := map[string]any{"platform": target.Platform, "idle_timeout_seconds": target.IdleTimeoutSeconds}
 	var id string
@@ -169,19 +180,29 @@ func Open(ctx context.Context, target Target, options ...OpenOption) (*Session, 
 			}
 		}
 	}
+	profile.addTo(request)
 	var start struct {
-		SessionID string `json:"session_id"`
-		RunID     string `json:"workflow_run_id"`
+		SessionID      string          `json:"session_id"`
+		RunID          string          `json:"workflow_run_id"`
+		SessionProfile json.RawMessage `json:"session_profile"`
 	}
-	r, err := c.send(ctx, http.MethodPost, "/api/v1/execution/start_device", request, false, 2*time.Minute, false)
+	r, err := withRepositoryRetry(ctx, func() (response, error) {
+		r, err := c.send(ctx, http.MethodPost, "/api/v1/execution/start_device", request, false, 2*time.Minute, false)
+		if err != nil || r.status >= 200 && r.status < 300 {
+			return r, err
+		}
+		if profile != nil {
+			if refusal := profileRefusalError(r, profile, target.Platform); refusal != nil {
+				return r, refusal
+			}
+		}
+		if refusal := startRefusal(r); refusal != nil && target.Platform != Web {
+			return r, refusal
+		}
+		return r, httpError(r)
+	})
 	if err != nil {
 		return nil, err
-	}
-	if r.status < 200 || r.status >= 300 {
-		if refusal := startRefusal(r); refusal != nil && target.Platform != Web {
-			return nil, refusal
-		}
-		return nil, httpError(r)
 	}
 	if err := decode(r, &start); err != nil {
 		return nil, err
@@ -189,12 +210,18 @@ func Open(ctx context.Context, target Target, options ...OpenOption) (*Session, 
 	if (target.Platform == Web && start.SessionID != id) || (target.Platform != Web && start.RunID == "") {
 		return nil, failure(ErrSessionStartFailed, "Revyl did not acknowledge the new session.")
 	}
-	s := &Session{client: c, id: start.SessionID, runID: start.RunID, platform: target.Platform, stepTimeout: opt.StepTimeout, log: opt.Log, agent: agent}
+	s := &Session{client: c, id: start.SessionID, runID: start.RunID, platform: target.Platform, stepTimeout: opt.StepTimeout, log: opt.Log, agent: agent, profile: profile}
 	s.viewer = viewer + "/sessions/" + url.PathEscape(s.id)
 	s.logStarting()
-	err = s.ready(ctx, target)
+	err = s.startProfile(start.SessionProfile)
+	if err == nil {
+		err = s.ready(ctx, target)
+	}
 	if err == nil && target.Platform != Web {
 		err = s.waitFirstScreen(ctx, callerCtx)
+	}
+	if errors.Is(err, ErrSessionProfileFailed) {
+		return nil, err
 	}
 	if err != nil {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
@@ -263,11 +290,16 @@ func (s *Session) ready(ctx context.Context, target Target) error {
 	if target.Platform == Web {
 		for {
 			var detail struct {
-				Status string `json:"status"`
-				RunID  string `json:"workflow_run_id"`
+				Status         string          `json:"status"`
+				RunID          string          `json:"workflow_run_id"`
+				SessionProfile json.RawMessage `json:"session_profile"`
 			}
 			if err := s.client.json(ctx, "GET", "/api/v1/execution/device-sessions/"+url.PathEscape(s.id), nil, true, 30*time.Second, &detail); err != nil {
 				return err
+			}
+			profile := reportedSessionProfile(detail.SessionProfile)
+			if s.profile != nil && s.profile.name != "" && profile != nil && profile.status == "failed" {
+				return profileFailedError(profile, s.profile, s.viewer)
 			}
 			switch detail.Status {
 			case "completed", "failed", "cancelled", "timeout", "stopping":
@@ -280,17 +312,20 @@ func (s *Session) ready(ctx context.Context, target Target) error {
 						return err
 					}
 					if r.status == 200 && validPNG(r.body) {
-						return nil
-					}
-					var detail struct {
-						Error string `json:"error"`
-					}
-					_ = json.Unmarshal(r.body, &detail)
-					if r.status != 503 && r.status != 409 && detail.Error != "not_ready" {
-						if r.status == 200 {
-							return failure(ErrActionFailed, "Revyl readiness screenshot is not a PNG.")
+						if done, err := s.profileDone(profile, true); done || err != nil {
+							return err
 						}
-						return s.workerError("GET", "screenshot", r)
+					} else {
+						var detail struct {
+							Error string `json:"error"`
+						}
+						_ = json.Unmarshal(r.body, &detail)
+						if r.status != 503 && r.status != 409 && detail.Error != "not_ready" {
+							if r.status == 200 {
+								return failure(ErrActionFailed, "Revyl readiness screenshot is not a PNG.")
+							}
+							return s.workerError("GET", "screenshot", r)
+						}
 					}
 				}
 			}
@@ -311,6 +346,16 @@ func (s *Session) ready(ctx context.Context, target Target) error {
 			break
 		}
 		if connection.Status == "cancelled" || connection.Status == "stopped" || connection.Status == "failed" {
+			if s.profile != nil && s.profile.name != "" && s.id != "" {
+				var detail struct {
+					SessionProfile json.RawMessage `json:"session_profile"`
+				}
+				if s.client.json(ctx, "GET", "/api/v1/execution/device-sessions/"+url.PathEscape(s.id), nil, true, 30*time.Second, &detail) == nil {
+					if profile := reportedSessionProfile(detail.SessionProfile); profile != nil && profile.status == "failed" {
+						return profileFailedError(profile, s.profile, s.viewer)
+					}
+				}
+			}
 			return failure(ErrSessionStartFailed, "Device assignment failed.")
 		}
 		if err := pause(ctx, 2*time.Second); err != nil {
@@ -341,6 +386,11 @@ func (s *Session) ready(ctx context.Context, target Target) error {
 			return err
 		}
 	}
+	if s.profile != nil && s.profile.name != "" {
+		if err := s.waitForProfile(ctx); err != nil {
+			return err
+		}
+	}
 	if target.BundleID != "" {
 		r, err := s.worker(ctx, "POST", "launch", map[string]string{"bundle_id": target.BundleID}, false, 30*time.Second)
 		if err != nil {
@@ -359,6 +409,77 @@ func (s *Session) ready(ctx context.Context, target Target) error {
 	}
 	return nil
 }
+
+// startProfile logs the profile's missing-branch notice and wait, and fails at once on a profile the start response already
+// reports failed.
+func (s *Session) startProfile(raw json.RawMessage) error {
+	plan := s.profile
+	if plan == nil || plan.name == "" {
+		return nil
+	}
+	profile := reportedSessionProfile(raw)
+	if notice := missingBranchNotice(profile, plan); notice != "" {
+		s.logLine(notice)
+	}
+	if profile != nil && profile.status == "failed" {
+		return profileFailedError(profile, plan, s.viewer)
+	}
+	s.logLine("waiting for session profile " + plan.name)
+	return nil
+}
+
+// profileDone is true once the named profile succeeded; it fails when the profile failed or the active session doesn't report it.
+func (s *Session) profileDone(profile *reportedProfile, active bool) (bool, error) {
+	plan := s.profile
+	if plan == nil || plan.name == "" {
+		return true, nil
+	}
+	if profile != nil && profile.status == "failed" {
+		return false, profileFailedError(profile, plan, s.viewer)
+	}
+	if !active {
+		return false, nil
+	}
+	if profile == nil {
+		return false, profileNotReportedError(s.platform, s.viewer)
+	}
+	return profile.status == "succeeded", nil
+}
+
+func (s *Session) waitForProfile(ctx context.Context) error {
+	if s.id == "" {
+		return profileNotReportedError(s.platform, s.viewer)
+	}
+	for {
+		var detail struct {
+			Status         string          `json:"status"`
+			ErrorMessage   *string         `json:"error_message"`
+			SessionProfile json.RawMessage `json:"session_profile"`
+		}
+		if err := s.client.json(ctx, "GET", "/api/v1/execution/device-sessions/"+url.PathEscape(s.id), nil, true, 30*time.Second, &detail); err != nil {
+			return err
+		}
+		profile := reportedSessionProfile(detail.SessionProfile)
+		if (profile == nil || profile.status != "failed") && endedStatuses[detail.Status] {
+			reason := "no reason given"
+			if detail.ErrorMessage != nil {
+				reason = *detail.ErrorMessage
+			}
+			return failure(ErrSessionStartFailed, fmt.Sprintf("The %s session ended before session profile %s finished (%s): %s. See %s", s.platform, s.profile.name, detail.Status, reason, s.viewer))
+		}
+		if done, err := s.profileDone(profile, detail.Status == "running"); done || err != nil {
+			return err
+		}
+		if err := pause(ctx, 2*time.Second); err != nil {
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return &Error{Code: ErrTimeout, Message: fmt.Sprintf("Session profile %s did not finish before the %s session's start timeout. See %s", s.profile.name, s.platform, s.viewer), Cause: ctx.Err()}
+			}
+			return err
+		}
+	}
+}
+
+var endedStatuses = map[string]bool{"completed": true, "failed": true, "cancelled": true, "timeout": true, "stopping": true}
 
 func (s *Session) logStarting() {
 	if s.id == "" {

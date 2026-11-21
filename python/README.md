@@ -18,7 +18,7 @@ pip install revyl-verify
 uv add revyl-verify
 ```
 
-Pillow is the only runtime dependency, for PNG blank-frame inspection and for downscaling screenshots sent to your own model; HTTP, model calls included, uses the standard library.
+Pillow and PyYAML are the only runtime dependencies: Pillow for PNG blank-frame inspection and for downscaling screenshots sent to your own model, PyYAML for reading `.revyl/config.yaml` for [session profiles](#session-profiles). HTTP, model calls included, uses the standard library.
 
 ## Authenticate
 
@@ -159,6 +159,95 @@ Children reuse their parent's credentials, API/viewer origins, step timeout and 
 When the computer belongs to another caller, such as a CI runner, use `attach(computer_id, stop_on_close=False)` or `await async_attach(computer_id, stop_on_close=False)`. These attachments are not registered for automatic cleanup. Explicit close or context-manager exit still cancels pending child starts and closes hosted children within the five-second cleanup phase, but never stops the computer; its owner must release it. Child-cleanup failures remain observable. The default is `True`, and ownership is never inferred from the environment.
 
 For async code use `async with await async_attach(computer_id) as computer`, then `async with await computer.open(target) as browser` and `await browser.navigate(url)`. Cancelling a child open cleans up only that child and leaves the parent open; cancelling attach before it succeeds does not stop the existing computer.
+
+### open() options
+
+`open(target, ...)` and `async_open(target, ...)` take these keyword options:
+
+- `backend_url`: the Revyl API origin. Defaults to `https://backend.revyl.ai`.
+- `app_url`: the Revyl app origin for session links. Defaults to `https://app.revyl.ai`.
+- `step_timeout`: the default timeout of each step, in seconds (1 to 3600, default 180).
+- `log`: where progress lines go. Leave it out for stderr, pass a callable to receive each line, or `False` to turn them off.
+- `model`: runs every instruction and validation on your own model instead of Revyl's agent; see [Your own model](#your-own-model). Browsers and devices only; computers raise `NOT_AVAILABLE_ON_PLATFORM`.
+- `agent`: the same with a custom agent from `local_agent()`. Pass `model` or `agent`, not both.
+- `profile`: a session profile from your project's `.revyl/config.yaml`, such as `"signed-in"`, that Revyl runs before `open()` returns, or `"none"` for no profile. Left out, the project's `session.default_profile` runs when it sets one. Web, iOS, Android and Mac computers. See [Session profiles](#session-profiles).
+
+## Session profiles
+
+A session profile is a script from your Revyl project that prepares a session before your first step: it signs a user in, seeds data, or sets launch values. Revyl runs the script, never Verify: on Revyl's hosted runner for a browser or an iOS or Android device, and on the Mac itself for a Mac computer. `open()` returns once Revyl reports that the profile succeeded.
+
+```python
+from revyl_verify import Target, open
+
+web = Target(
+    platform="web", app_id="11111111-2222-4333-8444-555555555555", url="https://example.com"
+)
+
+# Run the "signed-in" profile from session.profiles in .revyl/config.yaml
+with open(web, profile="signed-in") as session:
+    session.validation("The account page shows the signed-in user")
+
+# Start without any profile, not even the project's default
+with open(web, profile="none") as session:
+    session.validation("The sign-in form is shown")
+```
+
+| `profile` | What Verify sends |
+| --- | --- |
+| `"signed-in"` | That profile, with the project and the script from this checkout. |
+| left out | The project's `session.default_profile`, the same way, when `.revyl/config.yaml` sets one. Otherwise nothing, so the start request is the same as before profiles existed. |
+| `"none"` | No profile, not even the default. Needs no `.revyl/config.yaml`. |
+
+Profiles work on web, iOS, Android and Mac computers. On a Linux computer, `profile` raises `NOT_AVAILABLE_ON_PLATFORM` before anything is sent, and no default runs. Hosted sessions (`computer.open()`), `attach()` and `current_computer()` never run a profile: they take no `profile` argument, so passing one raises `TypeError`. `async_open()` takes `profile` the same way.
+
+### Where Verify reads the profile
+
+Verify reads `.revyl/config.yaml` in the current folder (`os.getcwd()`) or the nearest folder above it that has one: the file `revyl init` writes in your app's checkout. It needs `project.id` and the profile under `session.profiles`, and reads nothing else from the file:
+
+```yaml
+project:
+  id: 0b9e6f3a-1c2d-4e5f-8a9b-0c1d2e3f4a5b    # your Revyl project's id
+session:
+  default_profile: signed-in                  # optional: runs when you leave profile out
+  profiles:
+    signed-in:
+      script: scripts/sign-in.sh              # has a "/": a file path from the project folder, the one holding .revyl/
+      requires_repository_checkout: true      # optional: Revyl clones the repository before the script runs
+    seeded-cart:
+      script: seed-cart                       # no "/": .revyl/scripts/seed-cart.js, .py, .sh or .ts, else the Library Script named seed-cart
+```
+
+With the profile's name, Verify sends:
+
+- **The project:** `project.id`, and the checkout's Git branch, found the way the Revyl CLI finds it: the branch checked out in the project folder; on GitHub Actions or Buildkite, the branch CI built, including a pull request's own branch (`owner:branch` for a fork) when the checkout is that pull request's code, even on a detached HEAD. Verify leaves the branch out when it finds none or Git fails. Revyl reads the files it needs from Git at the head of that branch. When Git doesn't have the branch, Revyl reads the default branch, and Verify logs `Git has no branch "<branch>", so session profile <name> reads the repository's default branch instead`.
+- **The script from this checkout:** the profile's definition and its script file as they are on disk, uncommitted changes included, so you can edit a script and run it without committing. A path script must stay inside the repository (under the nearest folder that holds `.git`, or the project folder outside Git) and be executable (`chmod +x`, with a `#!` line). A script file must be UTF-8 text of at most 64 KiB. A script name with no file in `.revyl/scripts` is a Library Script, which Revyl reads from your organization.
+
+On a browser or device, the script runs on Revyl's hosted runner, not on your machine: it doesn't see your localhost, your files or your Revyl login. On a Mac computer, it runs on that Mac. The script's environment variables and the output files it writes are Revyl's contract: see [Session profiles](https://docs.revyl.com/devices/session-profiles) in the Revyl docs.
+
+### Waiting
+
+`open()` returns when the session is ready and Revyl reports the profile's status as `succeeded`, within the target's `start_timeout` (600 seconds by default). While it waits, it logs `<platform>: waiting for session profile <name>`. Verify never shows the script's output: Revyl doesn't send it, because setup scripts often print secrets. On a Mac computer, Revyl refuses commands and screen actions with HTTP 409 `session_profile_running` while the profile runs, without running them. If a call on a computer, such as one you `attach()` to, still gets that refusal, Verify waits and sends the same call again, for up to the start timeout (600 seconds for `attach()` and `current_computer()`), then raises `TIMEOUT` naming the profile. It repeats only calls Revyl refused that way.
+
+### Session profile errors
+
+Neither errors nor logs contain the script's content or output. A refusal keeps Revyl's code in `error.reason`, such as `project_not_found`, and Revyl's sentence in the message.
+
+| Error | When | What to do |
+| --- | --- | --- |
+| `INVALID_ARGUMENT` | `profile` isn't a profile name (1-64 lowercase letters, digits or hyphens) or `"none"` | Pass a name from `session.profiles`, or `"none"` |
+| `NOT_AVAILABLE_ON_PLATFORM` | A Linux computer; or this Revyl backend doesn't run session profiles on that platform yet. When a session starts without reporting its profile, Verify stops it | Leave out `profile`, or pass `profile="none"` |
+| `CONFIG_NOT_FOUND` | `profile` names a profile, but no `.revyl/config.yaml` is in the current folder or above it | Run from your app's checkout, or pass `profile="none"` |
+| `CONFIG_INVALID` | `.revyl/config.yaml` isn't valid YAML, `project.id` isn't a UUID, or `session.profiles` doesn't define the name (the message lists the ones it does); or Revyl refused with `session_profile_undefined`, `project_not_found` (`project.id` isn't in this API key's organization) or `repository_connection_missing` (connect the repository's GitHub or GitLab app to the project in Revyl) | The message names the file and the fix |
+| `SESSION_PROFILE_FAILED` | Verify couldn't send the script (missing, outside the repository, not executable, over 64 KiB or not UTF-8); Revyl couldn't find it (`session_profile_script_unavailable`); or the profile ran and failed. `error.outcome` says how and `error.failure_reason` says why | Follow the message, as the next table says. Revyl stops a session whose profile failed, so Verify doesn't, and `error.cleanup_status` is `not_required` |
+| `API_ERROR` | Revyl couldn't read the repository in 3 attempts (`repository_unavailable`). Verify repeats the same start twice before it gives up | Try again in a few minutes |
+
+| `error.outcome` | Meaning | Fix |
+| --- | --- | --- |
+| `script_failed` | The script exited with an error | Run the script yourself from the project folder to see its output |
+| `script_timed_out` | The script ran past Revyl's 300-second limit | Make it finish sooner |
+| `script_unavailable` | The script isn't in this checkout or in Git, or the Library Script is missing | Commit the script or add it to `.revyl/scripts`, or create the Library Script |
+| `output_invalid` | A file the script wrote broke a rule; `failure_reason` names the file and the line | Fix what the script writes there |
+| `runner_failed` | Something failed on Revyl's side | Open the session again |
 
 ## Exact actions
 
@@ -432,6 +521,7 @@ Use an empty `dist/` before building; the package checker rejects stale or extra
 ## Troubleshooting
 
 - **`NOT_AVAILABLE_ON_PLATFORM`:** computers do not support instruction/validation, your own model, or exact actions other than `tap`, `screen_size()`, `type_focused(text, clear=False)` and `press_key`; devices do not support commands, files, processes or recording metadata; iOS has no `back()`, Web has no `launch_app()` or `go_home()`, and iOS and Android have no `type_focused()` and no keys other than Enter and Backspace.
+- **`SESSION_PROFILE_FAILED`:** the session profile's script couldn't be sent, Revyl couldn't find it, or it ran and failed. `error.outcome` and `error.failure_reason` say which; see [Session profile errors](#session-profile-errors).
 - **`MODEL_KEY_MISSING`:** the provider's key variable named in the message is not set. Set it, or pass `CustomModel(id, base_url, api_key=...)`.
 - **`MODEL_ERROR`:** the model's endpoint refused the request or the model misbehaved. The message names the host, the HTTP status and the next step: a rejected key and the variable it came from, an unknown model, the path Verify added on a 404, a rate limit after retries, a text-only model, no tool support, a reply cut off at its output cap, or three turns without a tool call.
 - **Blank initial screen:** first-frame observation is best effort. Start with an instruction; a transport-level connection does not prove rendered readiness.

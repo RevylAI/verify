@@ -70,12 +70,13 @@ type ComputerRecording struct {
 }
 
 type computerReport struct {
-	ID            string     `json:"computer_session_id"`
-	OS            string     `json:"os"`
-	State         string     `json:"state"`
-	Release       string     `json:"release"`
-	FailureReason string     `json:"failure_reason"`
-	ExpiresAt     *time.Time `json:"expires_at"`
+	ID             string          `json:"computer_session_id"`
+	OS             string          `json:"os"`
+	State          string          `json:"state"`
+	Release        string          `json:"release"`
+	FailureReason  string          `json:"failure_reason"`
+	ExpiresAt      *time.Time      `json:"expires_at"`
+	SessionProfile json.RawMessage `json:"session_profile"`
 }
 
 type processHandle struct {
@@ -104,13 +105,13 @@ func invalidComputerResponse() error {
 	return failure(ErrAPI, "Revyl returned an invalid computer response.")
 }
 
-func startComputer(ctx context.Context, c *client, viewer string, target Target, options OpenOptions) (*Session, error) {
+func startComputer(ctx context.Context, c *client, viewer string, target Target, options OpenOptions, profile *sessionProfilePlan) (*Session, error) {
 	id, err := newUUID()
 	if err != nil {
 		return nil, failure(ErrAPI, "Could not generate a computer session ID.")
 	}
 	lifetime, stop := context.WithCancel(context.Background())
-	s := &Session{client: c, id: id, platform: target.Platform, viewer: viewer + "/sessions/" + url.PathEscape(id) + "?kind=computer", viewerBase: viewer, lifetime: lifetime, stopLifetime: stop, log: options.Log, stepTimeout: options.StepTimeout}
+	s := &Session{client: c, id: id, platform: target.Platform, viewer: viewer + "/sessions/" + url.PathEscape(id) + "?kind=computer", viewerBase: viewer, lifetime: lifetime, stopLifetime: stop, log: options.Log, stepTimeout: options.StepTimeout, profile: profile, startTimeout: target.StartTimeout}
 	s.logLine("starting " + string(s.platform) + " computer " + s.viewer)
 	computerOS := "macos"
 	if target.Platform == Linux {
@@ -122,24 +123,45 @@ func startComputer(ctx context.Context, c *client, viewer string, target Target,
 		if target.Timeout != 0 {
 			request["timeout_seconds"] = int64(target.Timeout / time.Second)
 		}
-		r, err := s.computerRequest(ctx, "POST", "", request)
+		profile.addTo(request)
+		r, err := withRepositoryRetry(ctx, func() (response, error) { return s.computerRequest(ctx, "POST", "", request) })
 		if err != nil {
 			return err
 		}
 		createAcknowledged = true
-		for {
+		var plan *sessionProfilePlan
+		if profile != nil && profile.name != "" {
+			plan = profile
+		}
+		for first := true; ; first = false {
 			report, err := s.readComputerReport(r)
 			if err != nil {
 				return err
 			}
-			if report.State == "active" {
+			var reported *reportedProfile
+			if plan != nil {
+				reported = reportedSessionProfile(report.SessionProfile)
+				if first {
+					if notice := missingBranchNotice(reported, plan); notice != "" {
+						s.logLine(notice)
+					}
+					s.logLine("waiting for session profile " + plan.name)
+				}
+				if reported != nil && reported.status == "failed" {
+					return profileFailedError(reported, plan, s.viewer)
+				}
+			}
+			if report.State == "active" && plan != nil && reported == nil {
+				return profileNotReportedError(s.platform, s.viewer)
+			}
+			if report.State == "active" && (plan == nil || reported.status == "succeeded") {
 				s.computerScreenReadyUntil = time.Now().Add(30 * time.Second)
 				if report.ExpiresAt != nil {
 					s.expiresAt = *report.ExpiresAt
 				}
 				return nil
 			}
-			if report.State != "starting" {
+			if report.State != "starting" && report.State != "active" {
 				reason := report.State
 				if report.FailureReason == "no_host" {
 					reason += ": no_host; the unclaimed start expired after 120 seconds without a free host"
@@ -161,7 +183,9 @@ func startComputer(ctx context.Context, c *client, viewer string, target Target,
 		s.logLine("ready")
 		return s, nil
 	}
-	if !createAcknowledged && (errors.Is(err, ErrAuthRejected) || errors.Is(err, ErrEdgeBlocked) || errors.Is(err, ErrNotAvailableOnPlatform) || errors.Is(err, ErrInvalidArgument) || errors.Is(err, ErrComputerLimit)) {
+	var typed *Error
+	refused := !createAcknowledged && (errors.Is(err, ErrAuthRejected) || errors.Is(err, ErrEdgeBlocked) || errors.Is(err, ErrNotAvailableOnPlatform) || errors.Is(err, ErrInvalidArgument) || errors.Is(err, ErrComputerLimit) || errors.Is(err, ErrConfigInvalid) || errors.As(err, &typed) && typed.Reason == ReasonRepositoryUnavailable)
+	if refused || errors.Is(err, ErrSessionProfileFailed) {
 		stop()
 	} else {
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), computerObservationTimeout)
@@ -412,7 +436,33 @@ func (s *Session) computerRequestTimeout(ctx context.Context, method, suffix str
 	if suffix != "" {
 		path += "/" + s.id + suffix
 	}
-	r, err := s.client.send(ctx, method, path, body, method == "GET" && suffix != "/screen/screenshot", timeout, false)
+	var r response
+	var err error
+	var profileDeadline time.Time
+	for attempt := 0; ; attempt++ {
+		r, err = s.client.send(ctx, method, path, body, method == "GET" && suffix != "/screen/screenshot", timeout, false)
+		if err != nil || r.status != 409 || responseTopLevelCode(r) != "session_profile_running" {
+			break
+		}
+		if profileDeadline.IsZero() {
+			startTimeout := s.startTimeout
+			if startTimeout == 0 {
+				startTimeout = 10 * time.Minute
+			}
+			profileDeadline = time.Now().Add(startTimeout)
+		}
+		wait := 5 * time.Second
+		if attempt < 3 {
+			wait = time.Second << attempt
+		}
+		if time.Now().Add(wait).After(profileDeadline) || ctx.Err() != nil || pause(ctx, wait) != nil {
+			name := ""
+			if s.profile != nil && s.profile.name != "" {
+				name = " " + s.profile.name
+			}
+			return r, &Error{Code: ErrTimeout, HTTPStatus: 409, Message: fmt.Sprintf("The %s computer's session profile%s is still running, so Revyl refused this call without running it (session_profile_running), and Verify stopped waiting at its timeout. Wait for the profile to finish, then try again. See %s", s.platform, name, s.viewer)}
+		}
+	}
 	if err != nil {
 		var typed *Error
 		cause := err
@@ -432,6 +482,11 @@ func (s *Session) computerRequestTimeout(ctx context.Context, method, suffix str
 	}
 	if r.status >= 200 && r.status < 300 {
 		return r, nil
+	}
+	if suffix == "" && method == "POST" && s.profile != nil {
+		if refusal := profileRefusalError(r, s.profile, s.platform); refusal != nil {
+			return r, refusal
+		}
 	}
 	var raw map[string]json.RawMessage
 	_ = json.Unmarshal(r.body, &raw)
@@ -526,6 +581,15 @@ func (s *Session) computerRequestTimeout(ctx context.Context, method, suffix str
 		next = "Nothing on the computer changed; it is safe to try again."
 	}
 	return r, responseFailure(r, code, fmt.Sprintf("Revyl refused the computer request (%s). %s See %s", reason, next, s.viewer))
+}
+
+func responseTopLevelCode(r response) string {
+	var body map[string]any
+	if json.Unmarshal(r.body, &body) != nil {
+		return ""
+	}
+	code, _ := body["code"].(string)
+	return code
 }
 
 func (s *Session) closeComputer(ctx context.Context) error {

@@ -7,6 +7,7 @@ import type { ComputerCommand, ComputerCommandResponse, ComputerPlatform, Comput
 import { trackSession, untrackSession } from './cleanup.js';
 import { validateHostedTarget, type HostedTargetConfig, type ResolvedComputerTarget } from './config.js';
 import { VerifyError, isVerifyError, type VerifyErrorCode } from './errors.js';
+import { missingBranchNotice, profileFailedError, profileNotReportedError, profileRefusalError, reportedSessionProfile, withRepositoryRetry } from './session-profile.js';
 import { WEB_KEYS, checkKey, type Key, type KeyModifier, type Location, type Point } from './agent/loop.js';
 import { DeviceSession, checkLocation, pngSize, type ComputerProcess, type ComputerRecording, type ExecOptions, type ExecResult, type FileStat, type OpenedSession, type OperationOptions, type Session, type SessionOptions, type StepResult } from './session.js';
 
@@ -48,7 +49,10 @@ export class ComputerSession implements Session {
     this.target = target.name;
     this.platform = target.platform;
     this.viewerUrl = sessionViewerUrl(this.id, 'computer', options.appUrl);
+    this.startTimeoutMs = target.startTimeout;
   }
+
+  private readonly startTimeoutMs: number;
 
   static async start(client: RevylClient, target: ResolvedComputerTarget, options: SessionOptions): Promise<ComputerSession> {
     const session = new ComputerSession(client, target, options);
@@ -57,12 +61,24 @@ export class ComputerSession implements Session {
     trackSession(session);
     try {
       session.log(`starting computer ${session.viewerUrl}`);
-      const response = await session.request('POST', '', { computer_session_id: session.id, os: target.platform === 'mac' ? 'macos' : 'linux', ...(target.timeoutMs !== undefined ? { timeout_seconds: target.timeoutMs / 1_000 } : {}) }, signal);
+      const body = { computer_session_id: session.id, os: target.platform === 'mac' ? 'macos' : 'linux', ...(target.timeoutMs !== undefined ? { timeout_seconds: target.timeoutMs / 1_000 } : {}), ...options.profile?.fields };
+      const response = await withRepositoryRetry(() => session.request('POST', '', body, signal));
       createAcknowledged = true;
       let report = session.parseReport(response);
+      const plan = options.profile?.name ? options.profile : undefined;
+      if (plan) {
+        const notice = missingBranchNotice(reportedSessionProfile(report), plan);
+        if (notice) session.log(notice);
+        session.log(`waiting for session profile ${plan.name}`);
+      }
       for (;;) {
-        if (report.state === 'active') break;
-        if (report.state !== 'starting') {
+        const profile = plan ? reportedSessionProfile(report) : undefined;
+        if (plan && profile?.status === 'failed') throw profileFailedError(profile, plan, session.viewerUrl);
+        if (report.state === 'active') {
+          if (!plan) break;
+          if (!profile) throw profileNotReportedError(session.platform, session.viewerUrl);
+          if (profile.status === 'succeeded') break;
+        } else if (report.state !== 'starting') {
           const reason = report.failure_reason === 'no_host' ? ' No host claimed the start within the 120-second unclaimed-start window.' : report.failure_reason === 'device_limit' ? ` ${COMPUTER_CAPACITY}` : '';
           throw new VerifyError('SESSION_START_FAILED', `The ${session.target} computer ended before it was ready (${report.state}).${reason} See ${session.viewerUrl}`);
         }
@@ -74,7 +90,8 @@ export class ComputerSession implements Session {
       return session;
     } catch (error) {
       const timedOut = signal.aborted;
-      if (!createAcknowledged && isVerifyError(error) && ['AUTH_REJECTED', 'EDGE_BLOCKED', 'NOT_AVAILABLE_ON_PLATFORM', 'INVALID_ARGUMENT', 'COMPUTER_LIMIT'].includes(error.code)) {
+      const refused = !createAcknowledged && isVerifyError(error) && (['AUTH_REJECTED', 'EDGE_BLOCKED', 'NOT_AVAILABLE_ON_PLATFORM', 'INVALID_ARGUMENT', 'COMPUTER_LIMIT', 'CONFIG_INVALID'].includes(error.code) || error.reason === 'repository_unavailable');
+      if (refused || (isVerifyError(error) && error.code === 'SESSION_PROFILE_FAILED')) {
         session.lifetime.abort();
         untrackSession(session);
       } else {
@@ -479,17 +496,30 @@ export class ComputerSession implements Session {
   private async request(method: 'GET' | 'POST', suffix: string, body: unknown, signal: AbortSignal, timeoutMs?: number): Promise<RawResponse> {
     const path = `/api/v1/computer-runs${suffix === '' ? '' : `/${this.id}${suffix}`}`;
     let response: RawResponse;
-    try {
-      response = await this.client.send(method, path, { body, signal, timeoutMs: timeoutMs ?? (suffix === '/stop' || suffix.startsWith('/operations') ? 310_000 : 30_000), retry: method === 'GET' && suffix !== '/screen/screenshot', headers: suffix === '/operations' ? { Prefer: 'respond-async' } : undefined });
-    } catch (error) {
-      if (suffix === '/screen/actions') throw new VerifyError('ACTION_UNCERTAIN', `The screen action may have happened: Revyl's answer never arrived. Verify will not repeat it; take a screenshot() to check before you do. See ${this.viewerUrl}`);
-      if (method === 'POST' || suffix.startsWith('/operations/')) throw new VerifyError('ACTION_UNCERTAIN', `Computer request outcome is unconfirmed. Verify will not repeat it. See ${this.viewerUrl}`);
-      if (isVerifyError(error)) throw new VerifyError(error.code, `Could not read the computer state. See ${this.viewerUrl}`);
-      throw error;
+    let profileDeadline: number | undefined;
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        response = await this.client.send(method, path, { body, signal, timeoutMs: timeoutMs ?? (suffix === '/stop' || suffix.startsWith('/operations') ? 310_000 : 30_000), retry: method === 'GET' && suffix !== '/screen/screenshot', headers: suffix === '/operations' ? { Prefer: 'respond-async' } : undefined });
+      } catch (error) {
+        if (suffix === '/screen/actions') throw new VerifyError('ACTION_UNCERTAIN', `The screen action may have happened: Revyl's answer never arrived. Verify will not repeat it; take a screenshot() to check before you do. See ${this.viewerUrl}`);
+        if (method === 'POST' || suffix.startsWith('/operations/')) throw new VerifyError('ACTION_UNCERTAIN', `Computer request outcome is unconfirmed. Verify will not repeat it. See ${this.viewerUrl}`);
+        if (isVerifyError(error)) throw new VerifyError(error.code, `Could not read the computer state. See ${this.viewerUrl}`);
+        throw error;
+      }
+      if (response.status !== 409 || responseTopLevelCode(response) !== 'session_profile_running') break;
+      profileDeadline ??= Date.now() + this.startTimeoutMs;
+      const waitMs = Math.min(1_000 * 2 ** attempt, 5_000);
+      const stillRunning = () => new VerifyError('TIMEOUT', `The ${this.target} computer's session profile${this.options.profile?.name ? ` ${this.options.profile.name}` : ''} is still running, so Revyl refused this call without running it (session_profile_running), and Verify stopped waiting at its timeout. Wait for the profile to finish, then try again. See ${this.viewerUrl}`, { httpStatus: 409 });
+      if (Date.now() + waitMs > profileDeadline || signal.aborted) throw stillRunning();
+      await delay(waitMs, undefined, { signal }).catch(() => {
+        throw stillRunning();
+      });
     }
     if (response.status >= 200 && response.status < 300) return response;
     const blocked = edgeBlockedError(response);
     if (blocked) throw blocked;
+    const profileRefusal = suffix === '' && method === 'POST' && this.options.profile ? profileRefusalError(response, this.options.profile, this.platform) : undefined;
+    if (profileRefusal) throw profileRefusal;
     if (suffix === '/recording' && response.status === 404 && responseErrorCode(response) === 'recording_unavailable') return response;
     const detail = responseRefusalReason(response) ?? responseDetail(response);
     const refusal = { reason: responseRefusalReason(response), httpStatus: response.status };
@@ -616,6 +646,16 @@ function decodeBytes(value: unknown, maxBytes: number): Buffer {
   const bytes = Buffer.from(value, 'base64');
   if (bytes.length > maxBytes || bytes.toString('base64') !== value.replaceAll('-', '+').replaceAll('_', '/')) throw invalidResponse();
   return bytes;
+}
+
+function responseTopLevelCode(response: RawResponse): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(new TextDecoder().decode(response.body));
+    const code = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as { code?: unknown }).code : undefined;
+    return typeof code === 'string' ? code : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function invalidResponse(): VerifyError {

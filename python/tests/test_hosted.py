@@ -33,7 +33,7 @@ from revyl_verify import (
     VerifyError,
     Viewport,
 )
-from revyl_verify._transport import Json, obj
+from revyl_verify._transport import Json, _ResponseRefusalReason, obj
 
 __all__ = ["fake", "isolated_environment"]
 
@@ -274,7 +274,7 @@ def test_cross_os_child_is_refused_locally(
     "reason",
     [
         reason
-        for reason in get_args(RefusalReason)
+        for reason in get_args(_ResponseRefusalReason)
         if reason not in ("request_timeout", "protocol_error")
     ],
 )

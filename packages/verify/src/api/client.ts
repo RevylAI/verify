@@ -1,6 +1,7 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { VerifyError, errorMessage, type RefusalReason } from '../errors.js';
 import { VERSION } from '../version.js';
+import { profileRefusalError, type SessionProfilePlan } from '../session-profile.js';
 import type {
   AppResponse,
   BuildPage,
@@ -83,10 +84,12 @@ export class RevylClient {
     return parseJson<T>(response, `${method} ${path}`);
   }
 
-  async startDevice(request: StartDeviceRequest, signal?: AbortSignal): Promise<StartDeviceResponse> {
+  async startDevice(request: StartDeviceRequest, signal?: AbortSignal, profile?: SessionProfilePlan): Promise<StartDeviceResponse> {
     const path = '/api/v1/execution/start_device';
     const response = await this.send('POST', path, { body: request, retry: false, timeoutMs: 120_000, signal });
-    if (response.status < 200 || response.status >= 300) throw (request.platform !== 'web' && mobileStartRefusal(response)) || apiError('POST', path, response);
+    if (response.status < 200 || response.status >= 300) {
+      throw (profile && profileRefusalError(response, profile, request.platform)) || (request.platform !== 'web' && mobileStartRefusal(response)) || apiError('POST', path, response);
+    }
     return parseJson<StartDeviceResponse>(response, `POST ${path}`);
   }
 
