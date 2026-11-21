@@ -18,6 +18,9 @@ import (
 var hostedRunIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,255}$`)
 
 func Attach(ctx context.Context, computerID string, options ...OpenOptions) (*Session, error) {
+	if err := rejectProfile(options); err != nil {
+		return nil, err
+	}
 	if !uuidPattern.MatchString(computerID) {
 		return nil, failure(ErrInvalidArgument, "Computer ID must be a Revyl UUID.")
 	}
@@ -57,6 +60,9 @@ func Attach(ctx context.Context, computerID string, options ...OpenOptions) (*Se
 }
 
 func CurrentComputer(ctx context.Context, options ...OpenOptions) (*Session, error) {
+	if err := rejectProfile(options); err != nil {
+		return nil, err
+	}
 	computerID := strings.TrimSpace(os.Getenv("REVYL_COMPUTER_ID"))
 	if computerID == "" {
 		return nil, failure(ErrComputerIDMissing, "No current Revyl computer is available. Run this job on a revyl-macos runner.")
@@ -70,6 +76,15 @@ func CurrentComputer(ctx context.Context, options ...OpenOptions) (*Session, err
 		opt.StopOnClose = &stopOnClose
 	}
 	return Attach(ctx, computerID, opt)
+}
+
+func rejectProfile(options []OpenOptions) error {
+	for _, option := range options {
+		if option.Profile != "" {
+			return failure(ErrInvalidArgument, "Profile runs only when Open starts a new web, iOS, Android or Mac session; Attach and CurrentComputer can't run one. Leave Profile empty.")
+		}
+	}
+	return nil
 }
 
 func (s *Session) Open(ctx context.Context, target Target) (*Session, error) {

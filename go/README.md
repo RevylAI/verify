@@ -178,7 +178,7 @@ bare, err := verify.Open(ctx, verify.Target{Platform: verify.Web, AppID: "…", 
 | `""` (left out) | The project's `session.default_profile`, the same way, when `.revyl/config.yaml` sets one. Otherwise nothing, so the start request is the same as before profiles existed. |
 | `"none"` | No profile, not even the default. Needs no `.revyl/config.yaml`. |
 
-Profiles work on web, iOS, Android and Mac computers. On a Linux computer, `Profile` returns `ErrNotAvailableOnPlatform` before anything is sent, and no default runs. Hosted sessions (`computer.Open`), `Attach` and `CurrentComputer` never run a profile and ignore `Profile`.
+Profiles work on web, iOS, Android and Mac computers. On a Linux computer, `Profile` returns `ErrNotAvailableOnPlatform` before anything is sent, and no default runs. Hosted sessions (`computer.Open`), `Attach` and `CurrentComputer` never run a profile: `computer.Open` takes no options, and `Attach` and `CurrentComputer` return `ErrInvalidArgument` when `Profile` is set.
 
 ### Where Verify reads the profile
 
@@ -199,7 +199,7 @@ session:
 
 With the profile's name, Verify sends:
 
-- **The project:** `project.id`, and the checkout's Git branch from `git rev-parse --abbrev-ref HEAD` in the project folder. Verify leaves the branch out on a detached HEAD or when Git fails. Revyl reads the files it needs from Git at the head of that branch. When Git doesn't have the branch, Revyl reads the default branch, and Verify logs `Git has no branch "<branch>", so session profile <name> reads the repository's default branch instead`.
+- **The project:** `project.id`, and the checkout's Git branch, found the way the Revyl CLI finds it: the branch checked out in the project folder; on GitHub Actions or Buildkite, the branch CI built, including a pull request's own branch (`owner:branch` for a fork) when the checkout is that pull request's code, even on a detached HEAD. Verify leaves the branch out when it finds none or Git fails. Revyl reads the files it needs from Git at the head of that branch. When Git doesn't have the branch, Revyl reads the default branch, and Verify logs `Git has no branch "<branch>", so session profile <name> reads the repository's default branch instead`.
 - **The script from this checkout:** the profile's definition and its script file as they are on disk, uncommitted changes included, so you can edit a script and run it without committing. A path script must stay inside the repository (under the nearest folder that holds `.git`, or the project folder outside Git) and be executable (`chmod +x`, with a `#!` line). A script file must be UTF-8 text of at most 64 KiB. A script name with no file in `.revyl/scripts` is a Library Script, which Revyl reads from your organization.
 
 On a browser or device, the script runs on Revyl's hosted runner, not on your machine: it doesn't see your localhost, your files or your Revyl login. On a Mac computer, it runs on that Mac. The script's environment variables and the output files it writes are Revyl's contract: see [Session profiles](https://docs.revyl.com/devices/session-profiles) in the Revyl docs.
@@ -219,7 +219,7 @@ Neither errors nor logs contain the script's content or output. Check the code w
 | `ErrConfigNotFound` | `Profile` names a profile, but no `.revyl/config.yaml` is in the working directory or above it | Run from your app's checkout, or pass `Profile: "none"` |
 | `ErrConfigInvalid` | `.revyl/config.yaml` isn't valid YAML, `project.id` isn't a UUID, or `session.profiles` doesn't define the name (the message lists the ones it does); or Revyl refused with `session_profile_undefined`, `project_not_found` (`project.id` isn't in this API key's organization) or `repository_connection_missing` (connect the repository's GitHub or GitLab app to the project in Revyl) | The message names the file and the fix |
 | `ErrSessionProfileFailed` | Verify couldn't send the script (missing, outside the repository, not executable, over 64 KiB or not UTF-8); Revyl couldn't find it (`session_profile_script_unavailable`); or the profile ran and failed. `sdkError.Outcome` says how and `sdkError.FailureReason` says why | Follow the message, as the next table says. Revyl stops a session whose profile failed, so Verify doesn't |
-| `ErrAPI` | Revyl couldn't read the repository in 3 attempts (`repository_unavailable`). Verify repeats the same start twice before it gives up | Try again in a few minutes |
+| `ErrAPI` | Revyl couldn't read the repository (`repository_unavailable`). On web and Mac computers, Verify sends the same start again twice, with the same session ID, before it gives up. On iOS and Android it sends it once, because that start carries no session ID that would make a repeat safe | Call `Open` again; if it keeps failing, try again in a few minutes |
 
 | `sdkError.Outcome` | Meaning | Fix |
 | --- | --- | --- |

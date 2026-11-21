@@ -362,8 +362,10 @@ class Session:
                 )
                 if profile_refusal is not None:
                     refused = True
-                    if error.reason == "repository_unavailable" and attempt < len(
-                        REPOSITORY_RETRY_DELAYS
+                    if (
+                        error.reason == "repository_unavailable"
+                        and target.platform == "web"
+                        and attempt < len(REPOSITORY_RETRY_DELAYS)
                     ):
                         deadline.pause(REPOSITORY_RETRY_DELAYS[attempt])
                         continue
