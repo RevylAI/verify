@@ -374,54 +374,52 @@ def _config_name(plan: SessionProfilePlan) -> str:
     return plan.config_path or ".revyl/config.yaml"
 
 
-_REFUSALS: dict[str, tuple[str, Callable[[SessionProfilePlan, Platform], str]]] = {
+_REFUSALS: dict[str, tuple[str, Callable[[SessionProfilePlan], str]]] = {
     "session_profile_undefined": (
         "CONFIG_INVALID",
-        lambda plan, platform: (
+        lambda plan: (
             f"Check that session.profiles in {_config_name(plan)} defines it and that "
             "project.id names the project that holds it."
         ),
     ),
     "session_profile_source_required": (
         "INVALID_ARGUMENT",
-        lambda plan, platform: (
+        lambda plan: (
             "Update Verify to the latest version; it sends the project with every named profile."
         ),
     ),
     "session_profile_files_need_named": (
         "INVALID_ARGUMENT",
-        lambda plan, platform: (
+        lambda plan: (
             "Update Verify to the latest version; it sends checkout files only with a "
             "named profile."
         ),
     ),
     "session_profile_script_unavailable": (
         "SESSION_PROFILE_FAILED",
-        lambda plan, platform: (
+        lambda plan: (
             "Commit the script or add it to .revyl/scripts, or create the Library "
             "Script with that name in your Revyl organization."
         ),
     ),
     "repository_connection_missing": (
         "CONFIG_INVALID",
-        lambda plan, platform: (
+        lambda plan: (
             "Connect the repository's GitHub or GitLab app to the project in Revyl, "
             "then open the session again."
         ),
     ),
     "project_not_found": (
         "CONFIG_INVALID",
-        lambda plan, platform: (
+        lambda plan: (
             f"project.id in {_config_name(plan)} isn't a project in this API key's "
             "organization. Use a key from that organization, or fix project.id."
         ),
     ),
     "repository_unavailable": (
         "API_ERROR",
-        lambda plan, platform: (
-            "Revyl couldn't read the repository, so no device started. Call open() again."
-            if platform in ("ios", "android")
-            else "Revyl couldn't read the repository after 3 attempts. Try again in a few minutes."
+        lambda plan: (
+            "Revyl couldn't read the repository after 3 attempts. Try again in a few minutes."
         ),
     ),
 }
@@ -456,7 +454,7 @@ def profile_refusal_error(
         script_unavailable = code == "session_profile_script_unavailable"
         return VerifyError(
             error_code,
-            f"Revyl refused {subject} ({code}){detail} {fix(plan, platform)}",
+            f"Revyl refused {subject} ({code}){detail} {fix(plan)}",
             reason=cast(RefusalReason, code),
             http_status=response.status,
             outcome="script_unavailable" if script_unavailable else None,

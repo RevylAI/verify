@@ -738,30 +738,27 @@ func profileConfigPath(plan *sessionProfilePlan) string {
 
 var profileRefusals = map[string]struct {
 	code Code
-	fix  func(*sessionProfilePlan, Platform) string
+	fix  func(*sessionProfilePlan) string
 }{
-	"session_profile_undefined": {ErrConfigInvalid, func(plan *sessionProfilePlan, _ Platform) string {
+	"session_profile_undefined": {ErrConfigInvalid, func(plan *sessionProfilePlan) string {
 		return "Check that session.profiles in " + profileConfigPath(plan) + " defines it and that project.id names the project that holds it."
 	}},
-	"session_profile_source_required": {ErrInvalidArgument, func(*sessionProfilePlan, Platform) string {
+	"session_profile_source_required": {ErrInvalidArgument, func(*sessionProfilePlan) string {
 		return "Update Verify to the latest version; it sends the project with every named profile."
 	}},
-	"session_profile_files_need_named": {ErrInvalidArgument, func(*sessionProfilePlan, Platform) string {
+	"session_profile_files_need_named": {ErrInvalidArgument, func(*sessionProfilePlan) string {
 		return "Update Verify to the latest version; it sends checkout files only with a named profile."
 	}},
-	"session_profile_script_unavailable": {ErrSessionProfileFailed, func(*sessionProfilePlan, Platform) string {
+	"session_profile_script_unavailable": {ErrSessionProfileFailed, func(*sessionProfilePlan) string {
 		return "Commit the script or add it to .revyl/scripts, or create the Library Script with that name in your Revyl organization."
 	}},
-	"repository_connection_missing": {ErrConfigInvalid, func(*sessionProfilePlan, Platform) string {
+	"repository_connection_missing": {ErrConfigInvalid, func(*sessionProfilePlan) string {
 		return "Connect the repository's GitHub or GitLab app to the project in Revyl, then open the session again."
 	}},
-	"project_not_found": {ErrConfigInvalid, func(plan *sessionProfilePlan, _ Platform) string {
+	"project_not_found": {ErrConfigInvalid, func(plan *sessionProfilePlan) string {
 		return "project.id in " + profileConfigPath(plan) + " isn't a project in this API key's organization. Use a key from that organization, or fix project.id."
 	}},
-	"repository_unavailable": {ErrAPI, func(_ *sessionProfilePlan, platform Platform) string {
-		if platform == IOS || platform == Android {
-			return "Revyl couldn't read the repository, so no device started. Call Open again."
-		}
+	"repository_unavailable": {ErrAPI, func(*sessionProfilePlan) string {
 		return "Revyl couldn't read the repository after 3 attempts. Try again in a few minutes."
 	}},
 }
@@ -794,7 +791,7 @@ func profileRefusalError(r response, plan *sessionProfilePlan, platform Platform
 		if said != "" {
 			detail = ": " + said
 		}
-		failed := &Error{Code: refusal.code, Reason: RefusalReason(code), HTTPStatus: r.status, Message: fmt.Sprintf("Revyl refused %s (%s)%s %s", subject, code, detail, refusal.fix(plan, platform))}
+		failed := &Error{Code: refusal.code, Reason: RefusalReason(code), HTTPStatus: r.status, Message: fmt.Sprintf("Revyl refused %s (%s)%s %s", subject, code, detail, refusal.fix(plan))}
 		if code == "session_profile_script_unavailable" {
 			failed.Outcome, failed.FailureReason = "script_unavailable", said
 		}

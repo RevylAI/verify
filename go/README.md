@@ -219,7 +219,7 @@ Neither errors nor logs contain the script's content or output. Check the code w
 | `ErrConfigNotFound` | `Profile` names a profile, but no `.revyl/config.yaml` is in the working directory or above it | Run from your app's checkout, or pass `Profile: "none"` |
 | `ErrConfigInvalid` | `.revyl/config.yaml` isn't valid YAML, `project.id` isn't a UUID, or `session.profiles` doesn't define the name (the message lists the ones it does); or Revyl refused with `session_profile_undefined`, `project_not_found` (`project.id` isn't in this API key's organization) or `repository_connection_missing` (connect the repository's GitHub or GitLab app to the project in Revyl) | The message names the file and the fix |
 | `ErrSessionProfileFailed` | Verify couldn't send the script (missing, outside the repository, not executable, over 64 KiB or not UTF-8); Revyl couldn't find it (`session_profile_script_unavailable`); or the profile ran and failed. `sdkError.Outcome` says how and `sdkError.FailureReason` says why | Follow the message, as the next table says. Revyl stops a session whose profile failed, so Verify doesn't |
-| `ErrAPI` | Revyl couldn't read the repository (`repository_unavailable`). On web and Mac computers, Verify sends the same start again twice, with the same session ID, before it gives up. On iOS and Android it sends it once, because that start carries no session ID that would make a repeat safe | Call `Open` again; if it keeps failing, try again in a few minutes |
+| `ErrAPI` | Revyl couldn't read the repository in 3 attempts (`repository_unavailable`). Verify repeats the same start twice before it gives up | Try again in a few minutes |
 
 | `sdkError.Outcome` | Meaning | Fix |
 | --- | --- | --- |
