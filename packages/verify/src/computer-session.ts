@@ -49,7 +49,10 @@ export class ComputerSession implements Session {
     this.target = target.name;
     this.platform = target.platform;
     this.viewerUrl = sessionViewerUrl(this.id, 'computer', options.appUrl);
+    this.startTimeoutMs = target.startTimeout;
   }
+
+  private readonly startTimeoutMs: number;
 
   static async start(client: RevylClient, target: ResolvedComputerTarget, options: SessionOptions): Promise<ComputerSession> {
     const session = new ComputerSession(client, target, options);
@@ -500,13 +503,24 @@ export class ComputerSession implements Session {
   private async request(method: 'GET' | 'POST', suffix: string, body: unknown, signal: AbortSignal, timeoutMs?: number): Promise<RawResponse> {
     const path = `/api/v1/computer-runs${suffix === '' ? '' : `/${this.id}${suffix}`}`;
     let response: RawResponse;
-    try {
-      response = await this.client.send(method, path, { body, signal, timeoutMs: timeoutMs ?? (suffix === '/stop' || suffix.startsWith('/operations') ? 310_000 : 30_000), retry: method === 'GET' && suffix !== '/screen/screenshot', headers: suffix === '/operations' ? { Prefer: 'respond-async' } : undefined });
-    } catch (error) {
-      if (suffix === '/screen/actions') throw new VerifyError('ACTION_UNCERTAIN', `The screen action may have happened: Revyl's answer never arrived. Verify will not repeat it; take a screenshot() to check before you do. See ${this.viewerUrl}`);
-      if (method === 'POST' || suffix.startsWith('/operations/')) throw new VerifyError('ACTION_UNCERTAIN', `Computer request outcome is unconfirmed. Verify will not repeat it. See ${this.viewerUrl}`);
-      if (isVerifyError(error)) throw new VerifyError(error.code, `Could not read the computer state. See ${this.viewerUrl}`);
-      throw error;
+    let profileDeadline: number | undefined;
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        response = await this.client.send(method, path, { body, signal, timeoutMs: timeoutMs ?? (suffix === '/stop' || suffix.startsWith('/operations') ? 310_000 : 30_000), retry: method === 'GET' && suffix !== '/screen/screenshot', headers: suffix === '/operations' ? { Prefer: 'respond-async' } : undefined });
+      } catch (error) {
+        if (suffix === '/screen/actions') throw new VerifyError('ACTION_UNCERTAIN', `The screen action may have happened: Revyl's answer never arrived. Verify will not repeat it; take a screenshot() to check before you do. See ${this.viewerUrl}`);
+        if (method === 'POST' || suffix.startsWith('/operations/')) throw new VerifyError('ACTION_UNCERTAIN', `Computer request outcome is unconfirmed. Verify will not repeat it. See ${this.viewerUrl}`);
+        if (isVerifyError(error)) throw new VerifyError(error.code, `Could not read the computer state. See ${this.viewerUrl}`);
+        throw error;
+      }
+      if (response.status !== 409 || responseTopLevelCode(response) !== 'session_profile_running') break;
+      profileDeadline ??= Date.now() + this.startTimeoutMs;
+      const waitMs = Math.min(1_000 * 2 ** attempt, 5_000);
+      const stillRunning = () => new VerifyError('TIMEOUT', `The ${this.target} computer's session profile${this.options.profile?.name ? ` ${this.options.profile.name}` : ''} is still running, so Revyl refused this call without running it (session_profile_running), and Verify stopped waiting at its timeout. Wait for the profile to finish, then try again. See ${this.viewerUrl}`, { httpStatus: 409 });
+      if (Date.now() + waitMs > profileDeadline || signal.aborted) throw stillRunning();
+      await delay(waitMs, undefined, { signal }).catch(() => {
+        throw stillRunning();
+      });
     }
     if (response.status >= 200 && response.status < 300) return response;
     const blocked = edgeBlockedError(response);
@@ -639,6 +653,16 @@ function decodeBytes(value: unknown, maxBytes: number): Buffer {
   const bytes = Buffer.from(value, 'base64');
   if (bytes.length > maxBytes || bytes.toString('base64') !== value.replaceAll('-', '+').replaceAll('_', '/')) throw invalidResponse();
   return bytes;
+}
+
+function responseTopLevelCode(response: RawResponse): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(new TextDecoder().decode(response.body));
+    const code = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as { code?: unknown }).code : undefined;
+    return typeof code === 'string' ? code : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function invalidResponse(): VerifyError {

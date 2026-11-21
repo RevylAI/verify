@@ -255,6 +255,15 @@ def _input_bytes(value: str | bytes) -> bytes:
     raise VerifyError("INVALID_ARGUMENT", "Computer input must be a UTF-8 string or bytes.")
 
 
+def _top_level_code(response: Response) -> str | None:
+    try:
+        raw = response.json()
+    except VerifyError:
+        return None
+    code = raw.get("code") if isinstance(raw, dict) else None
+    return code if isinstance(code, str) else None
+
+
 def _detail(response: Response) -> str | None:
     try:
         raw = response.json()
@@ -285,6 +294,7 @@ class ComputerSession(Session):
         self._child_starts = 0
         self._child_condition = threading.Condition(self._lock)
         self._stop_on_close: bool = True
+        self._start_timeout: float = 600
 
     @classmethod
     def attach(
@@ -410,6 +420,7 @@ class ComputerSession(Session):
         deadline = Deadline(target.start_timeout, cancellation)
         session._log_callback = log
         session._profile = profile
+        session._start_timeout = target.start_timeout
         acknowledged = False
         try:
             track(session)
@@ -511,33 +522,57 @@ class ComputerSession(Session):
         self, method: str, suffix: str, body: Json, deadline: Deadline, timeout: float | None = None
     ) -> Response:
         path = "/api/v1/computer-runs" + (f"/{self.id}{suffix}" if suffix else "")
-        try:
-            response = self._client.request(
-                method,
-                path,
-                body,
-                deadline=deadline,
-                timeout=timeout
-                or (310 if suffix == "/stop" or suffix.startswith("/operations") else 30),
-                retry=method == "GET" and suffix != "/screen/screenshot",
+        profile_deadline: float | None = None
+        attempt = 0
+        while True:
+            try:
+                response = self._client.request(
+                    method,
+                    path,
+                    body,
+                    deadline=deadline,
+                    timeout=timeout
+                    or (310 if suffix == "/stop" or suffix.startswith("/operations") else 30),
+                    retry=method == "GET" and suffix != "/screen/screenshot",
+                )
+            except VerifyError as error:
+                if suffix == "/screen/actions":
+                    raise VerifyError(
+                        "ACTION_UNCERTAIN",
+                        "The screen action may have happened: Revyl's answer never arrived. "
+                        "Verify will not repeat it; take a screenshot() to check before you do. "
+                        f"See {self.viewer_url}",
+                    ) from error
+                if method == "POST" or suffix.startswith("/operations/"):
+                    raise VerifyError(
+                        "ACTION_UNCERTAIN",
+                        "Computer request outcome is unconfirmed. Verify will not repeat it. "
+                        f"See {self.viewer_url}",
+                    ) from error
+                raise VerifyError(
+                    error.code, f"Could not read the computer state. See {self.viewer_url}"
+                ) from None
+            if response.status != 409 or _top_level_code(response) != "session_profile_running":
+                break
+            if profile_deadline is None:
+                profile_deadline = time.monotonic() + self._start_timeout
+            wait = min(2.0**attempt, 5.0)
+            name = self._profile.name if self._profile is not None else None
+            still_running = VerifyError(
+                "TIMEOUT",
+                f"The {self.platform} computer's session profile{f' {name}' if name else ''} "
+                "is still running, so Revyl refused this call without running it "
+                "(session_profile_running), and Verify stopped waiting at its timeout. Wait for "
+                f"the profile to finish, then try again. See {self.viewer_url}",
+                http_status=409,
             )
-        except VerifyError as error:
-            if suffix == "/screen/actions":
-                raise VerifyError(
-                    "ACTION_UNCERTAIN",
-                    "The screen action may have happened: Revyl's answer never arrived. Verify "
-                    "will not repeat it; take a screenshot() to check before you do. "
-                    f"See {self.viewer_url}",
-                ) from error
-            if method == "POST" or suffix.startswith("/operations/"):
-                raise VerifyError(
-                    "ACTION_UNCERTAIN",
-                    "Computer request outcome is unconfirmed. Verify will not repeat it. "
-                    f"See {self.viewer_url}",
-                ) from error
-            raise VerifyError(
-                error.code, f"Could not read the computer state. See {self.viewer_url}"
-            ) from None
+            if time.monotonic() + wait > profile_deadline or deadline.expired():
+                raise still_running
+            try:
+                deadline.pause(wait)
+            except VerifyError:
+                raise still_running from None
+            attempt += 1
         if 200 <= response.status < 300:
             return response
         blocked = edge_blocked_error(response)

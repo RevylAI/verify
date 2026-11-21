@@ -86,6 +86,7 @@ type Session struct {
 	screenshotScale          *screenshotScale
 	host                     *Session
 	profile                  *sessionProfilePlan
+	startTimeout             time.Duration
 }
 
 func (s *Session) ID() string        { return s.id }
