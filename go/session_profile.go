@@ -1,12 +1,16 @@
 package verify
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"maps"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -14,6 +18,7 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -324,21 +329,338 @@ func findRepositoryScript(scriptsDir, name string, unavailable func(string) erro
 	return matches[0], nil
 }
 
+// gitBranch is the branch the Revyl CLI's DetectGitBranch finds for a project folder: the branch checked out there, or on GitHub
+// Actions and Buildkite the branch CI built when the checkout is that code. Empty when it finds none.
 func gitBranch(projectRoot string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), profileGitTimeout)
 	defer cancel()
-	command := exec.CommandContext(ctx, "git", "rev-parse", "--abbrev-ref", "HEAD")
-	command.Dir = projectRoot
-	command.WaitDelay = time.Second
-	output, err := command.Output()
+	checkout, ok := readCheckout(ctx, projectRoot)
+	var name string
+	if ok {
+		var found bool
+		name, found = detectCIBranch(&checkout)
+		if !found && checkout.branch != "" && !syntheticGitHubBranch(checkout.branch) {
+			name = branchCandidate(checkout.branch)
+		}
+	} else if ctx.Err() == nil {
+		name, _ = detectCIBranch(nil)
+	}
+	return name
+}
+
+type gitCheckout struct {
+	branch, head, repository string
+	parents                  []string
+}
+
+// branchCandidate bounds a detected name as the CLI does; Revyl validates it.
+func branchCandidate(name string) string {
+	if !utf8.ValidString(name) {
+		return strings.Repeat("invalid-utf8", 24)
+	}
+	if utf8.RuneCountInString(name) <= 4096 {
+		return name
+	}
+	return string([]rune(name)[:4096])
+}
+
+func readCheckout(ctx context.Context, dir string) (gitCheckout, bool) {
+	inside, ok := runDetectionGit(ctx, dir, "rev-parse", "--is-inside-work-tree")
+	if !ok || strings.TrimSpace(inside) != "true" {
+		return gitCheckout{}, false
+	}
+	checkout := gitCheckout{}
+	if branchRef, ok := runDetectionGit(ctx, dir, "symbolic-ref", "--quiet", "HEAD"); ok && strings.HasPrefix(branchRef, "refs/heads/") {
+		checkout.branch = strings.TrimRight(strings.TrimPrefix(branchRef, "refs/heads/"), "\r\n")
+	}
+	if checkout.branch != "" && os.Getenv("GITHUB_ACTIONS") != "true" && os.Getenv("BUILDKITE") != "true" {
+		return checkout, true
+	}
+	head, _ := runDetectionGit(ctx, dir, "rev-parse", "--verify", "HEAD")
+	checkout.head = strings.TrimSpace(head)
+	remote, _ := runDetectionGit(ctx, dir, "remote", "get-url", "origin")
+	checkout.repository = normalizeRepository(remote)
+	if os.Getenv("GITHUB_ACTIONS") == "true" && strings.HasPrefix(os.Getenv("GITHUB_REF"), "refs/pull/") {
+		commit, _ := runDetectionGit(ctx, dir, "cat-file", "-p", "HEAD")
+		for _, line := range strings.Split(commit, "\n") {
+			if line == "" {
+				break
+			}
+			if parent, isParent := strings.CutPrefix(line, "parent "); isParent {
+				checkout.parents = append(checkout.parents, parent)
+			}
+		}
+	}
+	return checkout, true
+}
+
+func syntheticGitHubBranch(branch string) bool {
+	if os.Getenv("GITHUB_ACTIONS") != "true" || !strings.HasPrefix(os.Getenv("GITHUB_REF"), "refs/pull/") {
+		return false
+	}
+	return branch == os.Getenv("GITHUB_REF_NAME") || branch == os.Getenv("GITHUB_REF")
+}
+
+// detectCIBranch accepts the CI's branch only when the checkout, if any, is the code CI built. found is true when a CI context
+// decided the branch, even when it has no usable name, which keeps the local branch from standing in for it.
+func detectCIBranch(checkout *gitCheckout) (name string, found bool) {
+	if os.Getenv("GITHUB_ACTIONS") == "true" {
+		return detectGitHubBranch(checkout)
+	}
+	if os.Getenv("BUILDKITE") == "true" {
+		return detectBuildkiteBranch(checkout)
+	}
+	return "", false
+}
+
+type githubBranchEvent struct {
+	Number     int    `json:"number"`
+	Ref        string `json:"ref"`
+	After      string `json:"after"`
+	Repository struct {
+		FullName string `json:"full_name"`
+	} `json:"repository"`
+	PullRequest struct {
+		Number int `json:"number"`
+		Head   struct {
+			SHA  string `json:"sha"`
+			Ref  string `json:"ref"`
+			Repo struct {
+				FullName string `json:"full_name"`
+			} `json:"repo"`
+		} `json:"head"`
+		Base struct {
+			Repo struct {
+				FullName string `json:"full_name"`
+			} `json:"repo"`
+		} `json:"base"`
+	} `json:"pull_request"`
+}
+
+func detectGitHubBranch(checkout *gitCheckout) (string, bool) {
+	event := readBranchEvent(os.Getenv("GITHUB_EVENT_PATH"))
+	repository := normalizeRepository(os.Getenv("GITHUB_REPOSITORY"))
+	if repository == "" {
+		return "", false
+	}
+	pr := event.PullRequest
+	if pr.Head.Ref != "" && pr.Head.SHA != "" {
+		baseRepository := normalizeRepository(pr.Base.Repo.FullName)
+		headRepository := normalizeRepository(pr.Head.Repo.FullName)
+		if baseRepository != repository || headRepository == "" {
+			return "", false
+		}
+		if checkout != nil {
+			if checkout.branch != "" && checkout.branch != pr.Head.Ref && !syntheticGitHubBranch(checkout.branch) {
+				return "", false
+			}
+			if checkout.repository != baseRepository && checkout.repository != headRepository {
+				return "", false
+			}
+			mergeCheckout := strings.HasPrefix(os.Getenv("GITHUB_REF"), "refs/pull/") && strings.HasSuffix(os.Getenv("GITHUB_REF"), "/merge") &&
+				sameCommit(checkout.head, os.Getenv("GITHUB_SHA")) && slices.ContainsFunc(checkout.parents, func(parent string) bool { return sameCommit(parent, pr.Head.SHA) })
+			if !sameCommit(checkout.head, pr.Head.SHA) && !mergeCheckout {
+				return "", false
+			}
+		}
+		return pullRequestHeadBranch(pr.Head.Ref, pr.Head.Repo.FullName, headRepository != baseRepository)
+	}
+	if checkout != nil && checkout.branch != "" {
+		return "", false
+	}
+	ref := os.Getenv("GITHUB_REF")
+	if os.Getenv("GITHUB_HEAD_REF") != "" || os.Getenv("GITHUB_REF_TYPE") == "tag" || !strings.HasPrefix(ref, "refs/heads/") {
+		return "", false
+	}
+	if checkout != nil && (checkout.repository != repository || !sameCommit(checkout.head, os.Getenv("GITHUB_SHA"))) {
+		return "", false
+	}
+	name := branchCandidate(strings.TrimPrefix(ref, "refs/heads/"))
+	return name, name != ""
+}
+
+type buildkiteSource struct {
+	reviewNumber   int
+	repositoryURL  string
+	repository     string
+	fork           bool
+	commit, branch string
+}
+
+func readBuildkiteSource() (buildkiteSource, bool) {
+	if os.Getenv("BUILDKITE_TAG") != "" {
+		return buildkiteSource{}, false
+	}
+	source := buildkiteSource{repositoryURL: os.Getenv("BUILDKITE_REPO")}
+	pipelineRepository := normalizeRepository(source.repositoryURL)
+	if pipelineRepository == "" {
+		return buildkiteSource{}, false
+	}
+	source.repository = pipelineRepository
+	if review, err := strconv.Atoi(os.Getenv("BUILDKITE_PULL_REQUEST")); err == nil && review > 0 {
+		source.reviewNumber = review
+		if headRepositoryURL := os.Getenv("BUILDKITE_PULL_REQUEST_REPO"); headRepositoryURL != "" {
+			source.repositoryURL, source.repository = headRepositoryURL, normalizeRepository(headRepositoryURL)
+			if source.repository == "" {
+				return buildkiteSource{}, false
+			}
+		}
+	}
+	source.fork = source.repository != pipelineRepository
+	source.commit = os.Getenv("BUILDKITE_PULL_REQUEST_HEAD_COMMIT")
+	if source.commit == "" {
+		source.commit = os.Getenv("BUILDKITE_COMMIT")
+	}
+	source.branch = os.Getenv("BUILDKITE_BRANCH")
+	if source.fork {
+		if _, branch, prefixed := strings.Cut(source.branch, ":"); prefixed {
+			source.branch = branch
+		}
+	}
+	return source, true
+}
+
+func detectBuildkiteBranch(checkout *gitCheckout) (string, bool) {
+	source, ok := readBuildkiteSource()
+	if !ok {
+		return "", false
+	}
+	if checkout != nil {
+		if checkout.repository != source.repository || !sameCommit(checkout.head, source.commit) {
+			return "", false
+		}
+		if checkout.branch != "" && checkout.branch != source.branch {
+			return "", false
+		}
+	}
+	if source.reviewNumber > 0 {
+		return pullRequestHeadBranch(source.branch, source.repositoryURL, source.fork)
+	}
+	if checkout != nil && checkout.branch != "" {
+		return "", false
+	}
+	name := branchCandidate(source.branch)
+	return name, name != ""
+}
+
+// pullRequestHeadBranch names the pull request's own branch, owner:branch for a fork. A verified pull request without a usable
+// name still counts as found.
+func pullRequestHeadBranch(branch, headRepository string, fork bool) (string, bool) {
+	if branch == "" {
+		return "", true
+	}
+	if !fork {
+		return branchCandidate(branch), true
+	}
+	owner := repositoryNamespace(headRepository)
+	if owner == "" {
+		return "", true
+	}
+	return branchCandidate(owner + ":" + branch), true
+}
+
+func readBranchEvent(path string) githubBranchEvent {
+	var event githubBranchEvent
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 1024*1024 {
+		return event
+	}
+	file, err := os.Open(path)
 	if err != nil {
+		return event
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, 1024*1024+1))
+	if err != nil || len(data) > 1024*1024 || json.Unmarshal(data, &event) != nil {
+		return githubBranchEvent{}
+	}
+	return event
+}
+
+// parseRepository splits a repository reference, such as owner/name, an HTTPS URL or an SSH remote, into its lowercase host and
+// case-preserving path.
+func parseRepository(value string) (host, repositoryPath string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", ""
+	}
+	if strings.HasPrefix(value, "git@") && strings.Contains(value, ":") {
+		value = "ssh://" + strings.Replace(value, ":", "/", 1)
+	}
+	if !strings.Contains(value, "://") {
+		if strings.Count(value, "/") != 1 || strings.HasPrefix(value, ".") {
+			return "", ""
+		}
+		value = "https://github.com/" + value
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Hostname() == "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", ""
+	}
+	repositoryPath = strings.TrimSuffix(strings.TrimSuffix(parsed.Path, "/"), ".git")
+	if repositoryPath == "" {
+		return "", ""
+	}
+	return strings.ToLower(parsed.Host), repositoryPath
+}
+
+func normalizeRepository(value string) string {
+	host, repositoryPath := parseRepository(value)
+	if repositoryPath == "" {
 		return ""
 	}
-	branch := jsTrim(string(output))
-	if branch == "HEAD" || textLength(branch) > 255 {
+	if host == "github.com" {
+		repositoryPath = strings.ToLower(repositoryPath)
+	}
+	return host + repositoryPath
+}
+
+func repositoryNamespace(value string) string {
+	_, repositoryPath := parseRepository(value)
+	segments := strings.Split(strings.TrimPrefix(repositoryPath, "/"), "/")
+	if len(segments) < 2 || slices.Contains(segments, "") {
 		return ""
 	}
-	return branch
+	return strings.Join(segments[:len(segments)-1], "/")
+}
+
+func sameCommit(a, b string) bool {
+	if (len(a) != 40 && len(a) != 64) || len(a) != len(b) {
+		return false
+	}
+	if _, err := hex.DecodeString(a); err != nil {
+		return false
+	}
+	return strings.EqualFold(a, b)
+}
+
+type boundedGitOutput struct {
+	bytes.Buffer
+}
+
+func (b *boundedGitOutput) Write(p []byte) (int, error) {
+	n := len(p)
+	_, _ = b.Buffer.Write(p[:min(len(p), 64*1024-b.Len())])
+	return n, nil
+}
+
+// runDetectionGit runs git in dir with prompts, credential helpers and optional locks turned off, as the Revyl CLI does.
+func runDetectionGit(ctx context.Context, dir string, args ...string) (string, bool) {
+	command := exec.CommandContext(ctx, "git", append([]string{"-C", filepath.Clean(dir)}, args...)...)
+	for _, value := range os.Environ() {
+		key, _, _ := strings.Cut(value, "=")
+		switch key {
+		case "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_TERMINAL_PROMPT", "GCM_INTERACTIVE", "GIT_ASKPASS", "SSH_ASKPASS", "GIT_OPTIONAL_LOCKS", "GIT_SSH", "GIT_SSH_COMMAND":
+			continue
+		}
+		command.Env = append(command.Env, value)
+	}
+	command.Env = append(command.Env, "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=never", "GIT_ASKPASS=", "SSH_ASKPASS=", "GIT_OPTIONAL_LOCKS=0", "GIT_SSH_COMMAND=ssh -oBatchMode=yes -oConnectTimeout=3 -oConnectionAttempts=1")
+	command.WaitDelay = 200 * time.Millisecond
+	var output boundedGitOutput
+	command.Stdout = &output
+	err := command.Run()
+	return output.String(), err == nil
 }
 
 // jsTrim trims what JavaScript's String.prototype.trim does, so names and scripts compare as the TypeScript SDK compares them.
@@ -416,27 +738,30 @@ func profileConfigPath(plan *sessionProfilePlan) string {
 
 var profileRefusals = map[string]struct {
 	code Code
-	fix  func(*sessionProfilePlan) string
+	fix  func(*sessionProfilePlan, Platform) string
 }{
-	"session_profile_undefined": {ErrConfigInvalid, func(plan *sessionProfilePlan) string {
+	"session_profile_undefined": {ErrConfigInvalid, func(plan *sessionProfilePlan, _ Platform) string {
 		return "Check that session.profiles in " + profileConfigPath(plan) + " defines it and that project.id names the project that holds it."
 	}},
-	"session_profile_source_required": {ErrInvalidArgument, func(*sessionProfilePlan) string {
+	"session_profile_source_required": {ErrInvalidArgument, func(*sessionProfilePlan, Platform) string {
 		return "Update Verify to the latest version; it sends the project with every named profile."
 	}},
-	"session_profile_files_need_named": {ErrInvalidArgument, func(*sessionProfilePlan) string {
+	"session_profile_files_need_named": {ErrInvalidArgument, func(*sessionProfilePlan, Platform) string {
 		return "Update Verify to the latest version; it sends checkout files only with a named profile."
 	}},
-	"session_profile_script_unavailable": {ErrSessionProfileFailed, func(*sessionProfilePlan) string {
+	"session_profile_script_unavailable": {ErrSessionProfileFailed, func(*sessionProfilePlan, Platform) string {
 		return "Commit the script or add it to .revyl/scripts, or create the Library Script with that name in your Revyl organization."
 	}},
-	"repository_connection_missing": {ErrConfigInvalid, func(*sessionProfilePlan) string {
+	"repository_connection_missing": {ErrConfigInvalid, func(*sessionProfilePlan, Platform) string {
 		return "Connect the repository's GitHub or GitLab app to the project in Revyl, then open the session again."
 	}},
-	"project_not_found": {ErrConfigInvalid, func(plan *sessionProfilePlan) string {
+	"project_not_found": {ErrConfigInvalid, func(plan *sessionProfilePlan, _ Platform) string {
 		return "project.id in " + profileConfigPath(plan) + " isn't a project in this API key's organization. Use a key from that organization, or fix project.id."
 	}},
-	"repository_unavailable": {ErrAPI, func(*sessionProfilePlan) string {
+	"repository_unavailable": {ErrAPI, func(_ *sessionProfilePlan, platform Platform) string {
+		if platform == IOS || platform == Android {
+			return "Revyl couldn't read the repository, so no device started. Call Open again."
+		}
 		return "Revyl couldn't read the repository after 3 attempts. Try again in a few minutes."
 	}},
 }
@@ -469,7 +794,7 @@ func profileRefusalError(r response, plan *sessionProfilePlan, platform Platform
 		if said != "" {
 			detail = ": " + said
 		}
-		failed := &Error{Code: refusal.code, Reason: RefusalReason(code), HTTPStatus: r.status, Message: fmt.Sprintf("Revyl refused %s (%s)%s %s", subject, code, detail, refusal.fix(plan))}
+		failed := &Error{Code: refusal.code, Reason: RefusalReason(code), HTTPStatus: r.status, Message: fmt.Sprintf("Revyl refused %s (%s)%s %s", subject, code, detail, refusal.fix(plan, platform))}
 		if code == "session_profile_script_unavailable" {
 			failed.Outcome, failed.FailureReason = "script_unavailable", said
 		}

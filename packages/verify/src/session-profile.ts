@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, join, posix, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -43,6 +43,12 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SCRIPT_EXTENSIONS = ['.js', '.py', '.sh', '.ts'];
 const SCRIPT_MAX_BYTES = 64 * 1024;
 const GIT_TIMEOUT_MS = 5_000;
+const GIT_OUTPUT_LIMIT = 64 * 1024;
+const GITHUB_EVENT_LIMIT = 1024 * 1024;
+const BRANCH_NAME_LIMIT = 4096;
+const INVALID_UTF8_BRANCH = 'invalid-utf8'.repeat(24);
+const GIT_ENV_DROPPED = new Set(['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_INDEX_FILE', 'GIT_TERMINAL_PROMPT', 'GCM_INTERACTIVE', 'GIT_ASKPASS', 'SSH_ASKPASS', 'GIT_OPTIONAL_LOCKS', 'GIT_SSH', 'GIT_SSH_COMMAND']);
+const GIT_ENV = { GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', GIT_ASKPASS: '', SSH_ASKPASS: '', GIT_OPTIONAL_LOCKS: '0', GIT_SSH_COMMAND: 'ssh -oBatchMode=yes -oConnectTimeout=3 -oConnectionAttempts=1' };
 const REPOSITORY_RETRY_DELAYS_MS = [1_000, 2_000];
 const PROFILE_PLATFORMS = new Set<Platform>(['web', 'ios', 'android', 'mac']);
 const NONE_HINT = "profile: 'none'";
@@ -225,13 +231,252 @@ function findRepositoryScript(scriptsDir: string, name: string, unavailable: (re
   return matches[0];
 }
 
-function gitBranch(projectRoot: string): Promise<string | undefined> {
+/**
+ * The Git branch the Revyl CLI would send from this checkout, ported from DetectGitBranch with a work directory in
+ * revyl-cli/internal/buildselection/git_branch.go: GitHub Actions' or Buildkite's branch when the checkout is the code CI
+ * built, otherwise the checked-out branch. Every Git call shares one 5-second budget.
+ */
+async function gitBranch(projectRoot: string): Promise<string | undefined> {
+  const deadline = Date.now() + GIT_TIMEOUT_MS;
+  const checkout = await readCheckout((...args) => runGit(projectRoot, deadline, args));
+  let detected: { name: string } | undefined;
+  if (checkout) {
+    detected = detectCIBranch(checkout);
+    if (!detected && checkout.branch && !syntheticGitHubBranch(checkout.branch)) detected = branchCandidate(checkout.branch);
+  } else if (Date.now() < deadline) {
+    detected = detectCIBranch(undefined);
+  }
+  return detected?.name || undefined;
+}
+
+interface Checkout {
+  branch: string;
+  head: string;
+  repository: string;
+  parents: string[];
+}
+
+const env = (key: string): string => process.env[key] ?? '';
+
+function runGit(dir: string, deadline: number, args: string[]): Promise<{ ok: boolean; stdout: Buffer }> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return Promise.resolve({ ok: false, stdout: Buffer.alloc(0) });
+  const childEnv: NodeJS.ProcessEnv = { ...GIT_ENV };
+  for (const [key, value] of Object.entries(process.env)) if (!GIT_ENV_DROPPED.has(key) && !(key in childEnv)) childEnv[key] = value;
   return new Promise((resolvePromise) => {
-    execFile('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: projectRoot, timeout: GIT_TIMEOUT_MS, windowsHide: true }, (error, stdout) => {
-      const branch = error ? '' : String(stdout).trim();
-      resolvePromise(branch && branch !== 'HEAD' && branch.length <= 255 ? branch : undefined);
-    });
+    const chunks: Buffer[] = [];
+    let size = 0;
+    const done = (ok: boolean) => resolvePromise({ ok, stdout: Buffer.concat(chunks) });
+    try {
+      const child = spawn('git', ['-C', dir, ...args], { env: childEnv, stdio: ['ignore', 'pipe', 'ignore'], timeout: remaining, windowsHide: true });
+      child.stdout.on('data', (chunk: Buffer) => {
+        const kept = chunk.subarray(0, GIT_OUTPUT_LIMIT - size);
+        if (kept.length) chunks.push(kept);
+        size += kept.length;
+      });
+      child.on('error', () => done(false));
+      child.on('close', (code) => done(code === 0));
+    } catch {
+      done(false);
+    }
   });
+}
+
+async function readCheckout(git: (...args: string[]) => Promise<{ ok: boolean; stdout: Buffer }>): Promise<Checkout | undefined> {
+  const inside = await git('rev-parse', '--is-inside-work-tree');
+  if (!inside.ok || inside.stdout.toString('utf8').trim() !== 'true') return undefined;
+  const checkout: Checkout = { branch: '', head: '', repository: '', parents: [] };
+  const ref = await git('symbolic-ref', '--quiet', 'HEAD');
+  const heads = Buffer.from('refs/heads/');
+  if (ref.ok && ref.stdout.subarray(0, heads.length).equals(heads)) {
+    let end = ref.stdout.length;
+    while (end > heads.length && (ref.stdout[end - 1] === 0x0a || ref.stdout[end - 1] === 0x0d)) end -= 1;
+    try {
+      checkout.branch = new TextDecoder('utf-8', { fatal: true }).decode(ref.stdout.subarray(heads.length, end));
+    } catch {
+      checkout.branch = INVALID_UTF8_BRANCH;
+    }
+  }
+  if (checkout.branch && env('GITHUB_ACTIONS') !== 'true' && env('BUILDKITE') !== 'true') return checkout;
+  checkout.head = (await git('rev-parse', '--verify', 'HEAD')).stdout.toString('utf8').trim();
+  checkout.repository = normalizeRepository((await git('remote', 'get-url', 'origin')).stdout.toString('utf8'));
+  if (env('GITHUB_ACTIONS') === 'true' && env('GITHUB_REF').startsWith('refs/pull/')) {
+    for (const line of (await git('cat-file', '-p', 'HEAD')).stdout.toString('utf8').split('\n')) {
+      if (line === '') break;
+      if (line.startsWith('parent ')) checkout.parents.push(line.slice('parent '.length));
+    }
+  }
+  return checkout;
+}
+
+function syntheticGitHubBranch(branch: string): boolean {
+  if (env('GITHUB_ACTIONS') !== 'true' || !env('GITHUB_REF').startsWith('refs/pull/')) return false;
+  return branch === env('GITHUB_REF_NAME') || branch === env('GITHUB_REF');
+}
+
+/** A detected branch: undefined when CI and the checkout name none; name '' when CI owns the answer but has no usable name. */
+function detectCIBranch(checkout: Checkout | undefined): { name: string } | undefined {
+  if (env('GITHUB_ACTIONS') === 'true') return detectGitHubBranch(checkout);
+  if (env('BUILDKITE') === 'true') return detectBuildkiteBranch(checkout);
+  return undefined;
+}
+
+function detectGitHubBranch(checkout: Checkout | undefined): { name: string } | undefined {
+  const event = readBranchEvent(env('GITHUB_EVENT_PATH'));
+  const repository = normalizeRepository(env('GITHUB_REPOSITORY'));
+  if (!repository) return undefined;
+  const pr = event.pullRequest;
+  if (pr.headRef && pr.headSha) {
+    const baseRepository = normalizeRepository(pr.baseRepository);
+    const headRepository = normalizeRepository(pr.headRepository);
+    if (baseRepository !== repository || !headRepository) return undefined;
+    if (checkout) {
+      if (checkout.branch && checkout.branch !== pr.headRef && !syntheticGitHubBranch(checkout.branch)) return undefined;
+      if (checkout.repository !== baseRepository && checkout.repository !== headRepository) return undefined;
+      const ref = env('GITHUB_REF');
+      const mergeCheckout = ref.startsWith('refs/pull/') && ref.endsWith('/merge') && sameCommit(checkout.head, env('GITHUB_SHA')) && checkout.parents.some((parent) => sameCommit(parent, pr.headSha));
+      if (!sameCommit(checkout.head, pr.headSha) && !mergeCheckout) return undefined;
+    }
+    return pullRequestHeadBranch(pr.headRef, pr.headRepository, headRepository !== baseRepository);
+  }
+  if (checkout?.branch) return undefined;
+  const ref = env('GITHUB_REF');
+  if (env('GITHUB_HEAD_REF') || env('GITHUB_REF_TYPE') === 'tag' || !ref.startsWith('refs/heads/')) return undefined;
+  if (checkout && (checkout.repository !== repository || !sameCommit(checkout.head, env('GITHUB_SHA')))) return undefined;
+  return branchCandidate(ref.slice('refs/heads/'.length));
+}
+
+function detectBuildkiteBranch(checkout: Checkout | undefined): { name: string } | undefined {
+  if (env('BUILDKITE_TAG')) return undefined;
+  let repositoryUrl = env('BUILDKITE_REPO');
+  const pipelineRepository = normalizeRepository(repositoryUrl);
+  if (!pipelineRepository) return undefined;
+  let repository = pipelineRepository;
+  const review = env('BUILDKITE_PULL_REQUEST');
+  const reviewed = /^[+-]?[0-9]+$/.test(review) && BigInt(review) > 0n && BigInt(review) <= 9223372036854775807n;
+  if (reviewed && env('BUILDKITE_PULL_REQUEST_REPO')) {
+    repositoryUrl = env('BUILDKITE_PULL_REQUEST_REPO');
+    repository = normalizeRepository(repositoryUrl);
+    if (!repository) return undefined;
+  }
+  const fork = repository !== pipelineRepository;
+  const commit = env('BUILDKITE_PULL_REQUEST_HEAD_COMMIT') || env('BUILDKITE_COMMIT');
+  let branch = env('BUILDKITE_BRANCH');
+  if (fork && branch.includes(':')) branch = branch.slice(branch.indexOf(':') + 1);
+  if (checkout) {
+    if (checkout.repository !== repository || !sameCommit(checkout.head, commit)) return undefined;
+    if (checkout.branch && checkout.branch !== branch) return undefined;
+  }
+  if (reviewed) return pullRequestHeadBranch(branch, repositoryUrl, fork);
+  if (checkout?.branch) return undefined;
+  return branchCandidate(branch);
+}
+
+/** A pull request's own branch, as owner:branch for a fork. A verified pull request without a usable name still answers. */
+function pullRequestHeadBranch(branch: string, headRepository: string, fork: boolean): { name: string } {
+  if (!branch) return { name: '' };
+  if (!fork) return branchCandidate(branch) ?? { name: '' };
+  const owner = repositoryNamespace(headRepository);
+  return owner ? (branchCandidate(owner + ':' + branch) ?? { name: '' }) : { name: '' };
+}
+
+function branchCandidate(name: string): { name: string } | undefined {
+  if (!name) return undefined;
+  const codePoints = [...name];
+  return { name: codePoints.length <= BRANCH_NAME_LIMIT ? name : codePoints.slice(0, BRANCH_NAME_LIMIT).join('') };
+}
+
+interface BranchEvent {
+  pullRequest: { headRef: string; headSha: string; headRepository: string; baseRepository: string };
+}
+
+const EVENT_SHAPE = {
+  number: 'int',
+  ref: 'string',
+  after: 'string',
+  repository: { full_name: 'string' },
+  pull_request: { number: 'int', head: { sha: 'string', ref: 'string', repo: { full_name: 'string' } }, base: { repo: { full_name: 'string' } } },
+} as const;
+type EventShape = 'int' | 'string' | { readonly [key: string]: EventShape };
+
+/** The GitHub event, or an empty one when it's missing, over 1 MiB, or any field it reads has the wrong JSON type. */
+function readBranchEvent(path: string): BranchEvent {
+  const empty: BranchEvent = { pullRequest: { headRef: '', headSha: '', headRepository: '', baseRepository: '' } };
+  let event: unknown;
+  try {
+    const info = statSync(path);
+    if (!info.isFile() || info.size > GITHUB_EVENT_LIMIT) return empty;
+    const data = readFileSync(path);
+    if (data.length > GITHUB_EVENT_LIMIT) return empty;
+    event = JSON.parse(data.toString('utf8'));
+  } catch {
+    return empty;
+  }
+  const fits = (value: unknown, shape: EventShape): boolean => {
+    if (value === null) return true;
+    if (shape === 'string') return typeof value === 'string';
+    if (shape === 'int') return Number.isSafeInteger(value);
+    return isMapping(value) && Object.entries(shape).every(([key, inner]) => !Object.hasOwn(value, key) || fits(value[key], inner));
+  };
+  if (!isMapping(event) || !fits(event, EVENT_SHAPE)) return empty;
+  const text = (...keys: string[]): string => {
+    let value: unknown = event;
+    for (const key of keys) value = isMapping(value) ? value[key] : undefined;
+    return typeof value === 'string' ? value : '';
+  };
+  return {
+    pullRequest: {
+      headRef: text('pull_request', 'head', 'ref'),
+      headSha: text('pull_request', 'head', 'sha'),
+      headRepository: text('pull_request', 'head', 'repo', 'full_name'),
+      baseRepository: text('pull_request', 'base', 'repo', 'full_name'),
+    },
+  };
+}
+
+/** A repository reference (owner/name, an HTTPS URL or an SSH remote) as its lowercase host and its path, parsed as Go's net/url does. */
+function parseRepository(input: string): { host: string; path: string } | undefined {
+  let value = input.trim();
+  if (!value) return undefined;
+  if (value.startsWith('git@') && value.includes(':')) value = 'ssh://' + value.replace(':', '/');
+  if (!value.includes('://')) {
+    if (value.split('/').length !== 2 || value.startsWith('.')) return undefined;
+    value = 'https://github.com/' + value;
+  }
+  const rest = value.slice(value.indexOf('://') + 3);
+  const [beforeFragment = '', ...fragment] = rest.split('#');
+  const [target = '', ...query] = beforeFragment.split('?');
+  if (fragment.join('#') || query.join('?')) return undefined;
+  const slash = target.indexOf('/');
+  const authority = slash >= 0 ? target.slice(0, slash) : target;
+  const host = authority.slice(authority.lastIndexOf('@') + 1);
+  const hostParts = /^(\[[^\]]*\]|[^:]*)(?::(.*))?$/.exec(host);
+  if (!hostParts || hostParts[1] === '' || hostParts[1] === '[]' || (hostParts[2] !== undefined && !/^[0-9]*$/.test(hostParts[2]))) return undefined;
+  let path: string;
+  try {
+    path = decodeURIComponent(slash >= 0 ? target.slice(slash) : '');
+  } catch {
+    return undefined;
+  }
+  path = path.replace(/\/$/, '').replace(/\.git$/, '');
+  return path ? { host: host.toLowerCase(), path } : undefined;
+}
+
+function normalizeRepository(value: string): string {
+  const parsed = parseRepository(value);
+  if (!parsed) return '';
+  return parsed.host + (parsed.host === 'github.com' ? parsed.path.toLowerCase() : parsed.path);
+}
+
+/** The path above a repository's name, the owner on GitHub, in the provider's case. */
+function repositoryNamespace(value: string): string {
+  const segments = (parseRepository(value)?.path ?? '').replace(/^\//, '').split('/');
+  if (segments.length < 2 || segments.includes('')) return '';
+  return segments.slice(0, -1).join('/');
+}
+
+function sameCommit(a: string, b: string): boolean {
+  return (a.length === 40 || a.length === 64) && a.length === b.length && /^[0-9a-f]+$/i.test(a) && a.toLowerCase() === b.toLowerCase();
 }
 
 /** The session_profile a start response or session report carries, read in this one place. */
@@ -279,14 +524,18 @@ export function profileNotReportedError(platform: Platform, viewerUrl: string): 
   return new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `This Revyl backend doesn't run session profiles on ${platform} yet, so Verify stopped the session. Pass ${NONE_HINT} to start without one. See ${viewerUrl}`);
 }
 
-const REFUSALS: Record<string, { code: VerifyError['code']; fix: (plan: SessionProfilePlan) => string }> = {
+const REFUSALS: Record<string, { code: VerifyError['code']; fix: (plan: SessionProfilePlan, platform: Platform) => string }> = {
   session_profile_undefined: { code: 'CONFIG_INVALID', fix: (plan) => `Check that session.profiles in ${plan.configPath ?? '.revyl/config.yaml'} defines it and that project.id names the project that holds it.` },
   session_profile_source_required: { code: 'INVALID_ARGUMENT', fix: () => 'Update Verify to the latest version; it sends the project with every named profile.' },
   session_profile_files_need_named: { code: 'INVALID_ARGUMENT', fix: () => 'Update Verify to the latest version; it sends checkout files only with a named profile.' },
   session_profile_script_unavailable: { code: 'SESSION_PROFILE_FAILED', fix: () => 'Commit the script or add it to .revyl/scripts, or create the Library Script with that name in your Revyl organization.' },
   repository_connection_missing: { code: 'CONFIG_INVALID', fix: () => "Connect the repository's GitHub or GitLab app to the project in Revyl, then open the session again." },
   project_not_found: { code: 'CONFIG_INVALID', fix: (plan) => `project.id in ${plan.configPath ?? '.revyl/config.yaml'} isn't a project in this API key's organization. Use a key from that organization, or fix project.id.` },
-  repository_unavailable: { code: 'API_ERROR', fix: () => "Revyl couldn't read the repository after 3 attempts. Try again in a few minutes." },
+  repository_unavailable: {
+    code: 'API_ERROR',
+    fix: (_plan, platform) =>
+      platform === 'ios' || platform === 'android' ? "Revyl couldn't read the repository, so no device started. Call open() again." : "Revyl couldn't read the repository after 3 attempts. Try again in a few minutes.",
+  },
 };
 
 /**
@@ -307,7 +556,7 @@ export function profileRefusalError(response: RawResponse, plan: SessionProfileP
   const subject = plan.name ? `session profile "${plan.name}"` : 'the session profile request';
   const refusal = code ? REFUSALS[code] : undefined;
   if (code && refusal) {
-    return new VerifyError(refusal.code, `Revyl refused ${subject} (${code})${said ? `: ${said}` : '.'} ${refusal.fix(plan)}`, {
+    return new VerifyError(refusal.code, `Revyl refused ${subject} (${code})${said ? `: ${said}` : '.'} ${refusal.fix(plan, platform)}`, {
       reason: code as RefusalReason,
       httpStatus: response.status,
       ...(code === 'session_profile_script_unavailable' ? { outcome: 'script_unavailable' as const, ...(said ? { failureReason: said } : {}) } : {}),
@@ -321,7 +570,10 @@ export function profileRefusalError(response: RawResponse, plan: SessionProfileP
   return undefined;
 }
 
-/** Runs a start or create, repeating it with the same session id while Revyl answers repository_unavailable: 3 attempts in all. */
+/**
+ * Runs a web start or a computer create, repeating it with the same session id while Revyl answers repository_unavailable:
+ * 3 attempts in all. iOS and Android starts carry no session id, so a repeat could start a second device; they don't use it.
+ */
 export async function withRepositoryRetry<T>(start: () => Promise<T>): Promise<T> {
   for (let attempt = 0; ; attempt += 1) {
     try {

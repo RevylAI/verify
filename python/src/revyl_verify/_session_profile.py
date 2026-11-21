@@ -4,21 +4,20 @@ import os
 import posixpath
 import re
 import stat
-import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, cast
 
 import yaml
 
-from ._models import UUID_PATTERN, Platform, text_length
+from ._git_branch import detect_git_branch
+from ._models import UUID_PATTERN, Platform
 from ._transport import Json, RefusalReason, Response, SessionProfileOutcome, VerifyError
 
 _NONE = "none"
 _PROFILE_NAME = re.compile(r"[a-z0-9-]{1,64}")
 _SCRIPT_EXTENSIONS = (".js", ".py", ".sh", ".ts")
 _SCRIPT_MAX_BYTES = 64 * 1024
-_GIT_TIMEOUT_SECONDS = 5
 _PROFILE_PLATFORMS = ("web", "ios", "android", "mac")
 _NONE_HINT = 'profile="none"'
 REPOSITORY_RETRY_DELAYS = (1.0, 2.0)
@@ -153,7 +152,7 @@ def plan_session_profile(
     project_root = os.path.dirname(os.path.dirname(config_path))
     files = _checkout_files(name, script, requires_checkout is True, project_root, config_path)
     source: dict[str, Json] = {"project_id": project_id}
-    branch = _git_branch(project_root)
+    branch = detect_git_branch(project_root)
     if branch:
         source["git_branch_name"] = branch
     return SessionProfilePlan(
@@ -303,22 +302,6 @@ def _find_repository_script(
     return matches[0] if matches else None
 
 
-def _git_branch(project_root: str) -> str | None:
-    try:
-        completed = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            cwd=project_root,
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            timeout=_GIT_TIMEOUT_SECONDS,
-            check=True,
-        )
-        branch = completed.stdout.decode("utf-8", errors="replace").strip()
-    except (OSError, subprocess.SubprocessError, ValueError):
-        return None
-    return branch if branch and branch != "HEAD" and text_length(branch) <= 255 else None
-
-
 def reported_session_profile(body: object) -> ReportedSessionProfile | None:
     if not isinstance(body, dict) or not isinstance(body.get("session_profile"), dict):
         return None
@@ -391,52 +374,54 @@ def _config_name(plan: SessionProfilePlan) -> str:
     return plan.config_path or ".revyl/config.yaml"
 
 
-_REFUSALS: dict[str, tuple[str, Callable[[SessionProfilePlan], str]]] = {
+_REFUSALS: dict[str, tuple[str, Callable[[SessionProfilePlan, Platform], str]]] = {
     "session_profile_undefined": (
         "CONFIG_INVALID",
-        lambda plan: (
+        lambda plan, platform: (
             f"Check that session.profiles in {_config_name(plan)} defines it and that "
             "project.id names the project that holds it."
         ),
     ),
     "session_profile_source_required": (
         "INVALID_ARGUMENT",
-        lambda plan: (
+        lambda plan, platform: (
             "Update Verify to the latest version; it sends the project with every named profile."
         ),
     ),
     "session_profile_files_need_named": (
         "INVALID_ARGUMENT",
-        lambda plan: (
+        lambda plan, platform: (
             "Update Verify to the latest version; it sends checkout files only with a "
             "named profile."
         ),
     ),
     "session_profile_script_unavailable": (
         "SESSION_PROFILE_FAILED",
-        lambda plan: (
+        lambda plan, platform: (
             "Commit the script or add it to .revyl/scripts, or create the Library "
             "Script with that name in your Revyl organization."
         ),
     ),
     "repository_connection_missing": (
         "CONFIG_INVALID",
-        lambda plan: (
+        lambda plan, platform: (
             "Connect the repository's GitHub or GitLab app to the project in Revyl, "
             "then open the session again."
         ),
     ),
     "project_not_found": (
         "CONFIG_INVALID",
-        lambda plan: (
+        lambda plan, platform: (
             f"project.id in {_config_name(plan)} isn't a project in this API key's "
             "organization. Use a key from that organization, or fix project.id."
         ),
     ),
     "repository_unavailable": (
         "API_ERROR",
-        lambda plan: (
-            "Revyl couldn't read the repository after 3 attempts. Try again in a few minutes."
+        lambda plan, platform: (
+            "Revyl couldn't read the repository, so no device started. Call open() again."
+            if platform in ("ios", "android")
+            else "Revyl couldn't read the repository after 3 attempts. Try again in a few minutes."
         ),
     ),
 }
@@ -471,7 +456,7 @@ def profile_refusal_error(
         script_unavailable = code == "session_profile_script_unavailable"
         return VerifyError(
             error_code,
-            f"Revyl refused {subject} ({code}){detail} {fix(plan)}",
+            f"Revyl refused {subject} ({code}){detail} {fix(plan, platform)}",
             reason=cast(RefusalReason, code),
             http_status=response.status,
             outcome="script_unavailable" if script_unavailable else None,
