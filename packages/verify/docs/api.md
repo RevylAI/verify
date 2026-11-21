@@ -103,12 +103,12 @@ try {
 }
 ```
 
-It resolves with a `CDPEndpoint`, `{ url: string; expiresAt: Date }`. In Puppeteer, connect with `puppeteer.connect({ browserWSEndpoint: url, defaultViewport: null })` and use `(await browser.pages())[0]`. [examples/web-cdp](https://github.com/RevylAI/verify/tree/main/examples/web-cdp) runs a full Playwright script: DOM, locators, a console message, network requests and a Verify validation while attached.
+It resolves with a `CDPEndpoint`, `{ url: string; expiresAt: Date }`. In Puppeteer, connect with `puppeteer.connect({ browserWSEndpoint: url, defaultViewport: null })` and use `(await browser.pages())[0]`, which is the session's tab while it is the only one. [examples/web-cdp](https://github.com/RevylAI/verify/tree/main/examples/web-cdp) runs a full Playwright script: DOM, locators, a console message, network requests and a Verify validation while attached.
 
 - **The url is a single-use credential.** It accepts one connection and expires at `expiresAt`, 60 seconds after `cdp()` returns it. Call `cdp()` again for each new connection. Don't log it, store it or pass it on; `console.log` of the endpoint shows the url as `[redacted]`, but Playwright's and Puppeteer's connection errors can include it, so remove it before you log one. Any connection attempt uses the url up, even one that fails, so call `cdp()` again before you retry.
 - **One connection at a time.** A second connection to the same session is refused until the first disconnects. Once `browser.close()`, or Puppeteer's `browser.disconnect()`, has resolved, the next url from `cdp()` connects.
 - **The connection ends with the session.** `close()`, the session's timeout or a failure closes it. After `close()`, `cdp()` throws `SESSION_ENDED` without a request, and an earlier url no longer works.
-- **Use the session's page.** In Playwright that is `browser.contexts()[0].pages()[0]`. `browser.newContext()` is refused, because a session has one browser context; new tabs from `context.newPage()` work.
+- **Use the session's page.** In Playwright that is `browser.contexts()[0].pages()[0]`. `browser.newContext()` is refused, because a session has one browser context. A tab you open with `context.newPage()` becomes the session's active tab: Verify steps, screenshots and the recording follow it until you close it, and then return to the session's tab. While another tab is open, `pages()[0]` may not be the session's tab, so find it by URL.
 - **`browser.close()` only disconnects.** In Playwright and Puppeteer it disconnects the script, and the session keeps running; call `session.close()` to end it. In Puppeteer, `browser.disconnect()` is the explicit form.
 - **Navigation is http(s) and `about:blank` only.** `file://`, `chrome://`, `data:`, `javascript:` and other schemes are refused with a CDP error.
 - **Downloads are off.** Download-behavior commands are accepted, but nothing is downloaded and no download path can be set.
