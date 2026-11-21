@@ -186,7 +186,7 @@ func Open(ctx context.Context, target Target, options ...OpenOption) (*Session, 
 		RunID          string          `json:"workflow_run_id"`
 		SessionProfile json.RawMessage `json:"session_profile"`
 	}
-	startDevice := func() (response, error) {
+	r, err := withRepositoryRetry(ctx, func() (response, error) {
 		r, err := c.send(ctx, http.MethodPost, "/api/v1/execution/start_device", request, false, 2*time.Minute, false)
 		if err != nil || r.status >= 200 && r.status < 300 {
 			return r, err
@@ -200,13 +200,7 @@ func Open(ctx context.Context, target Target, options ...OpenOption) (*Session, 
 			return r, refusal
 		}
 		return r, httpError(r)
-	}
-	var r response
-	if target.Platform == Web {
-		r, err = withRepositoryRetry(ctx, startDevice)
-	} else {
-		r, err = startDevice()
-	}
+	})
 	if err != nil {
 		return nil, err
 	}

@@ -301,7 +301,7 @@ export class DeviceSession implements Session {
       ...(target.device?.osVersion ? { os_version: target.device.osVersion } : {}),
       ...options.profile?.fields,
     };
-    const response = await client.startDevice(request, undefined, options.profile);
+    const response = await withRepositoryRetry(() => client.startDevice(request, undefined, options.profile));
     if (!response.workflow_run_id) {
       throw new VerifyError(
         'SESSION_START_FAILED',

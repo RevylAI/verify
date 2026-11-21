@@ -524,18 +524,14 @@ export function profileNotReportedError(platform: Platform, viewerUrl: string): 
   return new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `This Revyl backend doesn't run session profiles on ${platform} yet, so Verify stopped the session. Pass ${NONE_HINT} to start without one. See ${viewerUrl}`);
 }
 
-const REFUSALS: Record<string, { code: VerifyError['code']; fix: (plan: SessionProfilePlan, platform: Platform) => string }> = {
+const REFUSALS: Record<string, { code: VerifyError['code']; fix: (plan: SessionProfilePlan) => string }> = {
   session_profile_undefined: { code: 'CONFIG_INVALID', fix: (plan) => `Check that session.profiles in ${plan.configPath ?? '.revyl/config.yaml'} defines it and that project.id names the project that holds it.` },
   session_profile_source_required: { code: 'INVALID_ARGUMENT', fix: () => 'Update Verify to the latest version; it sends the project with every named profile.' },
   session_profile_files_need_named: { code: 'INVALID_ARGUMENT', fix: () => 'Update Verify to the latest version; it sends checkout files only with a named profile.' },
   session_profile_script_unavailable: { code: 'SESSION_PROFILE_FAILED', fix: () => 'Commit the script or add it to .revyl/scripts, or create the Library Script with that name in your Revyl organization.' },
   repository_connection_missing: { code: 'CONFIG_INVALID', fix: () => "Connect the repository's GitHub or GitLab app to the project in Revyl, then open the session again." },
   project_not_found: { code: 'CONFIG_INVALID', fix: (plan) => `project.id in ${plan.configPath ?? '.revyl/config.yaml'} isn't a project in this API key's organization. Use a key from that organization, or fix project.id.` },
-  repository_unavailable: {
-    code: 'API_ERROR',
-    fix: (_plan, platform) =>
-      platform === 'ios' || platform === 'android' ? "Revyl couldn't read the repository, so no device started. Call open() again." : "Revyl couldn't read the repository after 3 attempts. Try again in a few minutes.",
-  },
+  repository_unavailable: { code: 'API_ERROR', fix: () => "Revyl couldn't read the repository after 3 attempts. Try again in a few minutes." },
 };
 
 /**
@@ -556,7 +552,7 @@ export function profileRefusalError(response: RawResponse, plan: SessionProfileP
   const subject = plan.name ? `session profile "${plan.name}"` : 'the session profile request';
   const refusal = code ? REFUSALS[code] : undefined;
   if (code && refusal) {
-    return new VerifyError(refusal.code, `Revyl refused ${subject} (${code})${said ? `: ${said}` : '.'} ${refusal.fix(plan, platform)}`, {
+    return new VerifyError(refusal.code, `Revyl refused ${subject} (${code})${said ? `: ${said}` : '.'} ${refusal.fix(plan)}`, {
       reason: code as RefusalReason,
       httpStatus: response.status,
       ...(code === 'session_profile_script_unavailable' ? { outcome: 'script_unavailable' as const, ...(said ? { failureReason: said } : {}) } : {}),
@@ -570,10 +566,7 @@ export function profileRefusalError(response: RawResponse, plan: SessionProfileP
   return undefined;
 }
 
-/**
- * Runs a web start or a computer create, repeating it with the same session id while Revyl answers repository_unavailable:
- * 3 attempts in all. iOS and Android starts carry no session id, so a repeat could start a second device; they don't use it.
- */
+/** Runs a start or create, repeating it with the same body (and session id, where it has one) while Revyl answers repository_unavailable: 3 attempts in all. */
 export async function withRepositoryRetry<T>(start: () => Promise<T>): Promise<T> {
   for (let attempt = 0; ; attempt += 1) {
     try {
