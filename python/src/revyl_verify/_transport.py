@@ -46,6 +46,7 @@ _ResponseRefusalReason = Literal[
     "ios_session_conflict",
     "android_session_conflict",
     "not_available_on_platform",
+    "persistent_computers_not_enabled",
     "request_timeout",
     "protocol_error",
 ]
@@ -445,6 +446,7 @@ def http_error(response: Response, *, hosted: bool = False) -> VerifyError:
             "computer_runtime_unavailable",
             "computer_cannot_host_platform",
             "not_available_on_platform",
+            "persistent_computers_not_enabled",
         }:
             code = "NOT_AVAILABLE_ON_PLATFORM"
         elif reason in {"computer_at_capacity", "computer_platform_at_capacity", "computer_limit"}:

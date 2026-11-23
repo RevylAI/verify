@@ -47,6 +47,17 @@ from ._models import (
     Target,
     Viewport,
 )
+from ._persistent import (
+    ComputerSnapshot,
+    PersistentComputer,
+    PersistentComputerSession,
+    delete_persistent,
+    delete_snapshot,
+    list_persistent,
+    list_snapshots,
+    open_persistent,
+    save_snapshot,
+)
 from ._session import Session
 from ._transport import (
     Cancellation,
@@ -65,6 +76,7 @@ __all__ = [
     "ComputerProcess",
     "ComputerRecording",
     "ComputerSession",
+    "ComputerSnapshot",
     "CleanupStatus",
     "CustomModel",
     "ExecResult",
@@ -84,6 +96,8 @@ __all__ = [
     "ModelToolCall",
     "ModelTurn",
     "ModelUsage",
+    "PersistentComputer",
+    "PersistentComputerSession",
     "Platform",
     "Point",
     "RefusalReason",
@@ -102,9 +116,15 @@ __all__ = [
     "async_current_computer",
     "async_open",
     "current_computer",
+    "delete_persistent",
+    "delete_snapshot",
+    "list_persistent",
+    "list_snapshots",
     "local_agent",
     "open",
+    "open_persistent",
     "openai_compatible",
+    "save_snapshot",
 ]
 
 
