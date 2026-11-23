@@ -113,29 +113,47 @@ class AsyncSession:
             )
         )
 
-    async def tap(self, at: Location) -> Point:
-        return await self._call(functools.partial(self._session.tap, at))
+    async def tap(self, at: Location, *, settle: bool = True) -> Point:
+        return await self._call(functools.partial(self._session.tap, at, settle=settle))
 
-    async def type(self, at: Location, text: str, *, clear: bool = True) -> Point:
-        return await self._call(functools.partial(self._session.type, at, text, clear=clear))
+    async def type(
+        self, at: Location, text: str, *, clear: bool = True, settle: bool = True
+    ) -> Point:
+        return await self._call(
+            functools.partial(self._session.type, at, text, clear=clear, settle=settle)
+        )
 
-    async def type_focused(self, text: str, *, clear: bool = True) -> None:
-        await self._call(functools.partial(self._session.type_focused, text, clear=clear))
+    async def type_focused(self, text: str, *, clear: bool = True, settle: bool = True) -> None:
+        await self._call(
+            functools.partial(self._session.type_focused, text, clear=clear, settle=settle)
+        )
 
-    async def double_tap(self, at: Location) -> Point:
-        return await self._call(functools.partial(self._session.double_tap, at))
+    async def double_tap(self, at: Location, *, settle: bool = True) -> Point:
+        return await self._call(functools.partial(self._session.double_tap, at, settle=settle))
 
-    async def long_press(self, at: Location, *, duration: float | None = None) -> Point:
-        return await self._call(functools.partial(self._session.long_press, at, duration=duration))
+    async def long_press(
+        self, at: Location, *, duration: float | None = None, settle: bool = True
+    ) -> Point:
+        return await self._call(
+            functools.partial(self._session.long_press, at, duration=duration, settle=settle)
+        )
 
-    async def swipe(self, direction: SwipeDirection, *, from_: Location | None = None) -> None:
-        await self._call(functools.partial(self._session.swipe, direction, from_=from_))
+    async def swipe(
+        self, direction: SwipeDirection, *, from_: Location | None = None, settle: bool = True
+    ) -> None:
+        await self._call(
+            functools.partial(self._session.swipe, direction, from_=from_, settle=settle)
+        )
 
-    async def drag(self, start: Location, end: Location) -> None:
-        await self._call(functools.partial(self._session.drag, start, end))
+    async def drag(self, start: Location, end: Location, *, settle: bool = True) -> None:
+        await self._call(functools.partial(self._session.drag, start, end, settle=settle))
 
-    async def press_key(self, key: Key | str, *, modifiers: Sequence[KeyModifier] = ()) -> None:
-        await self._call(functools.partial(self._session.press_key, key, modifiers=modifiers))
+    async def press_key(
+        self, key: Key | str, *, modifiers: Sequence[KeyModifier] = (), settle: bool = True
+    ) -> None:
+        await self._call(
+            functools.partial(self._session.press_key, key, modifiers=modifiers, settle=settle)
+        )
 
     async def back(self) -> None:
         await self._call(self._session.back)

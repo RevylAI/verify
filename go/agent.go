@@ -46,6 +46,7 @@ type deviceAction struct {
 	modifiers  []KeyModifier
 	durationMs int
 	url        string
+	skipSettle bool
 }
 
 type screen struct {

@@ -225,6 +225,17 @@ A failed action raises `ACTION_FAILED`, including when Revyl cannot find a targe
 
 Exact actions return when Revyl has accepted them, not when the screen has finished changing. After `swipe`, `drag`, `go_home`, `open_url` or `launch_app`, let the screen settle or check it before you `locate` or tap coordinates. `locate` returns Revyl's best match on the current screen and can return a point for an element that is off screen, so bring the element on screen first. A point outside `screen_size()` is off screen, and an action at it is refused.
 
+**Fast input: `settle=False`.** On Web, the browser runtime waits after every `tap`, `double_tap`, `long_press`, `type`, `type_focused`, `swipe`, `drag` and `press_key` until the page stops changing, for up to about 6 seconds. A running game or animation never stops changing, so each call takes the whole wait and the next one queues behind it. Pass `settle=False` to any of those calls for games, animations and rapid input, such as pressing an arrow key every few hundred milliseconds: the call returns as soon as the input is sent, usually within a second. The catch is that it returns before the screen may have changed, so when you need to see the result, take a `screenshot()` or run a `validation()`, and don't rely on the next screenshot showing it. A described location such as `"Play button"` is still found before the input; `settle=False` skips only the wait after it. iOS, Android and Mac computers don't wait for the screen after these calls, so `settle=False` is accepted there and changes nothing. `settle` takes `True` (the default) or `False`; anything else raises `INVALID_ARGUMENT`. `AsyncSession` takes it too.
+
+```python
+import time
+
+for _ in range(10):
+    session.press_key("arrowleft", settle=False)  # returns without waiting for the page to settle
+    time.sleep(0.3)
+session.validation("The player is at the left edge")  # check the result when you need it
+```
+
 **Coordinates.** Prefer a description, such as `tap("Sign in button")`: Revyl finds the element on the current screen, and you never handle coordinates. Otherwise a point is `Point(x, y)` in screenshot pixels on every platform: whole numbers from the top-left corner of the image `screenshot()` returns. So a position you read off a screenshot goes to `tap()`, `type()`, `swipe()` and every other exact action unchanged. `screen_size()` returns the screenshot's width and height, and `locate()` and the points `tap()`, `double_tap()`, `long_press()` and `type()` return use the same pixels. A point outside the screenshot is refused with `INVALID_ARGUMENT` before any action is sent, and the message names the valid range. On iOS, Verify converts the pixels to the screen's points for you. On Web they equal CSS pixels at the default device scale factor of 1, and you still pass screenshot pixels at any other. This holds from TypeScript 0.4.1, Python 0.2.1 and Go v0.3.1; earlier versions took iOS points. On a Mac computer a point is in screenshot pixels too, and `tap("description")` returns the point it clicked in the same pixels. Verify refuses a negative or fractional point before sending it, and Revyl refuses one past the screen's edge without clicking; both raise `INVALID_ARGUMENT` naming the valid range.
 
 ```python
