@@ -133,8 +133,8 @@ export class RevylClient {
     return page.items[0];
   }
 
-  whoAmI(): Promise<WhoAmI> {
-    return this.json('GET', '/api/v1/entity/users/get_user_uuid');
+  whoAmI(signal?: AbortSignal): Promise<WhoAmI> {
+    return this.json('GET', '/api/v1/entity/users/get_user_uuid', { signal });
   }
 
   worker(

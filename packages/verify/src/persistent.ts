@@ -116,10 +116,12 @@ export class PersistentComputerSession extends ComputerSession {
     const signal = AbortSignal.any([deadline, session.lifetime.signal]);
     const lifetime = options.timeoutMs === undefined ? undefined : { timeout_seconds: options.timeoutMs / 1_000 };
     let started = false;
+    let attempted = false;
     try {
       let first: ComputerReport;
       if (!found.status) {
         session.log(`creating persistent computer${options.fromSnapshot ? ` from snapshot ${options.fromSnapshot}` : ''} ${session.viewerUrl}`);
+        attempted = true;
         const response = await call(client, 'POST', BASE, {
           body: { computer_session_id: found.id, os: 'macos', persistent: true, ...lifetime, ...(options.fromSnapshot ? { from_snapshot: options.fromSnapshot } : {}) },
           signal,
@@ -135,6 +137,7 @@ export class PersistentComputerSession extends ComputerSession {
         let waiting = false;
         while (status.state === 'stopping' || status.state === 'stopped') {
           if (status.state === 'stopped') {
+            attempted = true;
             const response = await call(client, 'POST', `${BASE}/${found.id}/start`, { body: lifetime, signal, retry: true, accept: ['run_conflict'] });
             if (response.status < 300) {
               session.log(`starting from its saved disk ${session.viewerUrl}`);
@@ -154,8 +157,10 @@ export class PersistentComputerSession extends ComputerSession {
       await session.awaitActive(first, signal);
       return session;
     } catch (error) {
-      if (started) await ComputerSession.prototype.close.call(session).catch(() => undefined);
-      if (deadline.aborted) throw new VerifyError('TIMEOUT', `${name} was not ready within ${startTimeout} ms.${started ? ' It was stopped again and keeps its disk.' : ''} Call openPersistent('${name}') again, or pass a larger startTimeout. See ${session.viewerUrl}`, { cause: error });
+      const refused = error instanceof VerifyError && error.httpStatus !== undefined && error.httpStatus >= 400 && error.httpStatus < 500 && error.httpStatus !== 408;
+      const stopped = started || (attempted && !refused);
+      if (stopped) await ComputerSession.prototype.close.call(session).catch(() => undefined);
+      if (deadline.aborted) throw new VerifyError('TIMEOUT', `${name} was not ready within ${startTimeout} ms.${stopped ? ' It was stopped again and keeps its disk.' : ''} Call openPersistent('${name}') again, or pass a larger startTimeout. See ${session.viewerUrl}`, { cause: error });
       throw error;
     }
   }
@@ -296,7 +301,7 @@ async function findComputer(client: RevylClient, reference: string, signal: Abor
     if (!status) throw computerNotFound(reference);
     return { id: status.id, status };
   }
-  const who = await client.whoAmI();
+  const who = await client.whoAmI(signal);
   if (typeof who.org_id !== 'string' || !UUID.test(who.org_id)) throw new VerifyError('API_ERROR', 'Revyl did not say which organization this API key belongs to.');
   for (let generation = 0; generation < MAX_GENERATIONS; generation += 1) {
     const id = computerOperationId(NAMESPACE, `${who.org_id.toLowerCase()}/${reference}/${generation}`);

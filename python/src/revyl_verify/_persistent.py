@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import threading
 import time
 import uuid
 from collections.abc import Callable
@@ -77,6 +78,9 @@ class PersistentComputerSession(ComputerSession):
     """The name (or ID) you passed to open_persistent()."""
     created: bool
     """True when this open_persistent() call created the computer; False when it already existed."""
+    _save_lock: threading.RLock
+    _save_settled: bool = False
+    _save_error: VerifyError | None = None
 
     def __enter__(self) -> PersistentComputerSession:
         return self
@@ -89,10 +93,21 @@ class PersistentComputerSession(ComputerSession):
         disk can be saved about 5-6 minutes after close() returns; save_snapshot() waits for
         that.
         """
-        first = not self._closed
-        super().close()
-        if not first:
-            return
+        with self._save_lock:
+            if self._save_settled:
+                if self._save_error is not None:
+                    raise self._save_error
+                return
+            try:
+                super().close()
+                self._await_saved()
+            except VerifyError as error:
+                self._save_error = error
+                self._save_settled = True
+                raise
+            self._save_settled = True
+
+    def _await_saved(self) -> None:
         deadline = Deadline(_SAVE_WAIT_SECONDS)
         try:
             while True:
@@ -194,9 +209,11 @@ def open_persistent(
     )
     session.name = name
     session.created = status is None
+    session._save_lock = threading.RLock()
     session._log_callback = progress
     lifetime: dict[str, Json] | None = None if timeout is None else {"timeout_seconds": timeout}
     started = False
+    attempted = False
     try:
         if status is None:
             session._log(
@@ -213,6 +230,7 @@ def open_persistent(
                 body.update(lifetime)
             if from_snapshot:
                 body["from_snapshot"] = from_snapshot
+            attempted = True
             response = _call(
                 client,
                 "POST",
@@ -224,12 +242,14 @@ def open_persistent(
                 "list_snapshots() shows "
                 "your organization's snapshots.",
             )
+            started = True
         else:
             if from_snapshot:
                 session._log(f"already exists, so from_snapshot {from_snapshot} was not used")
             waiting = False
             while status.state in ("stopping", "stopped"):
                 if status.state == "stopped":
+                    attempted = True
                     started_response = _call(
                         client,
                         "POST",
@@ -240,6 +260,7 @@ def open_persistent(
                         accept=("run_conflict",),
                     )
                     if started_response.status < 300:
+                        started = True
                         session._log(f"starting from its saved disk {session.viewer_url}")
                         break
                 if not waiting:
@@ -269,7 +290,9 @@ def open_persistent(
         session._log("ready")
         return session
     except VerifyError as error:
-        if started:
+        refused = error.http_status is not None and 400 <= error.http_status < 500
+        stopped = started or (attempted and (not refused or error.http_status == 408))
+        if stopped:
             try:
                 ComputerSession.close(session)
             except BaseException:
@@ -278,7 +301,7 @@ def open_persistent(
             raise VerifyError(
                 "TIMEOUT",
                 f"{name} was not ready within {start_timeout} seconds."
-                + (" It was stopped again and keeps its disk." if started else "")
+                + (" It was stopped again and keeps its disk." if stopped else "")
                 + f" Call open_persistent('{name}') again, or pass a larger start_timeout. See "
                 f"{session.viewer_url}",
             ) from error

@@ -293,7 +293,7 @@ func openPersistent(ctx context.Context, name string, options OpenPersistentOpti
 		body = map[string]any{"timeout_seconds": int64(options.Timeout / time.Second)}
 		create["timeout_seconds"] = int64(options.Timeout / time.Second)
 	}
-	started := false
+	started, attempted := false, false
 	err = func() error {
 		var r response
 		if status == nil {
@@ -305,10 +305,12 @@ func openPersistent(ctx context.Context, name string, options OpenPersistentOpti
 			if options.FromSnapshot != "" {
 				create["from_snapshot"] = options.FromSnapshot
 			}
+			attempted = true
 			r, err = persistentCall(ctx, c, "POST", persistentBase, create, true, "There is no snapshot named or with the ID "+options.FromSnapshot+". ListSnapshots shows your organization's snapshots.")
 			if err != nil {
 				return err
 			}
+			started = true
 		} else {
 			if options.FromSnapshot != "" {
 				s.logLine("already exists, so FromSnapshot " + options.FromSnapshot + " was not used")
@@ -316,11 +318,13 @@ func openPersistent(ctx context.Context, name string, options OpenPersistentOpti
 			waiting := false
 			for status.State == "stopping" || status.State == "stopped" {
 				if status.State == "stopped" {
+					attempted = true
 					r, err := persistentCall(ctx, c, "POST", persistentBase+"/"+id+"/start", body, true, "", "run_conflict")
 					if err != nil {
 						return err
 					}
 					if r.status < 300 {
+						started = true
 						s.logLine("starting from its saved disk " + s.viewer)
 						break
 					}
@@ -377,7 +381,10 @@ func openPersistent(ctx context.Context, name string, options OpenPersistentOpti
 		s.logLine("ready")
 		return s, status == nil, nil
 	}
-	if started {
+	var typed *Error
+	refused := errors.As(err, &typed) && typed.HTTPStatus >= 400 && typed.HTTPStatus < 500 && typed.HTTPStatus != http.StatusRequestTimeout
+	stopped := started || (attempted && !refused)
+	if stopped {
 		s.persistentName = ""
 		cleanup, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), computerObservationTimeout)
 		defer cancelCleanup()
@@ -386,7 +393,7 @@ func openPersistent(ctx context.Context, name string, options OpenPersistentOpti
 		stop()
 	}
 	kept := ""
-	if started {
+	if stopped {
 		kept = " It was stopped again and keeps its disk."
 	}
 	return nil, false, timeoutOr(ctx, err, fmt.Sprintf("%s was not ready within %s.%s Call OpenPersistent(ctx, %q) again, or pass a larger StartTimeout. See %s", name, startTimeout, kept, name, s.viewer))
