@@ -619,6 +619,32 @@ class ComputerSession(Session):
                 reason=reason,
                 http_status=response.status,
             )
+        if (
+            suffix == ""
+            and method == "POST"
+            and response.status == 409
+            and detail == "lifetime_unsupported"
+        ):
+            try:
+                raw = response.json()
+                maximum = raw.get("max_timeout_seconds") if isinstance(raw, dict) else None
+            except VerifyError:
+                maximum = None
+            fix = (
+                f"timeout of at most {int(maximum)}"
+                if isinstance(maximum, (int, float))
+                and not isinstance(maximum, bool)
+                and float(maximum).is_integer()
+                and maximum > 0
+                else "a shorter timeout"
+            )
+            raise VerifyError(
+                "NOT_AVAILABLE_ON_PLATFORM",
+                "No host can keep this computer running that long (lifetime_unsupported); "
+                f"pass {fix}.",
+                reason="lifetime_unsupported",
+                http_status=response.status,
+            )
         if response.status == 409 and detail == "extend_unsupported":
             raise VerifyError(
                 "NOT_AVAILABLE_ON_PLATFORM",

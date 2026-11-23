@@ -151,7 +151,7 @@ func Open(ctx context.Context, target Target, options ...OpenOption) (*Session, 
 		return s, err
 	}
 	if opt.Log != nil {
-		opt.Log(string(target.Platform) + ": Revyl doesn't run session profiles for API starts yet; opening without default profile " + profile.name)
+		opt.Log("Skipping default session profile " + profile.name + ": Revyl doesn't run session profiles for API starts yet. Pass Profile: \"none\" to silence this.")
 	}
 	return openStart(ctx, c, viewer, target, opt, agent, nil)
 }

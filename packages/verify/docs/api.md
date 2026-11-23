@@ -78,7 +78,7 @@ On a browser or device, the script runs on Revyl's hosted runner, not on your ma
 Revyl's production backend doesn't run session profiles for starts from Verify yet. Until it does:
 
 - **`profile: '<name>'`** throws `NOT_AVAILABLE_ON_PLATFORM`: `Revyl doesn't run session profiles for API starts yet; open the session without profile.` Nothing runs. A refused iOS or Android start still shows in Revyl as one failed session; a refused web start or Mac create leaves nothing.
-- **`profile` left out, with `session.default_profile` set:** Verify logs `<platform>: Revyl doesn't run session profiles for API starts yet; opening without default profile <name>` and opens the session again without it, with a new session ID. `open()` then works as it did before profiles existed.
+- **`profile` left out, with `session.default_profile` set:** Verify logs `Skipping default session profile <name>: Revyl doesn't run session profiles for API starts yet. Pass profile: 'none' to silence this.` and opens the session again without it, with a new session ID. `open()` then works as it did before profiles existed.
 - **`profile: 'none'`** sends nothing and works everywhere.
 
 Once the backend runs profiles, the same calls run them, with no change to your code.

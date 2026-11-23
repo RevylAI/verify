@@ -542,6 +542,12 @@ export class ComputerSession implements Session {
     }
     if (response.status === 429 && detail === 'computer_limit') throw new VerifyError('COMPUTER_LIMIT', `${COMPUTER_CAPACITY} See ${this.viewerUrl}`, refusal);
     if (response.status === 429 && detail === 'computer_long_limit') throw new VerifyError('COMPUTER_LIMIT', `Revyl refused a lifetime over 2 hours: the organization already has 2 computers running longer than 2 hours (computer_long_limit). Ask for 2 hours or less, or stop one of them. See ${this.viewerUrl}`, refusal);
+    if (suffix === '' && method === 'POST' && response.status === 409 && detail === 'lifetime_unsupported') {
+      let max: unknown;
+      try { max = (JSON.parse(new TextDecoder().decode(response.body)) as { max_timeout_seconds?: unknown } | null)?.max_timeout_seconds; } catch {}
+      const fix = typeof max === 'number' && Number.isInteger(max) && max > 0 ? `timeoutMs of at most ${max * 1_000}` : 'a shorter timeoutMs';
+      throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `No host can keep this computer running that long (lifetime_unsupported); pass ${fix}.`, { reason: 'lifetime_unsupported', httpStatus: response.status });
+    }
     if (response.status === 409 && detail === 'extend_unsupported') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `This computer's host can't extend its lifetime (extend_unsupported); its expiry is unchanged. See ${this.viewerUrl}`, refusal);
     if (suffix === '/screen/actions') {
       if (response.status === 422 && detail === 'screen_point_outside') return response;

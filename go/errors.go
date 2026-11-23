@@ -43,6 +43,7 @@ const (
 	ReasonRepositoryConnectionMissing     RefusalReason = "repository_connection_missing"
 	ReasonProjectNotFound                 RefusalReason = "project_not_found"
 	ReasonRepositoryUnavailable           RefusalReason = "repository_unavailable"
+	ReasonLifetimeUnsupported             RefusalReason = "lifetime_unsupported"
 )
 
 func (c Code) Error() string { return string(c) }

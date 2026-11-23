@@ -513,6 +513,17 @@ func (s *Session) computerRequestTimeout(ctx context.Context, method, suffix str
 	if r.status == 429 && detail == "computer_long_limit" {
 		return r, responseFailure(r, ErrComputerLimit, "Revyl refused a lifetime over 2 hours: the organization already has 2 computers running longer than 2 hours (computer_long_limit). Ask for 2 hours or less, or stop one of them. See "+s.viewer)
 	}
+	if suffix == "" && method == "POST" && r.status == 409 && detail == "lifetime_unsupported" {
+		var body struct {
+			Max any `json:"max_timeout_seconds"`
+		}
+		_ = json.Unmarshal(r.body, &body)
+		fix := "a shorter Timeout"
+		if max, ok := body.Max.(float64); ok && max > 0 && max == math.Trunc(max) && max <= float64(math.MaxInt64/int64(time.Second)) {
+			fix = "Timeout of at most " + (time.Duration(max) * time.Second).String()
+		}
+		return r, &Error{Code: ErrNotAvailableOnPlatform, Reason: ReasonLifetimeUnsupported, HTTPStatus: r.status, Message: "No host can keep this computer running that long (lifetime_unsupported); pass " + fix + "."}
+	}
 	if r.status == 409 && detail == "extend_unsupported" {
 		return r, responseFailure(r, ErrNotAvailableOnPlatform, "This computer's host can't extend its lifetime (extend_unsupported); its expiry is unchanged. See "+s.viewer)
 	}

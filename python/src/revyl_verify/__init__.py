@@ -172,8 +172,8 @@ def open(
         if progress is not None:
             try:
                 progress(
-                    f"{target.platform}: Revyl doesn't run session profiles for API starts yet; "
-                    f"opening without default profile {plan.name}"
+                    f"Skipping default session profile {plan.name}: Revyl doesn't run session "
+                    'profiles for API starts yet. Pass profile="none" to silence this.'
                 )
             except Exception:
                 pass

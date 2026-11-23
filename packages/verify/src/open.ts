@@ -97,7 +97,7 @@ export async function open(target: string | TargetConfig, options: OpenOptions =
     return await start(profile);
   } catch (error) {
     if (!profile?.implicit || !isLegacyProfileRefusal(error)) throw error;
-    log?.(`${chosen.name}: Revyl doesn't run session profiles for API starts yet; opening without default profile ${profile.name}`);
+    log?.(`Skipping default session profile ${profile.name}: Revyl doesn't run session profiles for API starts yet. Pass profile: 'none' to silence this.`);
     return start(undefined);
   }
 }

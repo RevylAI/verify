@@ -58,6 +58,7 @@ RefusalReason = Literal[
     "repository_connection_missing",
     "project_not_found",
     "repository_unavailable",
+    "lifetime_unsupported",
 ]
 SessionProfileOutcome = Literal[
     "succeeded",
