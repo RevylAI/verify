@@ -34,6 +34,16 @@ _NAME_RULE = (
 )
 _NAMESPACE = uuid.UUID("c4c351c9-f19a-49b9-b0a9-632ef6c3f486")
 _MAX_GENERATIONS = 100
+_REFUSED_START_CODES: frozenset[str] = frozenset(
+    {
+        "AUTH_REJECTED",
+        "EDGE_BLOCKED",
+        "NOT_AVAILABLE_ON_PLATFORM",
+        "INVALID_ARGUMENT",
+        "COMPUTER_LIMIT",
+        "NOT_FOUND",
+    }
+)
 _SAVE_WAIT_SECONDS = 600.0
 _STATES = ("starting", "running", "stopping", "stopped")
 
@@ -290,8 +300,7 @@ def open_persistent(
         session._log("ready")
         return session
     except VerifyError as error:
-        refused = error.http_status is not None and 400 <= error.http_status < 500
-        stopped = started or (attempted and (not refused or error.http_status == 408))
+        stopped = started or (attempted and error.code not in _REFUSED_START_CODES)
         if stopped:
             try:
                 ComputerSession.close(session)

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -382,7 +383,7 @@ func openPersistent(ctx context.Context, name string, options OpenPersistentOpti
 		return s, status == nil, nil
 	}
 	var typed *Error
-	refused := errors.As(err, &typed) && typed.HTTPStatus >= 400 && typed.HTTPStatus < 500 && typed.HTTPStatus != http.StatusRequestTimeout
+	refused := errors.As(err, &typed) && slices.Contains([]Code{ErrAuthRejected, ErrEdgeBlocked, ErrNotAvailableOnPlatform, ErrInvalidArgument, ErrComputerLimit, ErrNotFound}, typed.Code)
 	stopped := started || (attempted && !refused)
 	if stopped {
 		s.persistentName = ""

@@ -16,6 +16,7 @@ const NAMESPACE = 'c4c351c9-f19a-49b9-b0a9-632ef6c3f486';
 const MAX_GENERATIONS = 100;
 const STATES = new Set<string>(['starting', 'running', 'stopping', 'stopped']);
 const SAVE_WAIT_MS = 600_000;
+const REFUSED_START_CODES = new Set<VerifyErrorCode>(['AUTH_REJECTED', 'EDGE_BLOCKED', 'NOT_AVAILABLE_ON_PLATFORM', 'INVALID_ARGUMENT', 'COMPUTER_LIMIT', 'NOT_FOUND']);
 
 /** Options shared by every persistent-computer call. */
 export type PersistentOptions = Pick<OpenOptions, 'log' | 'backendUrl' | 'appUrl'>;
@@ -157,7 +158,7 @@ export class PersistentComputerSession extends ComputerSession {
       await session.awaitActive(first, signal);
       return session;
     } catch (error) {
-      const refused = error instanceof VerifyError && error.httpStatus !== undefined && error.httpStatus >= 400 && error.httpStatus < 500 && error.httpStatus !== 408;
+      const refused = error instanceof VerifyError && REFUSED_START_CODES.has(error.code);
       const stopped = started || (attempted && !refused);
       if (stopped) await ComputerSession.prototype.close.call(session).catch(() => undefined);
       if (deadline.aborted) throw new VerifyError('TIMEOUT', `${name} was not ready within ${startTimeout} ms.${stopped ? ' It was stopped again and keeps its disk.' : ''} Call openPersistent('${name}') again, or pass a larger startTimeout. See ${session.viewerUrl}`, { cause: error });
