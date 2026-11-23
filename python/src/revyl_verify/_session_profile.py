@@ -13,7 +13,16 @@ import yaml
 
 from ._git_branch import detect_git_branch
 from ._models import UUID_PATTERN, Platform
-from ._transport import Json, RefusalReason, Response, SessionProfileOutcome, VerifyError
+from ._transport import (
+    Cancellation,
+    Client,
+    Deadline,
+    Json,
+    RefusalReason,
+    Response,
+    SessionProfileOutcome,
+    VerifyError,
+)
 
 _NONE = "none"
 _PROFILE_NAME = re.compile(r"[a-z0-9-]{1,64}")
@@ -30,6 +39,7 @@ class SessionProfilePlan:
     config_path: str | None
     fields: dict[str, Json]
     implicit: bool = False
+    uses_default_instruction: bool = False
 
 
 @dataclass(frozen=True)
@@ -39,6 +49,19 @@ class ReportedSessionProfile:
     outcome: str | None = None
     failure_reason: str | None = None
     missing_git_branch_name: str | None = None
+
+
+def supports_session_profile_defaults(client: Client, cancellation: Cancellation | None) -> bool:
+    try:
+        response = client.json(
+            "GET",
+            "/api/v1/backend-capabilities?contract=session_profile_starts",
+            deadline=Deadline(30, cancellation),
+        )
+    except VerifyError:
+        return False
+    capabilities = response.get("capabilities")
+    return isinstance(capabilities, list) and "device_session_session_profile_picks" in capabilities
 
 
 class _ConfigLoader(yaml.SafeLoader):

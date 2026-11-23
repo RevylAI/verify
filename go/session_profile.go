@@ -67,22 +67,37 @@ type profileFiles struct {
 // sessionProfilePlan is what Open sends for a session profile, and the name it waits on. implicit marks the project's default,
 // which the caller didn't ask for.
 type sessionProfilePlan struct {
-	name       string
-	implicit   bool
-	configPath string
-	source     *profileSource
-	files      *profileFiles
+	name                   string
+	implicit               bool
+	configPath             string
+	usesDefaultInstruction bool
+	source                 *profileSource
+	files                  *profileFiles
 }
 
 func (p *sessionProfilePlan) addTo(request map[string]any) {
 	if p == nil {
 		return
 	}
-	request["session_profile"] = profileInstruction{Instruction: "named", Name: p.name}
+	instruction := "named"
+	if p.usesDefaultInstruction {
+		instruction = "default"
+	}
+	request["session_profile"] = profileInstruction{Instruction: instruction, Name: p.name}
 	request["session_profile_source"] = p.source
 	if p.files != nil {
 		request["session_profile_files"] = p.files
 	}
+}
+
+func supportsSessionProfileDefaults(ctx context.Context, c *client) bool {
+	var response struct {
+		Capabilities []string `json:"capabilities"`
+	}
+	if err := c.json(ctx, "GET", "/api/v1/backend-capabilities?contract=session_profile_starts", nil, false, 30*time.Second, &response); err != nil {
+		return false
+	}
+	return slices.Contains(response.Capabilities, "device_session_session_profile_picks")
 }
 
 // reportedProfile is the session_profile object a start response or session report carries.

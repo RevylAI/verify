@@ -350,10 +350,12 @@ with open(web, profile="none") as session:
 | `profile` | What Verify sends |
 | --- | --- |
 | `"signed-in"` | That profile, with the project and the script from this checkout. |
-| left out | The project's `session.default_profile`, the same way, when `.revyl/config.yaml` sets one. Otherwise nothing, so the start request is the same as before profiles existed. |
+| left out | The checkout's `session.default_profile` when set. On web, iOS and Android, a capable backend skips it if the project doesn't target the launched app. Otherwise nothing is sent. |
 | `"none"` | No profile, not even the default: Verify sends no profile fields, so the start request is the same as before profiles existed. Needs no `.revyl/config.yaml`. |
 
 Profiles work on web, iOS, Android and Mac computers. On a Linux computer, a profile name raises `NOT_AVAILABLE_ON_PLATFORM` before anything is sent, and no default runs; `"none"` is accepted without a project option. Hosted sessions (`computer.open()`), `attach()` and `current_computer()` never run a profile: they take no `profile` or `session_profile_project_id` argument, so passing either raises `TypeError`. `async_open()` takes both options the same way as `open()`.
+
+For an implicit checkout default on web, iOS or Android, Verify reads `GET /api/v1/backend-capabilities?contract=session_profile_starts`. If `capabilities` includes `device_session_session_profile_picks`, it sends `instruction="default"` with the default's name and the same checkout files and source. Revyl runs it when the project targets the launched app, or when no registered app launches; otherwise the session starts without a profile. A missing capability or a failed read keeps today's `instruction="named"` request. Explicit profiles and Mac computer defaults always use `named` and make no capability request.
 
 ### Without a checkout
 

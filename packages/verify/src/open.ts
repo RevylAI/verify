@@ -7,7 +7,7 @@ import { DeviceSession, type OpenedSession } from './session.js';
 import { ComputerSession } from './computer-session.js';
 import type { LocalAgent } from './agent/loop.js';
 import { chooseAgent, type ModelOption } from './agent/providers.js';
-import { isLegacyProfileRefusal, planSessionProfile, type SessionProfilePlan } from './session-profile.js';
+import { isLegacyProfileRefusal, planSessionProfile, supportsSessionProfileDefaults, type SessionProfilePlan } from './session-profile.js';
 
 export interface OpenOptions {
   /** The config file to read target names from. Defaults to the nearest verify.config.ts at or above the current folder. */
@@ -91,6 +91,9 @@ export async function open(target: string | TargetConfig, options: OpenOptions =
   const log = options.log === false ? undefined : (options.log ?? ((line: string) => void process.stderr.write(`[verify] ${line}\n`)));
   const client = new RevylClient({ token: credentials.token, backendUrl: options.backendUrl });
   const chosen = resolved;
+  if (profile?.implicit && chosen.platform !== 'mac' && await supportsSessionProfileDefaults(client)) {
+    profile.fields.session_profile.instruction = 'default';
+  }
   const start = (plan: SessionProfilePlan | undefined): Promise<OpenedSession> =>
     chosen.platform === 'mac' || chosen.platform === 'linux'
       ? ComputerSession.start(client, chosen, { stepTimeout, log, appUrl: options.appUrl, ...(plan ? { profile: plan } : {}) })

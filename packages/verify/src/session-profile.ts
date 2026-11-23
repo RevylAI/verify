@@ -3,7 +3,7 @@ import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from 'nod
 import { dirname, join, posix, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { parse as parseYaml } from 'yaml';
-import type { RawResponse } from './api/client.js';
+import type { RawResponse, RevylClient } from './api/client.js';
 import type { Platform } from './api/types.js';
 import { VerifyError, isVerifyError, type RefusalReason } from './errors.js';
 
@@ -12,7 +12,7 @@ export type SessionProfileOutcome = 'succeeded' | 'script_failed' | 'script_time
 
 /** The session_profile fields a start or create request carries. */
 export interface SessionProfileFields {
-  session_profile: { instruction: 'named'; name: string };
+  session_profile: { instruction: 'named' | 'default'; name: string };
   session_profile_source?: { project_id: string; git_branch_name?: string };
   session_profile_files?: {
     script: string;
@@ -36,6 +36,18 @@ export interface ReportedSessionProfile {
   outcome?: string;
   failureReason?: string;
   missingGitBranchName?: string;
+}
+
+export async function supportsSessionProfileDefaults(client: RevylClient): Promise<boolean> {
+  try {
+    const response = await client.json<unknown>('GET', '/api/v1/backend-capabilities', {
+      query: { contract: 'session_profile_starts' },
+      retry: false,
+    });
+    return isMapping(response) && Array.isArray(response.capabilities) && response.capabilities.includes('device_session_session_profile_picks');
+  } catch {
+    return false;
+  }
 }
 
 const NONE = 'none';

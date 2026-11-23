@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Literal
 
 from ._agent import (
@@ -167,7 +168,11 @@ def open(
     session_profile_project_id: str | None = None,
     _cancellation: Cancellation | None = None,
 ) -> Session:
-    from ._session_profile import is_legacy_profile_refusal, plan_session_profile
+    from ._session_profile import (
+        is_legacy_profile_refusal,
+        plan_session_profile,
+        supports_session_profile_defaults,
+    )
     from ._transport import Client
 
     if not isinstance(target, Target):
@@ -186,6 +191,20 @@ def open(
     progress = _progress(log)
     viewer = origin(app_url or "https://app.revyl.ai", app=True)
     client = Client(backend_url, app_url, _cancellation)
+    if (
+        plan is not None
+        and plan.implicit
+        and not computer
+        and supports_session_profile_defaults(client, _cancellation)
+    ):
+        plan = replace(
+            plan,
+            uses_default_instruction=True,
+            fields={
+                **plan.fields,
+                "session_profile": {"instruction": "default", "name": plan.name},
+            },
+        )
     start = (ComputerSession if computer else Session).start
     try:
         session = start(client, viewer, target, step_timeout, progress, _cancellation, profile=plan)

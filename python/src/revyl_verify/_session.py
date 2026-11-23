@@ -494,6 +494,8 @@ class Session:
         if not active:
             return False
         if profile is None:
+            if plan.uses_default_instruction:
+                return True
             raise profile_not_reported_error(self.platform, self.viewer_url)
         return profile.status == "succeeded"
 

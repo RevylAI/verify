@@ -66,15 +66,18 @@ To be published as the `go/v0.6.1` tag.
 
 ## 0.8.0 (unreleased)
 
-- Session profiles: `open(target, { profile: "signed-in", sessionProfileProjectId: "<project UUID>" })` runs a project's named session profile from Git without reading local `.revyl/config.yaml` or sending a local script or Git branch. The project option requires a named profile and a valid UUID, otherwise `INVALID_ARGUMENT` is thrown. Web, iOS, Android and Mac are supported; Linux still refuses a profile name. Calls without the new option keep their existing behavior, including `session.default_profile`.
+- Session profiles: `open(target, { profile: "signed-in", sessionProfileProjectId: "<project UUID>" })` runs a project's named session profile from Git without reading local `.revyl/config.yaml` or sending a local script or Git branch. The project option requires a named profile and a valid UUID, otherwise `INVALID_ARGUMENT` is thrown. Web, iOS, Android and Mac are supported; Linux still refuses a profile name. Explicit checkout profiles and `profile: "none"` are unchanged.
+- Implicit checkout defaults on web, iOS and Android send `instruction: "default"` only when the backend advertises `device_session_session_profile_picks`, so an untargeted app can start without the profile. A missing capability or failed read preserves the named request; explicit profiles and Mac computer defaults are unchanged.
 
 ## Go 0.7.0 (unreleased)
 
 - Session profiles: `OpenOptions.SessionProfileProjectID` with `Profile` runs a project's named session profile from Git without a local checkout, as in TypeScript 0.8.0. Invalid nonempty UUIDs and empty or `"none"` profiles return `ErrInvalidArgument`; `Attach` and `CurrentComputer` reject the option. An empty project ID preserves checkout behavior.
+- Implicit checkout defaults negotiate `instruction: "default"` on capable web, iOS and Android backends, preserving named requests on older backends and for Mac computers, as in TypeScript 0.8.0.
 
 ## Python 0.6.0 (unreleased)
 
-- Session profiles: `open(..., profile="signed-in", session_profile_project_id="<project UUID>")` and `async_open` run a project's named session profile from Git without a local checkout, as in TypeScript 0.8.0. An invalid UUID or a missing, empty or `"none"` profile raises `INVALID_ARGUMENT`. Calls without the option keep their existing behavior.
+- Session profiles: `open(..., profile="signed-in", session_profile_project_id="<project UUID>")` and `async_open` run a project's named session profile from Git without a local checkout, as in TypeScript 0.8.0. An invalid UUID or a missing, empty or `"none"` profile raises `INVALID_ARGUMENT`. Explicit checkout profiles and `profile="none"` are unchanged.
+- Implicit checkout defaults negotiate `instruction="default"` on capable web, iOS and Android backends, preserving named requests on older backends and for Mac computers, as in TypeScript 0.8.0.
 
 ## 0.7.0 (2026-11-23)
 

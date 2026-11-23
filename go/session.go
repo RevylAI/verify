@@ -157,6 +157,9 @@ func Open(ctx context.Context, target Target, options ...OpenOption) (*Session, 
 	if err != nil {
 		return nil, err
 	}
+	if profile != nil && profile.implicit && target.Platform != Mac && supportsSessionProfileDefaults(ctx, c) {
+		profile.usesDefaultInstruction = true
+	}
 	s, err := openStart(ctx, c, viewer, target, opt, agent, profile)
 	if err == nil || profile == nil || !profile.implicit || !isLegacyProfileRefusal(err) {
 		return s, err
@@ -463,6 +466,9 @@ func (s *Session) profileDone(profile *reportedProfile, active bool) (bool, erro
 		return false, nil
 	}
 	if profile == nil {
+		if plan.usesDefaultInstruction {
+			return true, nil
+		}
 		return false, profileNotReportedError(s.platform, s.viewer)
 	}
 	return profile.status == "succeeded", nil
