@@ -179,6 +179,7 @@ Run with `go test -v -timeout 6m`. `t.Fatal` runs deferred cleanup. The URL and 
 - `Target.StartTimeout` bounds startup (default 10 minutes); on web/mobile, `IdleTimeoutSeconds` sets the session's idle timeout (default 600 seconds). All methods also honor the caller's context.
 - `Open` takes at most one `OpenOptions` value, plus `WithModel`, `WithCustomModel` or `WithAgent` to run steps on your own model; `Instruction` and `Validation` take the same options for one step. `OpenOptions{StepTimeout: 3*time.Minute}` changes the default step timeout. Per-call `StepOptions{Timeout: time.Minute}`, `ValidationOptions{Timeout: time.Minute, Soft: true}` and `ExtractOptions{Timeout: time.Minute}` override it. Run one step at a time per session, on computers too.
 - `OpenOptions{Profile: "signed-in"}` runs a session profile from your project's `.revyl/config.yaml` before `Open` returns; `Profile: "none"` runs no profile. Left empty, the project's `session.default_profile` runs when it sets one. Web, iOS, Android and Mac computers. See [Session profiles](#session-profiles).
+- `OpenOptions.SessionProfileProjectID`: a Revyl project UUID to read the named session profile from Git instead of your checkout. Requires `Profile` to name a session profile, not `"none"`. Verify reads no local `.revyl/config.yaml` and sends no local script or Git branch. An empty project ID keeps checkout behavior.
 - Redirects are rejected, not followed with credentials.
 - `OpenOptions{Log: func(line string) { ... }}` opts into progress lines: `<platform>: starting <platform> session <link>` as soon as the session ID exists, before the browser or device is ready, then `ready`, on web, iOS, Android and hosted sessions; computer lifecycle; evidence-gap messages; mobile best-effort first-screen debug notes; and the turns of steps run on your own model. The default is quiet for all targets, so pass `Log: func(line string) { log.Println(line) }` to see the session link while a slow start runs. Keep that callback concurrency-safe if operations run concurrently. A confirmed execution result remains usable when its report evidence is pending or failed; the callback identifies that gap without logging private output or recording URLs.
 
@@ -204,11 +205,24 @@ bare, err := verify.Open(ctx, verify.Target{Platform: verify.Web, AppID: "…", 
 | `""` (left out) | The project's `session.default_profile`, the same way, when `.revyl/config.yaml` sets one. Otherwise nothing, so the start request is the same as before profiles existed. |
 | `"none"` | No profile, not even the default: Verify sends no profile fields, so the start request is the same as before profiles existed. Needs no `.revyl/config.yaml`. |
 
-Profiles work on web, iOS, Android and Mac computers. On a Linux computer, a profile name returns `ErrNotAvailableOnPlatform` before anything is sent, and no default runs; `"none"` is accepted. Hosted sessions (`computer.Open`), `Attach` and `CurrentComputer` never run a profile: `computer.Open` takes no options, and `Attach` and `CurrentComputer` return `ErrInvalidArgument` when `Profile` is set.
+Profiles work on web, iOS, Android and Mac computers. On a Linux computer, a profile name returns `ErrNotAvailableOnPlatform` before anything is sent, and no default runs; `"none"` is accepted without a project option. Hosted sessions (`computer.Open`), `Attach` and `CurrentComputer` never run a profile: `computer.Open` takes no options, and `Attach` and `CurrentComputer` return `ErrInvalidArgument` when `Profile` or `SessionProfileProjectID` is set.
+
+### Without a checkout
+
+Pass `SessionProfileProjectID` with a named `Profile` to use the project's session profile from Git, without any local `.revyl/config.yaml`:
+
+```go
+s, err := verify.Open(ctx, verify.Target{Platform: verify.Mac}, verify.OpenOptions{
+	Profile: "signed-in",
+	SessionProfileProjectID: "0b9e6f3a-1c2d-4e5f-8a9b-0c1d2e3f4a5b",
+})
+```
+
+Verify sends `session_profile` with `instruction: "named"` and the profile name, and `session_profile_source` with only `project_id`. It sends no `session_profile_files` or `git_branch_name`; Revyl reads the project's default branch in Git. A local config, even if present, is ignored. An invalid nonempty project UUID or an empty or `"none"` profile returns `ErrInvalidArgument` before any request. Refusals, repository retries and waiting for the profile follow the same rules as checkout starts; an explicit profile is never silently skipped on an older backend.
 
 ### Where Verify reads the profile
 
-Verify reads `.revyl/config.yaml` in the working directory (`os.Getwd()`) or the nearest folder above it that has one: the file `revyl init` writes in your app's checkout. In `go test`, the working directory is the package's folder, so the file is found when it sits in that folder or above it. Verify needs `project.id` and the profile under `session.profiles`, and reads nothing else from the file:
+Without `SessionProfileProjectID`, Verify reads `.revyl/config.yaml` in the working directory (`os.Getwd()`) or the nearest folder above it that has one: the file `revyl init` writes in your app's checkout. In `go test`, the working directory is the package's folder, so the file is found when it sits in that folder or above it. Verify needs `project.id` and the profile under `session.profiles`, and reads nothing else from the file:
 
 ```yaml
 project:

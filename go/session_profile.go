@@ -80,7 +80,9 @@ func (p *sessionProfilePlan) addTo(request map[string]any) {
 	}
 	request["session_profile"] = profileInstruction{Instruction: "named", Name: p.name}
 	request["session_profile_source"] = p.source
-	request["session_profile_files"] = p.files
+	if p.files != nil {
+		request["session_profile_files"] = p.files
+	}
 }
 
 // reportedProfile is the session_profile object a start response or session report carries.
@@ -93,8 +95,16 @@ type reportedProfile struct {
 }
 
 // planSessionProfile plans the session profile Open sends: an explicit name, or the project's session.default_profile when
-// profile is empty. Nil when nothing is sent, which is always the case for profile "none". Reads .revyl/config.yaml at or above cwd.
-func planSessionProfile(profile string, platform Platform, cwd string) (*sessionProfilePlan, error) {
+// profile is empty. A project ID requires an explicit name and bypasses local config. Otherwise reads .revyl/config.yaml at or above cwd.
+func planSessionProfile(profile string, platform Platform, cwd string, sessionProfileProjectID string) (*sessionProfilePlan, error) {
+	if sessionProfileProjectID != "" {
+		if !uuidPattern.MatchString(sessionProfileProjectID) {
+			return nil, failure(ErrInvalidArgument, "open(): SessionProfileProjectID must be a Revyl project UUID.")
+		}
+		if profile == profileNone || !profileNamePattern.MatchString(profile) {
+			return nil, failure(ErrInvalidArgument, "open(): SessionProfileProjectID requires Profile to name a session profile (1-64 lowercase letters, digits or hyphens), not 'none'.")
+		}
+	}
 	if profile != "" && profile != profileNone && !profileNamePattern.MatchString(profile) {
 		return nil, failure(ErrInvalidArgument, "open(): profile must be a session profile name from session.profiles in .revyl/config.yaml (1-64 lowercase letters, digits or hyphens), or 'none'.")
 	}
@@ -106,6 +116,9 @@ func planSessionProfile(profile string, platform Platform, cwd string) (*session
 			return nil, nil
 		}
 		return nil, failure(ErrNotAvailableOnPlatform, fmt.Sprintf("open(): session profiles run on web, iOS, Android and Mac sessions, not %s. Leave out profile.", platform))
+	}
+	if sessionProfileProjectID != "" {
+		return &sessionProfilePlan{name: profile, source: &profileSource{ProjectID: sessionProfileProjectID}}, nil
 	}
 	if absolute, err := filepath.Abs(cwd); err == nil {
 		cwd = absolute
@@ -738,6 +751,9 @@ var profileRefusals = map[string]struct {
 	fix  func(*sessionProfilePlan) string
 }{
 	"session_profile_undefined": {ErrConfigInvalid, func(plan *sessionProfilePlan) string {
+		if plan.configPath == "" {
+			return "Check that the project's .revyl/config.yaml in Git defines the session profile and that SessionProfileProjectID names that project."
+		}
 		return "Check that session.profiles in " + profileConfigPath(plan) + " defines it and that project.id names the project that holds it."
 	}},
 	"session_profile_source_required": {ErrInvalidArgument, func(*sessionProfilePlan) string {
@@ -753,6 +769,9 @@ var profileRefusals = map[string]struct {
 		return "Connect the repository's GitHub or GitLab app to the project in Revyl, then open the session again."
 	}},
 	"project_not_found": {ErrConfigInvalid, func(plan *sessionProfilePlan) string {
+		if plan.configPath == "" {
+			return "SessionProfileProjectID isn't a project in this API key's organization. Use a key from that organization, or fix SessionProfileProjectID."
+		}
 		return "project.id in " + profileConfigPath(plan) + " isn't a project in this API key's organization. Use a key from that organization, or fix project.id."
 	}},
 	"repository_unavailable": {ErrAPI, func(*sessionProfilePlan) string {

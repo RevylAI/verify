@@ -21,10 +21,12 @@ export interface OpenOptions {
   /** Runs every instruction and validation on a custom agent from localAgent(). Pass model or agent, not both. */
   agent?: LocalAgent;
   /**
-   * A session profile from session.profiles in .revyl/config.yaml, such as 'signed-in', that Revyl runs before open() returns,
+   * A session profile from session.profiles in .revyl/config.yaml locally or in sessionProfileProjectId's Git repository,
+   * such as 'signed-in', that Revyl runs before open() returns,
    * or 'none' for no profile. Left out, the project's session.default_profile runs when it sets one. Web, iOS, Android and Mac only.
    */
   profile?: string;
+  sessionProfileProjectId?: string;
 }
 
 export interface AttachOptions extends Pick<OpenOptions, 'log' | 'backendUrl' | 'appUrl'> {
@@ -84,7 +86,7 @@ export async function open(target: string | TargetConfig, options: OpenOptions =
   if (agent && (resolved.platform === 'mac' || resolved.platform === 'linux')) {
     throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'Your own model runs steps on browsers and devices, not on computers.');
   }
-  const profile = await planSessionProfile(options.profile, resolved.platform, process.cwd());
+  const profile = await planSessionProfile(options.profile, resolved.platform, process.cwd(), options.sessionProfileProjectId);
   const credentials = await credentialsForUse(options);
   const log = options.log === false ? undefined : (options.log ?? ((line: string) => void process.stderr.write(`[verify] ${line}\n`)));
   const client = new RevylClient({ token: credentials.token, backendUrl: options.backendUrl });

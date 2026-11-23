@@ -245,6 +245,7 @@ async def async_open(
     model: ModelOption | None = None,
     agent: LocalAgent | None = None,
     profile: str | None = None,
+    session_profile_project_id: str | None = None,
 ) -> AsyncSession:
     from . import open
 
@@ -258,6 +259,7 @@ async def async_open(
             model=model,
             agent=agent,
             profile=profile,
+            session_profile_project_id=session_profile_project_id,
             _cancellation=cancellation,
         )
     )

@@ -64,6 +64,18 @@ To be published as the `go/v0.6.1` tag.
 - A Mac computer create refused with `computer_not_enabled` and `unlocks_with_card: true` raises `NOT_AVAILABLE_ON_PLATFORM` with `reason="upgrade_required"` on `open()` and `open_persistent()`, as in TypeScript 0.7.1.
 - The `User-Agent` reports 0.5.1.
 
+## 0.8.0 (unreleased)
+
+- Session profiles: `open(target, { profile: "signed-in", sessionProfileProjectId: "<project UUID>" })` runs a project's named session profile from Git without reading local `.revyl/config.yaml` or sending a local script or Git branch. The project option requires a named profile and a valid UUID, otherwise `INVALID_ARGUMENT` is thrown. Web, iOS, Android and Mac are supported; Linux still refuses a profile name. Calls without the new option keep their existing behavior, including `session.default_profile`.
+
+## Go 0.7.0 (unreleased)
+
+- Session profiles: `OpenOptions.SessionProfileProjectID` with `Profile` runs a project's named session profile from Git without a local checkout, as in TypeScript 0.8.0. Invalid nonempty UUIDs and empty or `"none"` profiles return `ErrInvalidArgument`; `Attach` and `CurrentComputer` reject the option. An empty project ID preserves checkout behavior.
+
+## Python 0.6.0 (unreleased)
+
+- Session profiles: `open(..., profile="signed-in", session_profile_project_id="<project UUID>")` and `async_open` run a project's named session profile from Git without a local checkout, as in TypeScript 0.8.0. An invalid UUID or a missing, empty or `"none"` profile raises `INVALID_ARGUMENT`. Calls without the option keep their existing behavior.
+
 ## 0.7.0 (2026-11-23)
 
 - Web sessions: `cdp()` (TypeScript, Python, `AsyncSession`) and `CDP(ctx)` (Go) return a single-use Chrome DevTools Protocol endpoint, `{ url, expiresAt }` / `CDPEndpoint(url, expires_at)` / `CDPEndpoint{URL, ExpiresAt}`, valid for 60 seconds, so Playwright (`connectOverCDP`), Puppeteer or chromedp can attach to the session's browser while `instruction()` and `validation()` keep working. It posts `device-proxy/{run}/cdp`. iOS, Android and computers throw `NOT_AVAILABLE_ON_PLATFORM` before any request, a closed session `SESSION_ENDED`, and a backend without the route `NOT_AVAILABLE_ON_PLATFORM`. The endpoint's url is left out of `console.log`, `repr()` and `fmt` output. The API page and the Python and Go READMEs list the rules (one connection at a time, the session's own page, `browser.close()` only disconnects, http(s) navigation only, no downloads, a fixed window size, a 24 MB reply limit), with runnable Playwright and chromedp examples in `examples/web-cdp`, `python/examples/cdp_playwright.py` and `go/examples/cdp`.

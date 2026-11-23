@@ -25,10 +25,12 @@ type OpenOptions struct {
 	StepTimeout time.Duration
 	Log         func(string)
 	StopOnClose *bool
-	// Profile names a session profile from session.profiles in .revyl/config.yaml, such as "signed-in", that Revyl runs before
+	// Profile names a session profile from session.profiles in .revyl/config.yaml locally or in SessionProfileProjectID's Git
+	// repository, such as "signed-in", that Revyl runs before
 	// Open returns, or "none" for no profile. Left empty, the project's session.default_profile runs when it sets one. Open reads
-	// .revyl/config.yaml from the working directory upward. Web, iOS, Android and Mac only.
-	Profile string
+	// .revyl/config.yaml from the working directory upward unless SessionProfileProjectID is set. Web, iOS, Android and Mac only.
+	Profile                 string
+	SessionProfileProjectID string
 }
 
 // OpenOption configures Open: an OpenOptions value, or an Option from WithModel, WithCustomModel or WithAgent.
@@ -144,7 +146,7 @@ func Open(ctx context.Context, target Target, options ...OpenOption) (*Session, 
 		return nil, err
 	}
 	cwd, _ := os.Getwd()
-	profile, err := planSessionProfile(opt.Profile, target.Platform, cwd)
+	profile, err := planSessionProfile(opt.Profile, target.Platform, cwd, opt.SessionProfileProjectID)
 	if err != nil {
 		return nil, err
 	}

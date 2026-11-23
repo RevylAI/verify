@@ -7,7 +7,7 @@
 Mac computers are available to organizations on a current paid Revyl plan. See computers.md#availability-and-errors.
 
 - [Getting started](getting-started.md): install, authenticate, init, run a script
-- [API](api.md): open() and session profiles (Revyl runs a profile from .revyl/config.yaml before open() returns), attach(), hosted children, navigate(), cdp() for Playwright and Puppeteer on web, report(), agent steps, extract(), screenshot(), exec(), file/process methods, close(), persistent computers
+- [API](api.md): open() and session profiles (Revyl runs a profile from .revyl/config.yaml before open() returns; profile plus sessionProfileProjectId reads it from the project's default branch in Git without a local config, script or branch; the project ID must be a UUID and profile must be a name, not empty or 'none'), attach(), hosted children, navigate(), cdp() for Playwright and Puppeteer on web, report(), agent steps, extract(), screenshot(), exec(), file/process methods, close(), persistent computers
 - [Configuration](configuration.md): verify.config.ts targets, environment variables, the init and whoami commands
 - [Web](web.md): Revyl web sessions, URLs and builds, sign-in, steps, and exact actions
 - [Mobile](mobile.md): iOS and Android devices, installing apps, and exact actions

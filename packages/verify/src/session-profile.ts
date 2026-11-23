@@ -56,9 +56,17 @@ const NONE_HINT = "profile: 'none'";
 
 /**
  * Plans the session profile open() sends: an explicit name, or the project's session.default_profile when profile is
- * undefined. Undefined when nothing is sent, which is always the case for profile 'none'. Reads .revyl/config.yaml at or above cwd.
+ * undefined. A project ID requires an explicit name and bypasses local config. Otherwise reads .revyl/config.yaml at or above cwd.
  */
-export async function planSessionProfile(profile: unknown, platform: Platform, cwd: string): Promise<SessionProfilePlan | undefined> {
+export async function planSessionProfile(profile: unknown, platform: Platform, cwd: string, sessionProfileProjectId?: string): Promise<SessionProfilePlan | undefined> {
+  if (sessionProfileProjectId !== undefined) {
+    if (typeof sessionProfileProjectId !== 'string' || sessionProfileProjectId.length !== 36 || !UUID.test(sessionProfileProjectId)) {
+      throw new VerifyError('INVALID_ARGUMENT', 'open(): sessionProfileProjectId must be a Revyl project UUID.');
+    }
+    if (typeof profile !== 'string' || profile === NONE || PROFILE_NAME.exec(profile)?.[0] !== profile) {
+      throw new VerifyError('INVALID_ARGUMENT', "open(): sessionProfileProjectId requires profile to name a session profile (1-64 lowercase letters, digits or hyphens), not 'none'.");
+    }
+  }
   if (profile !== undefined && (typeof profile !== 'string' || (profile !== NONE && !PROFILE_NAME.test(profile)))) {
     throw new VerifyError('INVALID_ARGUMENT', "open(): profile must be a session profile name from session.profiles in .revyl/config.yaml (1-64 lowercase letters, digits or hyphens), or 'none'.");
   }
@@ -66,6 +74,15 @@ export async function planSessionProfile(profile: unknown, platform: Platform, c
   if (!PROFILE_PLATFORMS.has(platform)) {
     if (profile === undefined) return undefined;
     throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `open(): session profiles run on web, iOS, Android and Mac sessions, not ${platform}. Leave out profile.`);
+  }
+  if (sessionProfileProjectId !== undefined) {
+    return {
+      name: profile as string,
+      fields: {
+        session_profile: { instruction: 'named', name: profile as string },
+        session_profile_source: { project_id: sessionProfileProjectId },
+      },
+    };
   }
   const configPath = findConfig(cwd);
   if (!configPath) {
@@ -527,12 +544,12 @@ export function profileNotReportedError(platform: Platform, viewerUrl: string): 
 }
 
 const REFUSALS: Record<string, { code: VerifyError['code']; fix: (plan: SessionProfilePlan) => string }> = {
-  session_profile_undefined: { code: 'CONFIG_INVALID', fix: (plan) => `Check that session.profiles in ${plan.configPath ?? '.revyl/config.yaml'} defines it and that project.id names the project that holds it.` },
+  session_profile_undefined: { code: 'CONFIG_INVALID', fix: (plan) => plan.configPath ? `Check that session.profiles in ${plan.configPath} defines it and that project.id names the project that holds it.` : "Check that the project's .revyl/config.yaml in Git defines the session profile and that sessionProfileProjectId names that project." },
   session_profile_source_required: { code: 'INVALID_ARGUMENT', fix: () => 'Update Verify to the latest version; it sends the project with every named profile.' },
   session_profile_files_need_named: { code: 'INVALID_ARGUMENT', fix: () => 'Update Verify to the latest version; it sends checkout files only with a named profile.' },
   session_profile_script_unavailable: { code: 'SESSION_PROFILE_FAILED', fix: () => 'Commit the script or add it to .revyl/scripts, or create the Library Script with that name in your Revyl organization.' },
   repository_connection_missing: { code: 'CONFIG_INVALID', fix: () => "Connect the repository's GitHub or GitLab app to the project in Revyl, then open the session again." },
-  project_not_found: { code: 'CONFIG_INVALID', fix: (plan) => `project.id in ${plan.configPath ?? '.revyl/config.yaml'} isn't a project in this API key's organization. Use a key from that organization, or fix project.id.` },
+  project_not_found: { code: 'CONFIG_INVALID', fix: (plan) => plan.configPath ? `project.id in ${plan.configPath} isn't a project in this API key's organization. Use a key from that organization, or fix project.id.` : "sessionProfileProjectId isn't a project in this API key's organization. Use a key from that organization, or fix sessionProfileProjectId." },
   repository_unavailable: { code: 'API_ERROR', fix: () => "Revyl couldn't read the repository after 3 attempts. Try again in a few minutes." },
 };
 

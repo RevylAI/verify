@@ -23,6 +23,7 @@ const mac = await open({ platform: 'mac' });                        // computer,
 - `options.agent`: the same with a custom agent; see [Custom agents](#custom-agents). Pass `model` or `agent`, not both.
 - `options.backendUrl`, `options.appUrl`: the Revyl API and web origins. They default to Revyl's production origins; change them only to test another Revyl environment. `openPersistent()` and the other persistent-computer calls take them too.
 - `options.profile`: a session profile from your project's `.revyl/config.yaml`, such as `'signed-in'`, that Revyl runs before `open()` returns, or `'none'` for no profile. Left out, the project's `session.default_profile` runs when it sets one. Web, iOS, Android and Mac computers. See [Session profiles](#session-profiles).
+- `options.sessionProfileProjectId`: a Revyl project UUID to read the named session profile from Git instead of your checkout. Requires `profile` to name a session profile, not `'none'`. Verify reads no local `.revyl/config.yaml` and sends no local script or Git branch.
 
 `open` needs credentials: `REVYL_API_KEY` or a Revyl CLI login. It throws `AUTH_MISSING` without them, `CONFIG_NOT_FOUND` or `CONFIG_INVALID` for config problems, and `SESSION_START_FAILED` or `TIMEOUT` when the browser or device does not start.
 
@@ -44,11 +45,24 @@ const bare = await open('web', { profile: 'none' });
 | left out | The project's `session.default_profile`, the same way, when `.revyl/config.yaml` sets one. Otherwise nothing, so the start request is the same as before profiles existed. |
 | `'none'` | No profile, not even the default: Verify sends no profile fields, so the start request is the same as before profiles existed. Needs no `.revyl/config.yaml`. |
 
-Profiles work on web, iOS, Android and Mac computers. On a Linux computer, a profile name throws `NOT_AVAILABLE_ON_PLATFORM` before anything is sent, and no default runs; `'none'` is accepted. Hosted sessions (`computer.open()`), `attach()` and `currentComputer()` never run a profile: their options have no `profile`, so TypeScript rejects one.
+Profiles work on web, iOS, Android and Mac computers. On a Linux computer, a profile name throws `NOT_AVAILABLE_ON_PLATFORM` before anything is sent, and no default runs; `'none'` is accepted without a project option. Hosted sessions (`computer.open()`), `attach()` and `currentComputer()` never run a profile: their options have no `profile` or `sessionProfileProjectId`, so TypeScript rejects either.
+
+### Without a checkout
+
+Pass `sessionProfileProjectId` with a named `profile` to use the project's session profile from Git, without any local `.revyl/config.yaml`:
+
+```ts
+const session = await open({ platform: 'mac' }, {
+  profile: 'signed-in',
+  sessionProfileProjectId: '0b9e6f3a-1c2d-4e5f-8a9b-0c1d2e3f4a5b',
+});
+```
+
+Verify sends `session_profile: { instruction: 'named', name: 'signed-in' }` and `session_profile_source: { project_id: '…' }`, with no `session_profile_files` or `git_branch_name`. Revyl reads the project's default branch in Git. A local config, even if present, is ignored. An invalid project UUID or a missing, empty or `'none'` profile throws `INVALID_ARGUMENT` before any request. Refusals, repository retries and waiting for the profile follow the same rules as checkout starts; an explicit profile is never silently skipped on an older backend.
 
 ### Where Verify reads the profile
 
-Verify reads `.revyl/config.yaml` in the current folder (`process.cwd()`) or the nearest folder above it that has one: the file `revyl init` writes in your app's checkout. It needs `project.id` and the profile under `session.profiles`, and reads nothing else from the file:
+Without `sessionProfileProjectId`, Verify reads `.revyl/config.yaml` in the current folder (`process.cwd()`) or the nearest folder above it that has one: the file `revyl init` writes in your app's checkout. It needs `project.id` and the profile under `session.profiles`, and reads nothing else from the file:
 
 ```yaml
 project:

@@ -164,6 +164,7 @@ def open(
     model: ModelOption | None = None,
     agent: LocalAgent | None = None,
     profile: str | None = None,
+    session_profile_project_id: str | None = None,
     _cancellation: Cancellation | None = None,
 ) -> Session:
     from ._session_profile import is_legacy_profile_refusal, plan_session_profile
@@ -179,7 +180,7 @@ def open(
             "NOT_AVAILABLE_ON_PLATFORM",
             "Your own model runs steps on browsers and devices, not on computers.",
         )
-    plan = plan_session_profile(profile, target.platform, os.getcwd())
+    plan = plan_session_profile(profile, target.platform, os.getcwd(), session_profile_project_id)
     install_signal_cleanup()
     seconds(step_timeout, 1, 3600, "step_timeout")
     progress = _progress(log)
