@@ -1,23 +1,4 @@
-"""Persistent Mac computers: experimental and internal, not covered by semver or the public docs.
-
-A persistent computer keeps its disk between runs. ``open_persistent("name")`` opens the computer
-with that name, creating it if needed; ``close()`` (or leaving a ``with`` block) stops it and keeps
-the disk; opening the same name again boots from that disk. ``save_snapshot()`` pins a stopped
-computer's disk under a name, and ``open_persistent("other", from_snapshot=...)`` starts a new
-computer from it.
-
-Credentials and environment work as for ``revyl_verify.open()``: REVYL_API_KEY or ``verify login``,
-and backend_url/app_url (for example https://backend-staging.revyl.ai and https://staging.revyl.ai)
-to use another Revyl environment.
-
-Every call raises ``VerifyError`` (importable from here or from revyl_verify), with ``.code`` saying
-what happened and ``.message`` saying what to do: NOT_FOUND (no computer or snapshot by that name or
-ID), SESSION_BUSY (the computer is running, or its last stop hasn't finished), TIMEOUT (a wait ran
-out; the call can be repeated), COMPUTER_LIMIT (the organization keeps its maximum number of
-computers or snapshots, or can't start another computer now), NOT_AVAILABLE_ON_PLATFORM (persistent
-computers aren't enabled for this API key's organization), INVALID_ARGUMENT, AUTH_REJECTED,
-SESSION_START_FAILED and API_ERROR.
-"""
+"""Persistent Mac computers, exported from revyl_verify: open_persistent() and friends."""
 
 from __future__ import annotations
 
@@ -43,19 +24,6 @@ from ._transport import (
     origin,
     timestamp,
 )
-
-__all__ = [
-    "VerifyError",
-    "ComputerSnapshot",
-    "PersistentComputer",
-    "PersistentComputerSession",
-    "delete_persistent",
-    "delete_snapshot",
-    "list_persistent",
-    "list_snapshots",
-    "open_persistent",
-    "save_snapshot",
-]
 
 _BASE = "/api/v1/computer-runs"
 _UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
@@ -109,6 +77,9 @@ class PersistentComputerSession(ComputerSession):
     """The name (or ID) you passed to open_persistent()."""
     created: bool
     """True when this open_persistent() call created the computer; False when it already existed."""
+
+    def __enter__(self) -> PersistentComputerSession:
+        return self
 
     def close(self) -> None:
         """Stops the computer and keeps its disk: files, installed tools and settings are there
@@ -178,6 +149,17 @@ def open_persistent(
 
     start_timeout: seconds to wait until it is ready, 10-1800, default 900. Covers waiting for an
     earlier stop to finish saving, and a start from a snapshot, which takes up to about 3 minutes.
+
+    Credentials and backend_url/app_url work as for open(). Persistent computers are turned on per
+    organization: without them, open_persistent() and save_snapshot() raise VerifyError
+    NOT_AVAILABLE_ON_PLATFORM with reason "persistent_computers_not_enabled".
+
+    Every persistent-computer call raises VerifyError, with .code saying what happened and the
+    message saying what to do: NOT_FOUND (no computer or snapshot by that name or ID), SESSION_BUSY
+    (the computer is running, or its last stop hasn't finished), TIMEOUT (a wait ran out; the call
+    can be repeated), COMPUTER_LIMIT (the organization keeps its maximum number of computers or
+    snapshots, or can't start another computer now), NOT_AVAILABLE_ON_PLATFORM, INVALID_ARGUMENT,
+    AUTH_REJECTED, SESSION_START_FAILED and API_ERROR.
 
     Example::
 
@@ -425,7 +407,8 @@ def list_persistent(
 ) -> list[PersistentComputer]:
     """Lists your organization's persistent computers, stopped ones included, other people's too.
     Revyl stores no names, so each one is shown by its ID; compare with the id of a session
-    open_persistent() returned.
+    open_persistent() returned. A name always maps to the same ID, so a name keeps working after
+    stops and from any machine or language.
     """
     client, _, _ = _connect(backend_url, app_url, False)
     return [_to_computer(item) for item in _pages(client, "persistent", Deadline(60))]
@@ -586,7 +569,14 @@ def _call(
         return response
     known = _REFUSALS.get(detail or "")
     if known is not None:
-        raise VerifyError(known[0], known[1], http_status=response.status)
+        raise VerifyError(
+            known[0],
+            known[1],
+            reason="persistent_computers_not_enabled"
+            if detail == "persistent_computers_not_enabled"
+            else None,
+            http_status=response.status,
+        )
     suffix = f", {detail}" if detail else ""
     if response.status in (401, 403):
         raise VerifyError(
@@ -622,11 +612,8 @@ def _call(
 _REFUSALS: dict[str, tuple[str, str]] = {
     "persistent_computers_not_enabled": (
         "NOT_AVAILABLE_ON_PLATFORM",
-        "Persistent computers are a preview that Revyl turns on per organization, and this API "
-        "key's organization "
-        "doesn't have it (persistent_computers_not_enabled). Use a key from an organization that "
-        "has it, and pass "
-        "backend_url for the Revyl environment where it is on.",
+        "Persistent computers aren't enabled for this API key's organization yet "
+        "(persistent_computers_not_enabled). Ask support@revyl.ai to turn them on.",
     ),
     "computer_not_enabled": (
         "NOT_AVAILABLE_ON_PLATFORM",

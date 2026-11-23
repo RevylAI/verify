@@ -10,8 +10,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-
-	"github.com/RevylAI/verify/go/internal/persistent"
 )
 
 const (
@@ -28,7 +26,7 @@ var persistentRefusals = map[string]struct {
 	code    Code
 	message string
 }{
-	"persistent_computers_not_enabled": {ErrNotAvailableOnPlatform, "Persistent computers are a preview that Revyl turns on per organization, and this API key's organization doesn't have it (persistent_computers_not_enabled). Use a key from an organization that has it, and set BackendURL to the Revyl environment where it is on."},
+	"persistent_computers_not_enabled": {ErrNotAvailableOnPlatform, "Persistent computers aren't enabled for this API key's organization yet (persistent_computers_not_enabled). Ask support@revyl.ai to turn them on."},
 	"computer_not_enabled":             {ErrNotAvailableOnPlatform, "Mac computers aren't enabled for this API key's organization (computer_not_enabled). Ask support@revyl.ai about access."},
 	"runtime_unavailable":              {ErrNotAvailableOnPlatform, "Revyl has no Mac computers available in this environment (runtime_unavailable)."},
 	"persistent_computer_limit":        {ErrComputerLimit, "Your organization already keeps as many persistent computers as it may (persistent_computer_limit). ListPersistent shows them; delete one you no longer need with DeletePersistent, then try again."},
@@ -42,50 +40,222 @@ var persistentRefusals = map[string]struct {
 	"run_conflict":                     {ErrSessionBusy, "The computer's last run hasn't finished stopping (run_conflict). Its disk is kept; try again in a few minutes."},
 }
 
-func init() {
-	persistent.Open = func(ctx context.Context, name string, options persistent.OpenOptions) (any, bool, error) {
-		return openPersistent(ctx, name, options)
-	}
-	persistent.SaveSnapshot = saveSnapshot
-	persistent.ListComputers = func(ctx context.Context, options persistent.Connection) ([]persistent.Computer, error) {
-		c, _, err := persistentClient(options)
-		if err != nil {
-			return nil, err
-		}
-		ctx, cancel := context.WithTimeout(ctx, time.Minute)
-		defer cancel()
-		return listPersistentComputers(ctx, c)
-	}
-	persistent.ListSnapshots = func(ctx context.Context, options persistent.Connection) ([]persistent.Snapshot, error) {
-		c, _, err := persistentClient(options)
-		if err != nil {
-			return nil, err
-		}
-		ctx, cancel := context.WithTimeout(ctx, time.Minute)
-		defer cancel()
-		items, err := persistentPages(ctx, c, "snapshots")
-		if err != nil {
-			return nil, err
-		}
-		snapshots := make([]persistent.Snapshot, 0, len(items))
-		for _, item := range items {
-			snapshot, err := decodeSnapshot(item)
-			if err != nil {
-				return nil, err
-			}
-			snapshots = append(snapshots, snapshot)
-		}
-		return snapshots, nil
-	}
-	persistent.DeleteComputer = deletePersistent
-	persistent.DeleteSnapshot = deleteSnapshot
+// PersistentOptions apply to every persistent-computer call. Leave them empty for Revyl's defaults. Credentials work
+// as for Open: REVYL_API_KEY or a "verify login"; BackendURL and AppURL select another Revyl environment.
+type PersistentOptions struct {
+	BackendURL string
+	AppURL     string
+	HTTPClient *http.Client
+	// Log receives progress lines. Nil means no progress output.
+	Log func(string)
 }
 
-func persistentClient(options persistent.Connection) (*client, string, error) {
+// OpenPersistentOptions configure OpenPersistent.
+type OpenPersistentOptions struct {
+	PersistentOptions
+	// FromSnapshot is used only when this call creates the computer: its disk starts as this snapshot's (a name or
+	// ID from ListSnapshots). If the computer already exists it opens as it is; check PersistentComputerSession.Created.
+	FromSnapshot string
+	// Timeout is how long this run may last before the computer stops itself (keeping its disk): whole seconds
+	// from 1 minute to 24 hours, otherwise ErrInvalidArgument. Zero means 2 hours. Not applied when the computer
+	// was already running. Same as Target.Timeout for Open.
+	Timeout time.Duration
+	// StartTimeout is how long OpenPersistent waits for the computer to be ready, from 10 seconds to 30 minutes.
+	// Zero means 15 minutes. It covers waiting for an earlier stop to finish saving, and a start from a snapshot,
+	// which takes about 3 minutes.
+	StartTimeout time.Duration
+}
+
+// SaveSnapshotOptions configure SaveSnapshot.
+type SaveSnapshotOptions struct {
+	PersistentOptions
+	// WaitTimeout is how long SaveSnapshot waits for the disk to be ready to snapshot, from 1 second to 1 hour.
+	// Zero means 15 minutes. A disk is ready about 5-6 minutes after Close returns.
+	WaitTimeout time.Duration
+}
+
+// PersistentComputerSession is a running persistent Mac. It has every method of the *Session that Open returns for
+// a Mac, such as Exec, ReadFile, WriteFile, Screenshot and Extend; relative file paths are inside the computer's
+// workspace folder, as on Open. ID() is the persistent computer's ID: it stays the same across stops and starts and
+// matches the ID ListPersistent reports.
+type PersistentComputerSession struct {
+	*Session
+	// Name is the name (or ID) you passed to OpenPersistent.
+	Name string
+	// Created is true when this OpenPersistent call created the computer, false when it already existed.
+	Created bool
+}
+
+// Close stops the computer and keeps its disk: files, installed tools and settings are there the next time you
+// OpenPersistent it. Memory and running processes are not kept. It returns once the disk is saved on its Mac, which
+// can take a few minutes; a cancelled ctx stops the wait, not the save. A snapshot of this disk can be saved about
+// 5-6 minutes after Close returns; SaveSnapshot waits for that. Unlike TypeScript and Python, Go does not stop it
+// when the program exits, so always Close it.
+func (c *PersistentComputerSession) Close(ctx context.Context) error {
+	return c.Session.Close(ctx)
+}
+
+// PersistentComputer is one of your organization's persistent computers, as ListPersistent reports it.
+type PersistentComputer struct {
+	// ID stays the same across every stop and start, and works wherever a name does.
+	ID string
+	// State is "starting", "running", "stopping" or "stopped".
+	State string
+	// SavedAt is when its disk was last saved; zero until its first stop finishes saving.
+	SavedAt time.Time
+	// SavedOffHost is whether that save has been copied off the Mac that made it. SaveSnapshot needs this and
+	// waits for it.
+	SavedOffHost bool
+	CreatedAt    time.Time
+}
+
+// ComputerSnapshot is a saved disk that OpenPersistent can start a new computer from.
+type ComputerSnapshot struct {
+	ID   string
+	Name string
+	// ComputerID is the persistent computer whose disk it saved.
+	ComputerID string
+	SavedAt    time.Time
+	// ExpiresAt is when the save stops being usable; zero when it has no end.
+	ExpiresAt time.Time
+}
+
+// OpenPersistent opens the persistent Mac with this name, creating it if it doesn't exist, starting it if it is
+// stopped, and waiting until it is ready. Its disk outlives every stop: Close keeps it, and the next OpenPersistent
+// with the same name boots from it. Names are 1-64 letters, digits, '.', '_' or '-', starting with a letter or
+// digit; the same name opens the same computer from Go, TypeScript and Python. Pass an ID from ListPersistent to
+// open an existing computer without creating one. If it is already running, OpenPersistent connects to it.
+//
+// Persistent computers are turned on per organization. Without them, OpenPersistent and SaveSnapshot return
+// ErrNotAvailableOnPlatform with Reason ReasonPersistentComputersNotEnabled:
+//
+//	var verr *verify.Error
+//	if errors.As(err, &verr) && verr.Reason == verify.ReasonPersistentComputersNotEnabled {
+//		// ask support@revyl.ai to turn persistent computers on for this organization
+//	}
+//
+// Every persistent-computer function returns a *Error; test it with errors.Is(err, verify.ErrNotFound) and read its
+// Message for what to do: ErrNotFound (no computer or snapshot by that name or ID), ErrSessionBusy (the computer is
+// running, or its last stop hasn't finished), ErrTimeout (a wait ran out; the call can be repeated),
+// ErrComputerLimit (the organization keeps its maximum number of computers or snapshots, or can't start another
+// computer now), ErrNotAvailableOnPlatform, ErrInvalidArgument, ErrAuthRejected, ErrSessionStartFailed and ErrAPI.
+//
+//	mac, err := verify.OpenPersistent(ctx, "build-cache")
+//	if err != nil {
+//		return err
+//	}
+//	if mac.Created {
+//		_, err = mac.Exec(ctx, []string{"brew", "install", "jq"})
+//	}
+//	err = errors.Join(err, mac.Close(ctx)) // stops it and keeps the disk
+func OpenPersistent(ctx context.Context, name string, options ...OpenPersistentOptions) (*PersistentComputerSession, error) {
+	opt, err := singlePersistentOption(options)
+	if err != nil {
+		return nil, err
+	}
+	session, created, err := openPersistent(ctx, name, opt)
+	if err != nil {
+		return nil, err
+	}
+	return &PersistentComputerSession{Session: session, Name: name, Created: created}, nil
+}
+
+// SaveSnapshot saves a stopped persistent computer's disk (by name or ID) as a named snapshot, which OpenPersistent
+// with FromSnapshot can start a new computer from. The computer must be stopped: Close it first, or SaveSnapshot
+// returns ErrSessionBusy. A disk is ready to snapshot about 5-6 minutes after Close returns, once it is copied off
+// its Mac; SaveSnapshot waits for that (and for a stop still in progress) up to WaitTimeout, then returns
+// ErrTimeout. Snapshot names follow the computer-name rule and are unique in your organization: a name already used
+// for a different save returns ErrInvalidArgument, while calling it again for the same computer and save returns
+// the snapshot it already saved. A snapshot lasts until you delete it.
+func SaveSnapshot(ctx context.Context, computer, snapshot string, options ...SaveSnapshotOptions) (ComputerSnapshot, error) {
+	opt, err := singlePersistentOption(options)
+	if err != nil {
+		return ComputerSnapshot{}, err
+	}
+	return saveSnapshot(ctx, computer, snapshot, opt)
+}
+
+// ListPersistent lists your organization's persistent computers, stopped ones included, other people's too. Revyl
+// stores no names, so each one is shown by its ID; compare with the ID() of a session OpenPersistent returned. A name
+// always maps to the same ID, so a name keeps working after stops and from any machine or language.
+func ListPersistent(ctx context.Context, options ...PersistentOptions) ([]PersistentComputer, error) {
+	opt, err := singlePersistentOption(options)
+	if err != nil {
+		return nil, err
+	}
+	c, _, err := persistentClient(opt)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	return listPersistentComputers(ctx, c)
+}
+
+// ListSnapshots lists your organization's snapshots.
+func ListSnapshots(ctx context.Context, options ...PersistentOptions) ([]ComputerSnapshot, error) {
+	opt, err := singlePersistentOption(options)
+	if err != nil {
+		return nil, err
+	}
+	c, _, err := persistentClient(opt)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	items, err := persistentPages(ctx, c, "snapshots")
+	if err != nil {
+		return nil, err
+	}
+	snapshots := make([]ComputerSnapshot, 0, len(items))
+	for _, item := range items {
+		snapshot, err := decodeSnapshot(item)
+		if err != nil {
+			return nil, err
+		}
+		snapshots = append(snapshots, snapshot)
+	}
+	return snapshots, nil
+}
+
+// DeletePersistent deletes a persistent computer (by name or ID) and its saved disk for good. A running computer
+// stops first, without saving. Snapshots of it are kept until you DeleteSnapshot them. It returns ErrNotFound when
+// there is no such computer, including one already deleted.
+func DeletePersistent(ctx context.Context, computer string, options ...PersistentOptions) error {
+	opt, err := singlePersistentOption(options)
+	if err != nil {
+		return err
+	}
+	return deletePersistent(ctx, computer, opt)
+}
+
+// DeleteSnapshot deletes a snapshot by name or ID. Computers already started from it keep their disks. It returns
+// ErrNotFound when there is no such snapshot.
+func DeleteSnapshot(ctx context.Context, snapshot string, options ...PersistentOptions) error {
+	opt, err := singlePersistentOption(options)
+	if err != nil {
+		return err
+	}
+	return deleteSnapshot(ctx, snapshot, opt)
+}
+
+func singlePersistentOption[T any](options []T) (T, error) {
+	var zero T
+	if len(options) > 1 {
+		return zero, failure(ErrInvalidArgument, "Pass at most one options value.")
+	}
+	if len(options) == 1 {
+		return options[0], nil
+	}
+	return zero, nil
+}
+
+func persistentClient(options PersistentOptions) (*client, string, error) {
 	return newClient(OpenOptions{BackendURL: options.BackendURL, AppURL: options.AppURL, HTTPClient: options.HTTPClient})
 }
 
-func openPersistent(ctx context.Context, name string, options persistent.OpenOptions) (*Session, bool, error) {
+func openPersistent(ctx context.Context, name string, options OpenPersistentOptions) (*Session, bool, error) {
 	if err := checkComputerReference(name, "OpenPersistent"); err != nil {
 		return nil, false, err
 	}
@@ -102,7 +272,7 @@ func openPersistent(ctx context.Context, name string, options persistent.OpenOpt
 	if startTimeout < 10*time.Second || startTimeout > 30*time.Minute {
 		return nil, false, failure(ErrInvalidArgument, "StartTimeout must be from 10 seconds to 30 minutes.")
 	}
-	c, viewer, err := persistentClient(options.Connection)
+	c, viewer, err := persistentClient(options.PersistentOptions)
 	if err != nil {
 		return nil, false, err
 	}
@@ -244,23 +414,23 @@ func (s *Session) awaitPersistentSave(ctx context.Context) error {
 	}
 }
 
-func saveSnapshot(ctx context.Context, computer, snapshot string, options persistent.SaveOptions) (persistent.Snapshot, error) {
+func saveSnapshot(ctx context.Context, computer, snapshot string, options SaveSnapshotOptions) (ComputerSnapshot, error) {
 	if err := checkComputerReference(computer, "SaveSnapshot"); err != nil {
-		return persistent.Snapshot{}, err
+		return ComputerSnapshot{}, err
 	}
 	if !persistentNamePattern.MatchString(snapshot) || uuidPattern.MatchString(snapshot) {
-		return persistent.Snapshot{}, failure(ErrInvalidArgument, "SaveSnapshot takes a snapshot name of "+persistentNameRule+".")
+		return ComputerSnapshot{}, failure(ErrInvalidArgument, "SaveSnapshot takes a snapshot name of "+persistentNameRule+".")
 	}
-	timeout := options.Timeout
+	timeout := options.WaitTimeout
 	if timeout == 0 {
 		timeout = 15 * time.Minute
 	}
 	if timeout < time.Second || timeout > time.Hour {
-		return persistent.Snapshot{}, failure(ErrInvalidArgument, "Timeout must be from 1 second to 1 hour.")
+		return ComputerSnapshot{}, failure(ErrInvalidArgument, "WaitTimeout must be from 1 second to 1 hour.")
 	}
-	c, _, err := persistentClient(options.Connection)
+	c, _, err := persistentClient(options.PersistentOptions)
 	if err != nil {
-		return persistent.Snapshot{}, err
+		return ComputerSnapshot{}, err
 	}
 	say := func(line string) {
 		if options.Log != nil {
@@ -269,19 +439,19 @@ func saveSnapshot(ctx context.Context, computer, snapshot string, options persis
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	result, err := func() (persistent.Snapshot, error) {
+	result, err := func() (ComputerSnapshot, error) {
 		id, status, err := findPersistentComputer(ctx, c, computer)
 		if err != nil {
-			return persistent.Snapshot{}, err
+			return ComputerSnapshot{}, err
 		}
 		if status == nil {
-			return persistent.Snapshot{}, computerNotFound(computer)
+			return ComputerSnapshot{}, computerNotFound(computer)
 		}
 		waiting := false
 		for {
 			r, err := persistentCall(ctx, c, "POST", persistentBase+"/"+id+"/snapshots", map[string]any{"name": snapshot}, true, computerNotFound(computer).(*Error).Message, "computer_not_stopped", "saved_disk_not_durable", "snapshot_name_taken")
 			if err != nil {
-				return persistent.Snapshot{}, err
+				return ComputerSnapshot{}, err
 			}
 			if r.status < 300 {
 				say("saved snapshot " + snapshot)
@@ -290,12 +460,12 @@ func saveSnapshot(ctx context.Context, computer, snapshot string, options persis
 			detail := persistentDetail(r)
 			status, err := readPersistentStatus(ctx, c, id)
 			if err != nil {
-				return persistent.Snapshot{}, err
+				return ComputerSnapshot{}, err
 			}
 			if detail == "snapshot_name_taken" {
 				existing, err := persistentCall(ctx, c, "GET", persistentBase+"/snapshots/"+url.PathEscape(snapshot), nil, false, "", "inaccessible")
 				if err != nil {
-					return persistent.Snapshot{}, err
+					return ComputerSnapshot{}, err
 				}
 				if existing.status == 200 && status != nil {
 					saved, err := decodeSnapshot(existing.body)
@@ -303,10 +473,10 @@ func saveSnapshot(ctx context.Context, computer, snapshot string, options persis
 						return saved, nil
 					}
 				}
-				return persistent.Snapshot{}, &Error{Code: ErrInvalidArgument, HTTPStatus: r.status, Message: fmt.Sprintf("Your organization already has a snapshot named %s (snapshot_name_taken). Pick another name, or delete the old one with DeleteSnapshot(ctx, %q) first.", snapshot, snapshot)}
+				return ComputerSnapshot{}, &Error{Code: ErrInvalidArgument, HTTPStatus: r.status, Message: fmt.Sprintf("Your organization already has a snapshot named %s (snapshot_name_taken). Pick another name, or delete the old one with DeleteSnapshot(ctx, %q) first.", snapshot, snapshot)}
 			}
 			if detail == "computer_not_stopped" && status != nil && (status.State == "running" || status.State == "starting") {
-				return persistent.Snapshot{}, &Error{Code: ErrSessionBusy, HTTPStatus: r.status, Message: computer + " is running. A snapshot saves a stopped computer's disk: Close its session first (that keeps the disk), then call SaveSnapshot again."}
+				return ComputerSnapshot{}, &Error{Code: ErrSessionBusy, HTTPStatus: r.status, Message: computer + " is running. A snapshot saves a stopped computer's disk: Close its session first (that keeps the disk), then call SaveSnapshot again."}
 			}
 			if !waiting {
 				if detail == "saved_disk_not_durable" {
@@ -317,17 +487,17 @@ func saveSnapshot(ctx context.Context, computer, snapshot string, options persis
 			}
 			waiting = true
 			if err := pause(ctx, 15*time.Second); err != nil {
-				return persistent.Snapshot{}, err
+				return ComputerSnapshot{}, err
 			}
 		}
 	}()
 	if err != nil {
-		return persistent.Snapshot{}, timeoutOr(ctx, err, fmt.Sprintf("%s's disk was not ready to snapshot within %s, so nothing was saved. Call SaveSnapshot again to keep waiting, or pass a larger WaitTimeout.", computer, timeout))
+		return ComputerSnapshot{}, timeoutOr(ctx, err, fmt.Sprintf("%s's disk was not ready to snapshot within %s, so nothing was saved. Call SaveSnapshot again to keep waiting, or pass a larger WaitTimeout.", computer, timeout))
 	}
 	return result, nil
 }
 
-func deletePersistent(ctx context.Context, computer string, options persistent.Connection) error {
+func deletePersistent(ctx context.Context, computer string, options PersistentOptions) error {
 	if err := checkComputerReference(computer, "DeletePersistent"); err != nil {
 		return err
 	}
@@ -353,7 +523,7 @@ func deletePersistent(ctx context.Context, computer string, options persistent.C
 	return nil
 }
 
-func deleteSnapshot(ctx context.Context, snapshot string, options persistent.Connection) error {
+func deleteSnapshot(ctx context.Context, snapshot string, options PersistentOptions) error {
 	if !persistentNamePattern.MatchString(snapshot) {
 		return failure(ErrInvalidArgument, "DeleteSnapshot takes a snapshot name or ID from ListSnapshots.")
 	}
@@ -372,12 +542,12 @@ func deleteSnapshot(ctx context.Context, snapshot string, options persistent.Con
 	return nil
 }
 
-func findPersistentComputer(ctx context.Context, c *client, reference string) (string, *persistent.Computer, error) {
+func findPersistentComputer(ctx context.Context, c *client, reference string) (string, *PersistentComputer, error) {
 	live, err := listPersistentComputers(ctx, c)
 	if err != nil {
 		return "", nil, err
 	}
-	find := func(id string) *persistent.Computer {
+	find := func(id string) *PersistentComputer {
 		for i := range live {
 			if live[i].ID == id {
 				return &live[i]
@@ -423,7 +593,7 @@ func findPersistentComputer(ctx context.Context, c *client, reference string) (s
 	return "", nil, failure(ErrAPI, fmt.Sprintf("%s has been deleted and re-created %d times; use a new name.", reference, persistentGenerations))
 }
 
-func readPersistentStatus(ctx context.Context, c *client, id string) (*persistent.Computer, error) {
+func readPersistentStatus(ctx context.Context, c *client, id string) (*PersistentComputer, error) {
 	r, err := persistentCall(ctx, c, "GET", persistentBase+"/"+id, nil, false, "")
 	if err != nil {
 		return nil, err
@@ -431,12 +601,12 @@ func readPersistentStatus(ctx context.Context, c *client, id string) (*persisten
 	return decodePersistentDetail(r.body)
 }
 
-func listPersistentComputers(ctx context.Context, c *client) ([]persistent.Computer, error) {
+func listPersistentComputers(ctx context.Context, c *client) ([]PersistentComputer, error) {
 	items, err := persistentPages(ctx, c, "persistent")
 	if err != nil {
 		return nil, err
 	}
-	computers := make([]persistent.Computer, 0, len(items))
+	computers := make([]PersistentComputer, 0, len(items))
 	for _, item := range items {
 		computer, err := decodePersistentComputer(item)
 		if err != nil {
@@ -496,7 +666,11 @@ func persistentCall(ctx context.Context, c *client, method, path string, body an
 		return r, blocked
 	}
 	if known, ok := persistentRefusals[detail]; ok {
-		return r, &Error{Code: known.code, HTTPStatus: r.status, Message: known.message}
+		var reason RefusalReason
+		if detail == string(ReasonPersistentComputersNotEnabled) {
+			reason = ReasonPersistentComputersNotEnabled
+		}
+		return r, &Error{Code: known.code, Reason: reason, HTTPStatus: r.status, Message: known.message}
 	}
 	suffix := ""
 	if detail != "" {
@@ -560,7 +734,7 @@ type persistentStatusJSON struct {
 	CreatedAt  time.Time  `json:"created_at"`
 }
 
-func decodePersistentDetail(body []byte) (*persistent.Computer, error) {
+func decodePersistentDetail(body []byte) (*PersistentComputer, error) {
 	var detail struct {
 		Persistent json.RawMessage `json:"persistent"`
 	}
@@ -577,24 +751,24 @@ func decodePersistentDetail(body []byte) (*persistent.Computer, error) {
 	return &computer, nil
 }
 
-func decodePersistentComputer(raw []byte) (persistent.Computer, error) {
+func decodePersistentComputer(raw []byte) (PersistentComputer, error) {
 	var status persistentStatusJSON
 	if json.Unmarshal(raw, &status) != nil || !uuidPattern.MatchString(status.ComputerID) || status.Durable == nil || status.CreatedAt.IsZero() {
-		return persistent.Computer{}, invalidPersistentResponse()
+		return PersistentComputer{}, invalidPersistentResponse()
 	}
 	switch status.State {
 	case "starting", "running", "stopping", "stopped":
 	default:
-		return persistent.Computer{}, invalidPersistentResponse()
+		return PersistentComputer{}, invalidPersistentResponse()
 	}
-	computer := persistent.Computer{ID: strings.ToLower(status.ComputerID), State: status.State, SavedOffHost: *status.Durable, CreatedAt: status.CreatedAt}
+	computer := PersistentComputer{ID: strings.ToLower(status.ComputerID), State: status.State, SavedOffHost: *status.Durable, CreatedAt: status.CreatedAt}
 	if status.SavedAt != nil {
 		computer.SavedAt = *status.SavedAt
 	}
 	return computer, nil
 }
 
-func decodeSnapshot(raw []byte) (persistent.Snapshot, error) {
+func decodeSnapshot(raw []byte) (ComputerSnapshot, error) {
 	var snapshot struct {
 		ID         string     `json:"id"`
 		Name       string     `json:"name"`
@@ -603,9 +777,9 @@ func decodeSnapshot(raw []byte) (persistent.Snapshot, error) {
 		ExpiresAt  *time.Time `json:"expires_at"`
 	}
 	if json.Unmarshal(raw, &snapshot) != nil || !uuidPattern.MatchString(snapshot.ID) || !uuidPattern.MatchString(snapshot.ComputerID) || snapshot.Name == "" || snapshot.SavedAt.IsZero() {
-		return persistent.Snapshot{}, invalidPersistentResponse()
+		return ComputerSnapshot{}, invalidPersistentResponse()
 	}
-	result := persistent.Snapshot{ID: strings.ToLower(snapshot.ID), Name: snapshot.Name, ComputerID: strings.ToLower(snapshot.ComputerID), SavedAt: snapshot.SavedAt}
+	result := ComputerSnapshot{ID: strings.ToLower(snapshot.ID), Name: snapshot.Name, ComputerID: strings.ToLower(snapshot.ComputerID), SavedAt: snapshot.SavedAt}
 	if snapshot.ExpiresAt != nil {
 		result.ExpiresAt = *snapshot.ExpiresAt
 	}

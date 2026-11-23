@@ -4,6 +4,8 @@ export type { ActionOptions, CDPEndpoint, OpenedSession, Session, StepOptions, S
 export { defineConfig } from './config.js';
 export type { HostedTargetConfig, MobileAppConfig, MobileTargetConfig, ComputerTargetConfig, TargetConfig, VerifyConfig, WebAppConfig, WebTargetConfig } from './config.js';
 export type { Platform, ComputerPlatform, MobilePlatform } from './api/types.js';
+export { openPersistent, saveSnapshot, listPersistent, listSnapshots, deletePersistent, deleteSnapshot } from './persistent.js';
+export type { ComputerSnapshot, PersistentComputer, PersistentComputerSession, PersistentComputerState, PersistentOpenOptions, PersistentOptions, SaveSnapshotOptions } from './persistent.js';
 export { VerifyError, isVerifyError } from './errors.js';
 export type { RefusalReason, VerifyErrorCode } from './errors.js';
 export { localAgent } from './agent/loop.js';

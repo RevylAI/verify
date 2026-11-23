@@ -4,7 +4,7 @@ import type { ComputerReport } from './api/types.js';
 import { ComputerSession, computerOperationId } from './computer-session.js';
 import { trackSession } from './cleanup.js';
 import { DEFAULT_STEP_TIMEOUT_MS } from './config.js';
-import { VerifyError, type VerifyErrorCode } from './errors.js';
+import { VerifyError, type RefusalReason, type VerifyErrorCode } from './errors.js';
 import { credentialsForUse, type OpenOptions } from './open.js';
 import type { SessionOptions } from './session.js';
 
@@ -168,7 +168,14 @@ export class PersistentComputerSession extends ComputerSession {
  * the same name opens the same computer from TypeScript, Python and Go. Pass an ID from listPersistent() to open
  * an existing computer without creating one. If it is already running, openPersistent() connects to it.
  *
- * Experimental and internal: persistent computers are a preview that Revyl enables per organization.
+ * Persistent computers are turned on per organization. Without them, openPersistent() and saveSnapshot() throw
+ * NOT_AVAILABLE_ON_PLATFORM with reason 'persistent_computers_not_enabled'. Credentials work as for open().
+ *
+ * Every persistent-computer call throws a VerifyError whose code says what happened and whose message says what to
+ * do: NOT_FOUND (no computer or snapshot by that name or ID), SESSION_BUSY (the computer is running, or its last stop
+ * hasn't finished), TIMEOUT (a wait ran out; the call can be repeated), COMPUTER_LIMIT (the organization keeps its
+ * maximum number of computers or snapshots, or can't start another computer now), NOT_AVAILABLE_ON_PLATFORM,
+ * INVALID_ARGUMENT, AUTH_REJECTED, SESSION_START_FAILED and API_ERROR.
  *
  * @example
  * const mac = await openPersistent('build-cache');
@@ -239,7 +246,8 @@ export async function saveSnapshot(computer: string, snapshot: string, options: 
 
 /**
  * Lists your organization's persistent computers, stopped ones included, other people's too. Revyl stores no names,
- * so each one is shown by its ID; compare with the id of a session openPersistent() returned.
+ * so each one is shown by its ID; compare with the id of a session openPersistent() returned. A name always maps to
+ * the same ID, so a name keeps working after stops and from any machine or language.
  */
 export async function listPersistent(options: PersistentOptions = {}): Promise<PersistentComputer[]> {
   const { client } = await connect(options);
@@ -340,15 +348,15 @@ async function call(client: RevylClient, method: 'GET' | 'POST' | 'DELETE', path
   if (detail && options.accept?.includes(detail)) return response;
   const refusal = { httpStatus: response.status };
   const known = detail ? REFUSALS[detail] : undefined;
-  if (known) throw new VerifyError(known[0], known[1], refusal);
+  if (known) throw new VerifyError(known[0], known[1], { ...refusal, reason: known[2] });
   if (response.status === 401 || response.status === 403) throw new VerifyError('AUTH_REJECTED', `Revyl rejected the request (HTTP ${response.status}${detail ? `, ${detail}` : ''}). Check that REVYL_API_KEY is a current key and that its owner has the Member role or above.`, refusal);
   if (response.status === 404) throw new VerifyError('NOT_FOUND', options.notFound ?? `Revyl could not find ${path} (inaccessible).`, refusal);
   if (response.status === 422 || detail === 'invalid_request') throw new VerifyError('INVALID_ARGUMENT', `Revyl refused the request as invalid (${detail ?? `HTTP ${response.status}`}). Check the call's arguments against its doc comment; if they match, update Verify.`, refusal);
   throw new VerifyError('API_ERROR', `Revyl request ${method} ${path} failed (HTTP ${response.status}${detail ? `, ${detail}` : ''}). It is safe to try again; if it keeps failing, send this message to support@revyl.ai.`, refusal);
 }
 
-const REFUSALS: Record<string, [VerifyErrorCode, string]> = {
-  persistent_computers_not_enabled: ['NOT_AVAILABLE_ON_PLATFORM', "Persistent computers are a preview that Revyl turns on per organization, and this API key's organization doesn't have it (persistent_computers_not_enabled). Use a key from an organization that has it, and pass backendUrl for the Revyl environment where it is on."],
+const REFUSALS: Record<string, [VerifyErrorCode, string, RefusalReason?]> = {
+  persistent_computers_not_enabled: ['NOT_AVAILABLE_ON_PLATFORM', "Persistent computers aren't enabled for this API key's organization yet (persistent_computers_not_enabled). Ask support@revyl.ai to turn them on.", 'persistent_computers_not_enabled'],
   computer_not_enabled: ['NOT_AVAILABLE_ON_PLATFORM', "Mac computers aren't enabled for this API key's organization (computer_not_enabled). Ask support@revyl.ai about access."],
   runtime_unavailable: ['NOT_AVAILABLE_ON_PLATFORM', 'Revyl has no Mac computers available in this environment (runtime_unavailable).'],
   persistent_computer_limit: ['COMPUTER_LIMIT', 'Your organization already keeps as many persistent computers as it may (persistent_computer_limit). listPersistent() shows them; delete one you no longer need with deletePersistent(), then try again.'],
