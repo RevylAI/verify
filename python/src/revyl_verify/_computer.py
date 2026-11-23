@@ -796,7 +796,6 @@ class ComputerSession(Session):
         self._assert_computer_open()
         request_id = str(uuid.uuid4())
         operation_id = str(uuid.uuid5(uuid.UUID(self.id), request_id))
-        deadline = self._observation_deadline(310)
         wire_command = command.copy()
         if command["kind"] == "exec":
             arguments = command["argv"]
@@ -814,17 +813,18 @@ class ComputerSession(Session):
                 "ascii"
             )
             del wire_command["path"]
+        response = self._request(
+            "POST",
+            "/operations",
+            {
+                "computer_session_id": self.id,
+                "request_id": request_id,
+                "command": wire_command,
+            },
+            self._observation_deadline(310),
+        )
+        deadline = self._observation_deadline(310)
         try:
-            response = self._request(
-                "POST",
-                "/operations",
-                {
-                    "computer_session_id": self.id,
-                    "request_id": request_id,
-                    "command": wire_command,
-                },
-                deadline,
-            )
             while True:
                 self._observe(deadline)
                 if response.status != 202:

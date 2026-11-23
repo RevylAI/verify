@@ -715,13 +715,6 @@ func (s *Session) computerOperation(ctx context.Context, command map[string]any,
 		return result, failure(ErrAPI, "Could not generate a computer request ID.")
 	}
 	operationID := computerOperationID(s.id, requestID)
-	ctx, cancel := s.observationContext(ctx)
-	defer cancel()
-	defer func() {
-		if err != nil && ctx.Err() != nil {
-			err = &Error{Code: ErrActionUncertain, Message: fmt.Sprintf("Computer operation %s stopped being observed; its outcome is unconfirmed. See %s", operationID, s.viewer), Cause: ctx.Err()}
-		}
-	}()
 	wireCommand := maps.Clone(command)
 	switch command["kind"] {
 	case "exec":
@@ -736,10 +729,19 @@ func (s *Session) computerOperation(ctx context.Context, command map[string]any,
 		wireCommand["path_b64"] = base64.URLEncoding.EncodeToString([]byte(command["path"].(string)))
 		delete(wireCommand, "path")
 	}
-	r, err := s.computerRequest(ctx, "POST", "/operations", map[string]any{"computer_session_id": s.id, "request_id": requestID, "command": wireCommand})
+	postCtx, cancelPost := s.observationContext(ctx)
+	r, err := s.computerRequest(postCtx, "POST", "/operations", map[string]any{"computer_session_id": s.id, "request_id": requestID, "command": wireCommand})
+	cancelPost()
 	if err != nil {
 		return result, err
 	}
+	ctx, cancel := s.observationContext(ctx)
+	defer cancel()
+	defer func() {
+		if err != nil && ctx.Err() != nil {
+			err = &Error{Code: ErrActionUncertain, Message: fmt.Sprintf("Computer operation %s stopped being observed; its outcome is unconfirmed. See %s", operationID, s.viewer), Cause: ctx.Err()}
+		}
+	}()
 	for {
 		if r.status != 202 {
 			var envelope struct {

@@ -458,7 +458,6 @@ export class ComputerSession implements Session {
     this.assertOpen();
     const requestId = randomUUID();
     const operationId = computerOperationId(this.id, requestId);
-    const signal = this.observationSignal(310_000);
     let wireCommand: unknown = command;
     if (command.kind === 'exec') {
       const { argv, ...fields } = command;
@@ -467,8 +466,9 @@ export class ComputerSession implements Session {
       const { path, ...fields } = command;
       wireCommand = { ...fields, path_b64: encodeWireText(path) };
     }
+    let response = await this.request('POST', '/operations', { computer_session_id: this.id, request_id: requestId, command: wireCommand }, this.observationSignal(310_000));
+    const signal = this.observationSignal(310_000);
     try {
-      let response = await this.request('POST', '/operations', { computer_session_id: this.id, request_id: requestId, command: wireCommand }, signal);
       for (;;) {
         if (signal.aborted) throw signal.reason;
         if (response.status !== 202) {
