@@ -556,6 +556,7 @@ class ComputerSession(Session):
                 break
             if profile_deadline is None:
                 profile_deadline = time.monotonic() + self._start_timeout
+                deadline = self._observation_deadline(self._start_timeout)
             wait = min(2.0**attempt, 5.0)
             name = self._profile.name if self._profile is not None else None
             still_running = VerifyError(
@@ -1061,7 +1062,7 @@ class ComputerSession(Session):
             if transient and time.monotonic() >= self._screen_ready_until:
                 raise self._screen_not_ready() from None
             raise
-        self._observe(deadline)
+        self._assert_computer_open()
         raw = obj(response.json())
         data = decode_bytes(raw.get("png"), 128 * _MAX_OUTPUT)
         width = _integer(raw.get("width"), 1, 4095)

@@ -125,7 +125,7 @@ export class ComputerSession implements Session {
     const resolved = validateHostedTarget(target);
     if ((this.platform === 'mac' && resolved.platform === 'android') || (this.platform === 'linux' && resolved.platform === 'ios')) throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'This computer cannot host the requested platform.', { reason: 'computer_cannot_host_platform' });
     const expiresAt = () => this.expiresAt;
-    const pending = DeviceSession.start(this.client, resolved, this.options, {
+    const pending = DeviceSession.start(this.client, resolved, { ...this.options, profile: undefined }, {
       id: this.id,
       signal: this.lifetime.signal,
       get expiresAt() { return expiresAt(); },
@@ -500,7 +500,8 @@ export class ComputerSession implements Session {
     }
   }
 
-  private async request(method: 'GET' | 'POST', suffix: string, body: unknown, signal: AbortSignal, timeoutMs?: number): Promise<RawResponse> {
+  private async request(method: 'GET' | 'POST', suffix: string, body: unknown, callSignal: AbortSignal, timeoutMs?: number): Promise<RawResponse> {
+    let signal = callSignal;
     const path = `/api/v1/computer-runs${suffix === '' ? '' : `/${this.id}${suffix}`}`;
     let response: RawResponse;
     let profileDeadline: number | undefined;
@@ -514,7 +515,10 @@ export class ComputerSession implements Session {
         throw error;
       }
       if (response.status !== 409 || responseTopLevelCode(response) !== 'session_profile_running') break;
-      profileDeadline ??= Date.now() + this.startTimeoutMs;
+      if (profileDeadline === undefined) {
+        profileDeadline = Date.now() + this.startTimeoutMs;
+        signal = this.observationSignal(this.startTimeoutMs);
+      }
       const waitMs = Math.min(1_000 * 2 ** attempt, 5_000);
       const stillRunning = () => new VerifyError('TIMEOUT', `The ${this.target} computer's session profile${this.options.profile?.name ? ` ${this.options.profile.name}` : ''} is still running, so Revyl refused this call without running it (session_profile_running), and Verify stopped waiting at its timeout. Wait for the profile to finish, then try again. See ${this.viewerUrl}`, { httpStatus: 409 });
       if (Date.now() + waitMs > profileDeadline || signal.aborted) throw stillRunning();

@@ -450,6 +450,12 @@ func (s *Session) computerRequestTimeout(ctx context.Context, method, suffix str
 				startTimeout = 10 * time.Minute
 			}
 			profileDeadline = time.Now().Add(startTimeout)
+			if caller, ok := ctx.Value(callerContextKey{}).(context.Context); ok {
+				ctx = caller
+			}
+			var cancel context.CancelFunc
+			ctx, cancel = s.computerContext(ctx, profileDeadline)
+			defer cancel()
 		}
 		wait := 5 * time.Second
 		if attempt < 3 {
@@ -631,12 +637,26 @@ func (s *Session) closeComputer(ctx context.Context) error {
 	return err
 }
 
+// callerContextKey holds the context a computer call was made with, before observationContext bounded it, so a
+// session_profile_running wait can outlive the call's own deadline.
+type callerContextKey struct{}
+
 func (s *Session) observationContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	deadline := time.Now().Add(computerObservationTimeout)
+	if _, ok := ctx.Value(callerContextKey{}).(context.Context); !ok {
+		ctx = context.WithValue(ctx, callerContextKey{}, ctx)
+	}
+	return s.computerContext(ctx, time.Now().Add(computerObservationTimeout))
+}
+
+// computerContext bounds ctx by deadline, the computer's expiry and its lifetime.
+func (s *Session) computerContext(ctx context.Context, deadline time.Time) (context.Context, context.CancelFunc) {
 	if expiresAt := s.ExpiresAt(); !expiresAt.IsZero() && expiresAt.Before(deadline) {
 		deadline = expiresAt
 	}
 	ctx, cancel := context.WithDeadline(ctx, deadline)
+	if s.lifetime == nil {
+		return ctx, cancel
+	}
 	stop := context.AfterFunc(s.lifetime, cancel)
 	if s.lifetime.Err() != nil {
 		cancel()
