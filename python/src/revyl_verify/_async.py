@@ -236,6 +236,7 @@ async def async_open(
     log: Callable[[str], None] | Literal[False] | None = None,
     model: ModelOption | None = None,
     agent: LocalAgent | None = None,
+    profile: str | None = None,
 ) -> AsyncSession:
     from . import open
 
@@ -248,6 +249,7 @@ async def async_open(
             log=log,
             model=model,
             agent=agent,
+            profile=profile,
             _cancellation=cancellation,
         )
     )

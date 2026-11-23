@@ -35,6 +35,15 @@ from ._models import (
     text_length,
 )
 from ._session import Session, _check_settle, _location, png_size, save_screenshot
+from ._session_profile import (
+    REPOSITORY_RETRY_DELAYS,
+    SessionProfilePlan,
+    missing_branch_notice,
+    profile_failed_error,
+    profile_not_reported_error,
+    profile_refusal_error,
+    reported_session_profile,
+)
 from ._transport import (
     Cancellation,
     Client,
@@ -246,6 +255,19 @@ def _input_bytes(value: str | bytes) -> bytes:
     raise VerifyError("INVALID_ARGUMENT", "Computer input must be a UTF-8 string or bytes.")
 
 
+def _is_profile_running(response: Response) -> bool:
+    if response.status != 409:
+        return False
+    try:
+        raw = response.json()
+    except VerifyError:
+        return False
+    return isinstance(raw, dict) and "session_profile_running" in (
+        raw.get("code"),
+        raw.get("detail"),
+    )
+
+
 def _detail(response: Response) -> str | None:
     try:
         raw = response.json()
@@ -276,6 +298,7 @@ class ComputerSession(Session):
         self._child_starts = 0
         self._child_condition = threading.Condition(self._lock)
         self._stop_on_close: bool = True
+        self._start_timeout: float = 600
 
     @classmethod
     def attach(
@@ -379,6 +402,7 @@ class ComputerSession(Session):
         *,
         computer_session_id: str | None = None,
         expires_at: datetime | None = None,
+        profile: SessionProfilePlan | None = None,
     ) -> ComputerSession:
         if (
             target.platform not in {"mac", "linux"}
@@ -399,6 +423,8 @@ class ComputerSession(Session):
         session._cancellation = cancellation
         deadline = Deadline(target.start_timeout, cancellation)
         session._log_callback = log
+        session._profile = profile
+        session._start_timeout = target.start_timeout
         acknowledged = False
         try:
             track(session)
@@ -409,15 +435,38 @@ class ComputerSession(Session):
             }
             if target.timeout is not None:
                 body["timeout_seconds"] = target.timeout
-            response = session._request("POST", "", body, deadline)
+            if profile is not None:
+                body.update(profile.fields)
+            for attempt in range(len(REPOSITORY_RETRY_DELAYS) + 1):
+                try:
+                    response = session._request("POST", "", body, deadline)
+                    break
+                except VerifyError as error:
+                    if error.reason != "repository_unavailable" or attempt == len(
+                        REPOSITORY_RETRY_DELAYS
+                    ):
+                        raise
+                    deadline.pause(REPOSITORY_RETRY_DELAYS[attempt])
             acknowledged = True
+            report = session._report(response)
+            plan = profile if profile is not None and profile.name is not None else None
+            if plan is not None:
+                notice = missing_branch_notice(reported_session_profile(report), plan)
+                if notice:
+                    session._log(notice)
+                session._log(f"waiting for session profile {plan.name}")
             while True:
-                report = session._report(response)
+                reported = reported_session_profile(report) if plan is not None else None
+                if plan is not None and reported is not None and reported.status == "failed":
+                    raise profile_failed_error(reported, plan, session.viewer_url)
                 if report["state"] == "active":
-                    session._screen_ready_until = time.monotonic() + 30
-                    session._log("ready")
-                    return session
-                if report["state"] != "starting":
+                    if plan is not None and reported is None:
+                        raise profile_not_reported_error(session.platform, session.viewer_url)
+                    if reported is None or reported.status == "succeeded":
+                        session._screen_ready_until = time.monotonic() + 30
+                        session._log("ready")
+                        return session
+                elif report["state"] != "starting":
                     reason = ""
                     if report.get("failure_reason") == "no_host":
                         reason = (
@@ -432,7 +481,7 @@ class ComputerSession(Session):
                         f"({report['state']}).{reason} See {session.viewer_url}",
                     )
                 deadline.pause(2)
-                response = session._request("GET", "/report", None, deadline)
+                report = session._report(session._request("GET", "/report", None, deadline))
         except BaseException as error:
             timed_out = isinstance(error, VerifyError) and (
                 error.code == "TIMEOUT"
@@ -445,15 +494,19 @@ class ComputerSession(Session):
             refused = (
                 not acknowledged
                 and isinstance(error, VerifyError)
-                and error.code
-                in {
-                    "AUTH_REJECTED",
-                    "EDGE_BLOCKED",
-                    "NOT_AVAILABLE_ON_PLATFORM",
-                    "INVALID_ARGUMENT",
-                    "COMPUTER_LIMIT",
-                }
-            )
+                and (
+                    error.code
+                    in {
+                        "AUTH_REJECTED",
+                        "EDGE_BLOCKED",
+                        "NOT_AVAILABLE_ON_PLATFORM",
+                        "INVALID_ARGUMENT",
+                        "COMPUTER_LIMIT",
+                        "CONFIG_INVALID",
+                    }
+                    or error.reason == "repository_unavailable"
+                )
+            ) or (isinstance(error, VerifyError) and error.code == "SESSION_PROFILE_FAILED")
             if refused:
                 session._closed = True
                 untrack(session)
@@ -473,38 +526,67 @@ class ComputerSession(Session):
         self, method: str, suffix: str, body: Json, deadline: Deadline, timeout: float | None = None
     ) -> Response:
         path = "/api/v1/computer-runs" + (f"/{self.id}{suffix}" if suffix else "")
-        try:
-            response = self._client.request(
-                method,
-                path,
-                body,
-                deadline=deadline,
-                timeout=timeout
-                or (310 if suffix == "/stop" or suffix.startswith("/operations") else 30),
-                retry=method == "GET" and suffix != "/screen/screenshot",
+        profile_deadline: float | None = None
+        attempt = 0
+        while True:
+            try:
+                response = self._client.request(
+                    method,
+                    path,
+                    body,
+                    deadline=deadline,
+                    timeout=timeout
+                    or (310 if suffix == "/stop" or suffix.startswith("/operations") else 30),
+                    retry=method == "GET" and suffix != "/screen/screenshot",
+                )
+            except VerifyError as error:
+                if suffix == "/screen/actions":
+                    raise VerifyError(
+                        "ACTION_UNCERTAIN",
+                        "The screen action may have happened: Revyl's answer never arrived. "
+                        "Verify will not repeat it; take a screenshot() to check before you do. "
+                        f"See {self.viewer_url}",
+                    ) from error
+                if method == "POST" or suffix.startswith("/operations/"):
+                    raise VerifyError(
+                        "ACTION_UNCERTAIN",
+                        "Computer request outcome is unconfirmed. Verify will not repeat it. "
+                        f"See {self.viewer_url}",
+                    ) from error
+                raise VerifyError(
+                    error.code, f"Could not read the computer state. See {self.viewer_url}"
+                ) from None
+            if not _is_profile_running(response):
+                break
+            if profile_deadline is None:
+                profile_deadline = time.monotonic() + self._start_timeout
+                deadline = self._observation_deadline(self._start_timeout)
+            wait = min(2.0**attempt, 5.0)
+            name = self._profile.name if self._profile is not None else None
+            still_running = VerifyError(
+                "TIMEOUT",
+                f"The {self.platform} computer's session profile{f' {name}' if name else ''} "
+                "is still running, so Revyl refused this call without running it "
+                "(session_profile_running), and Verify stopped waiting at its timeout. Wait for "
+                f"the profile to finish, then try again. See {self.viewer_url}",
+                http_status=409,
             )
-        except VerifyError as error:
-            if suffix == "/screen/actions":
-                raise VerifyError(
-                    "ACTION_UNCERTAIN",
-                    "The screen action may have happened: Revyl's answer never arrived. Verify "
-                    "will not repeat it; take a screenshot() to check before you do. "
-                    f"See {self.viewer_url}",
-                ) from error
-            if method == "POST" or suffix.startswith("/operations/"):
-                raise VerifyError(
-                    "ACTION_UNCERTAIN",
-                    "Computer request outcome is unconfirmed. Verify will not repeat it. "
-                    f"See {self.viewer_url}",
-                ) from error
-            raise VerifyError(
-                error.code, f"Could not read the computer state. See {self.viewer_url}"
-            ) from None
+            if time.monotonic() + wait > profile_deadline or deadline.expired():
+                raise still_running
+            try:
+                deadline.pause(wait)
+            except VerifyError:
+                raise still_running from None
+            attempt += 1
         if 200 <= response.status < 300:
             return response
         blocked = edge_blocked_error(response)
         if blocked is not None:
             raise blocked
+        if suffix == "" and method == "POST" and self._profile is not None:
+            profile_refusal = profile_refusal_error(response, self._profile, self.platform)
+            if profile_refusal is not None:
+                raise profile_refusal
         reason = refusal_reason(response)
         detail = reason or _detail(response)
         if suffix == "/recording" and response.status == 404 and detail == "recording_unavailable":
@@ -540,6 +622,32 @@ class ComputerSession(Session):
                 "running longer than 2 hours (computer_long_limit). Ask for 2 hours or less, or "
                 f"stop one of them. See {self.viewer_url}",
                 reason=reason,
+                http_status=response.status,
+            )
+        if (
+            suffix == ""
+            and method == "POST"
+            and response.status == 409
+            and detail == "lifetime_unsupported"
+        ):
+            try:
+                raw = response.json()
+                maximum = raw.get("max_timeout_seconds") if isinstance(raw, dict) else None
+            except VerifyError:
+                maximum = None
+            fix = (
+                f"timeout of at most {int(maximum)}"
+                if isinstance(maximum, (int, float))
+                and not isinstance(maximum, bool)
+                and float(maximum).is_integer()
+                and maximum > 0
+                else "a shorter timeout"
+            )
+            raise VerifyError(
+                "NOT_AVAILABLE_ON_PLATFORM",
+                "No host can keep this computer running that long (lifetime_unsupported); "
+                f"pass {fix}.",
+                reason="lifetime_unsupported",
                 http_status=response.status,
             )
         if response.status == 409 and detail == "extend_unsupported":
@@ -692,7 +800,6 @@ class ComputerSession(Session):
         self._assert_computer_open()
         request_id = str(uuid.uuid4())
         operation_id = str(uuid.uuid5(uuid.UUID(self.id), request_id))
-        deadline = self._observation_deadline(310)
         wire_command = command.copy()
         if command["kind"] == "exec":
             arguments = command["argv"]
@@ -710,17 +817,18 @@ class ComputerSession(Session):
                 "ascii"
             )
             del wire_command["path"]
+        response = self._request(
+            "POST",
+            "/operations",
+            {
+                "computer_session_id": self.id,
+                "request_id": request_id,
+                "command": wire_command,
+            },
+            self._observation_deadline(310),
+        )
+        deadline = self._observation_deadline(310)
         try:
-            response = self._request(
-                "POST",
-                "/operations",
-                {
-                    "computer_session_id": self.id,
-                    "request_id": request_id,
-                    "command": wire_command,
-                },
-                deadline,
-            )
             while True:
                 self._observe(deadline)
                 if response.status != 202:
@@ -958,7 +1066,7 @@ class ComputerSession(Session):
             if transient and time.monotonic() >= self._screen_ready_until:
                 raise self._screen_not_ready() from None
             raise
-        self._observe(deadline)
+        self._assert_computer_open()
         raw = obj(response.json())
         data = decode_bytes(raw.get("png"), 128 * _MAX_OUTPUT)
         width = _integer(raw.get("width"), 1, 4095)

@@ -13,28 +13,38 @@ type Code string
 type RefusalReason string
 
 const (
-	ReasonWebRuntimeUnavailable      RefusalReason = "web_runtime_unavailable"
-	ReasonWebRuntimeNotConfigured    RefusalReason = "web_runtime_not_configured"
-	ReasonComputerLimit              RefusalReason = "computer_limit"
-	ReasonRuntimeUnavailable         RefusalReason = "runtime_unavailable"
-	ReasonComputerRuntimeUnavailable RefusalReason = "computer_runtime_unavailable"
-	ReasonComputerAtCapacity         RefusalReason = "computer_at_capacity"
-	ReasonComputerPlatformAtCapacity RefusalReason = "computer_platform_at_capacity"
-	ReasonComputerNotRunning         RefusalReason = "computer_not_running"
-	ReasonComputerCannotHostPlatform RefusalReason = "computer_cannot_host_platform"
-	ReasonComputerNotFound           RefusalReason = "computer_not_found"
-	ReasonWebBuildRequired           RefusalReason = "web_build_required"
-	ReasonWebBuildNotSupported       RefusalReason = "web_build_not_supported"
-	ReasonIOSBuildRequired           RefusalReason = "ios_build_required"
-	ReasonIOSBuildNotSupported       RefusalReason = "ios_build_not_supported"
-	ReasonAndroidBuildRequired       RefusalReason = "android_build_required"
-	ReasonAndroidBuildNotSupported   RefusalReason = "android_build_not_supported"
-	ReasonWebSessionConflict         RefusalReason = "web_session_conflict"
-	ReasonIOSSessionConflict         RefusalReason = "ios_session_conflict"
-	ReasonAndroidSessionConflict     RefusalReason = "android_session_conflict"
-	ReasonNotAvailableOnPlatform     RefusalReason = "not_available_on_platform"
-	ReasonRequestTimeout             RefusalReason = "request_timeout"
-	ReasonProtocolError              RefusalReason = "protocol_error"
+	ReasonWebRuntimeUnavailable         RefusalReason = "web_runtime_unavailable"
+	ReasonWebRuntimeNotConfigured       RefusalReason = "web_runtime_not_configured"
+	ReasonComputerLimit                 RefusalReason = "computer_limit"
+	ReasonRuntimeUnavailable            RefusalReason = "runtime_unavailable"
+	ReasonComputerRuntimeUnavailable    RefusalReason = "computer_runtime_unavailable"
+	ReasonComputerAtCapacity            RefusalReason = "computer_at_capacity"
+	ReasonComputerPlatformAtCapacity    RefusalReason = "computer_platform_at_capacity"
+	ReasonComputerNotRunning            RefusalReason = "computer_not_running"
+	ReasonComputerCannotHostPlatform    RefusalReason = "computer_cannot_host_platform"
+	ReasonComputerNotFound              RefusalReason = "computer_not_found"
+	ReasonWebBuildRequired              RefusalReason = "web_build_required"
+	ReasonWebBuildNotSupported          RefusalReason = "web_build_not_supported"
+	ReasonIOSBuildRequired              RefusalReason = "ios_build_required"
+	ReasonIOSBuildNotSupported          RefusalReason = "ios_build_not_supported"
+	ReasonAndroidBuildRequired          RefusalReason = "android_build_required"
+	ReasonAndroidBuildNotSupported      RefusalReason = "android_build_not_supported"
+	ReasonWebSessionConflict            RefusalReason = "web_session_conflict"
+	ReasonIOSSessionConflict            RefusalReason = "ios_session_conflict"
+	ReasonAndroidSessionConflict        RefusalReason = "android_session_conflict"
+	ReasonNotAvailableOnPlatform        RefusalReason = "not_available_on_platform"
+	ReasonPersistentComputersNotEnabled RefusalReason = "persistent_computers_not_enabled"
+	ReasonRequestTimeout                RefusalReason = "request_timeout"
+	ReasonProtocolError                 RefusalReason = "protocol_error"
+
+	ReasonSessionProfileUndefined         RefusalReason = "session_profile_undefined"
+	ReasonSessionProfileSourceRequired    RefusalReason = "session_profile_source_required"
+	ReasonSessionProfileFilesNeedNamed    RefusalReason = "session_profile_files_need_named"
+	ReasonSessionProfileScriptUnavailable RefusalReason = "session_profile_script_unavailable"
+	ReasonRepositoryConnectionMissing     RefusalReason = "repository_connection_missing"
+	ReasonProjectNotFound                 RefusalReason = "project_not_found"
+	ReasonRepositoryUnavailable           RefusalReason = "repository_unavailable"
+	ReasonLifetimeUnsupported             RefusalReason = "lifetime_unsupported"
 )
 
 func (c Code) Error() string { return string(c) }
@@ -63,6 +73,7 @@ const (
 	ErrAccessDenied           Code = "ACCESS_DENIED"
 	ErrModelError             Code = "MODEL_ERROR"
 	ErrModelKeyMissing        Code = "MODEL_KEY_MISSING"
+	ErrSessionProfileFailed   Code = "SESSION_PROFILE_FAILED"
 	ErrTimeout                Code = "TIMEOUT"
 )
 
@@ -73,6 +84,12 @@ type Error struct {
 	Message    string
 	Cause      error
 	ExecResult *ExecResult
+	// Outcome is set on ErrSessionProfileFailed: how the profile's run ended, such as "script_failed".
+	Outcome string
+	// FailureReason is set on ErrSessionProfileFailed: Revyl's reason, which never holds a secret or the script's output.
+	FailureReason string
+
+	legacyProfileRefusal bool
 }
 
 func (e *Error) Error() string { return fmt.Sprintf("%s: %s", e.Code, e.Message) }

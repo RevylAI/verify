@@ -47,8 +47,27 @@ from ._models import (
     Target,
     Viewport,
 )
+from ._persistent import (
+    ComputerSnapshot,
+    PersistentComputer,
+    PersistentComputerSession,
+    delete_persistent,
+    delete_snapshot,
+    list_persistent,
+    list_snapshots,
+    open_persistent,
+    save_snapshot,
+)
 from ._session import Session
-from ._transport import Cancellation, CleanupStatus, RefusalReason, VerifyError, origin, seconds
+from ._transport import (
+    Cancellation,
+    CleanupStatus,
+    RefusalReason,
+    SessionProfileOutcome,
+    VerifyError,
+    origin,
+    seconds,
+)
 
 __version__ = "0.5.0"
 __all__ = [
@@ -57,6 +76,7 @@ __all__ = [
     "ComputerProcess",
     "ComputerRecording",
     "ComputerSession",
+    "ComputerSnapshot",
     "CleanupStatus",
     "CustomModel",
     "ExecResult",
@@ -76,11 +96,14 @@ __all__ = [
     "ModelToolCall",
     "ModelTurn",
     "ModelUsage",
+    "PersistentComputer",
+    "PersistentComputerSession",
     "Platform",
     "Point",
     "RefusalReason",
     "ScreenSize",
     "Session",
+    "SessionProfileOutcome",
     "SignIn",
     "StepResult",
     "SwipeDirection",
@@ -93,9 +116,15 @@ __all__ = [
     "async_current_computer",
     "async_open",
     "current_computer",
+    "delete_persistent",
+    "delete_snapshot",
+    "list_persistent",
+    "list_snapshots",
     "local_agent",
     "open",
+    "open_persistent",
     "openai_compatible",
+    "save_snapshot",
 ]
 
 
@@ -132,8 +161,10 @@ def open(
     log: Callable[[str], None] | Literal[False] | None = None,
     model: ModelOption | None = None,
     agent: LocalAgent | None = None,
+    profile: str | None = None,
     _cancellation: Cancellation | None = None,
 ) -> Session:
+    from ._session_profile import is_legacy_profile_refusal, plan_session_profile
     from ._transport import Client
 
     if not isinstance(target, Target):
@@ -146,14 +177,27 @@ def open(
             "NOT_AVAILABLE_ON_PLATFORM",
             "Your own model runs steps on browsers and devices, not on computers.",
         )
+    plan = plan_session_profile(profile, target.platform, os.getcwd())
     install_signal_cleanup()
     seconds(step_timeout, 1, 3600, "step_timeout")
     progress = _progress(log)
     viewer = origin(app_url or "https://app.revyl.ai", app=True)
     client = Client(backend_url, app_url, _cancellation)
-    session = (ComputerSession if computer else Session).start(
-        client, viewer, target, step_timeout, progress, _cancellation
-    )
+    start = (ComputerSession if computer else Session).start
+    try:
+        session = start(client, viewer, target, step_timeout, progress, _cancellation, profile=plan)
+    except VerifyError as error:
+        if plan is None or not plan.implicit or not is_legacy_profile_refusal(error):
+            raise
+        if progress is not None:
+            try:
+                progress(
+                    f"Skipping default session profile {plan.name}: Revyl doesn't run session "
+                    'profiles for API starts yet. Pass profile="none" to silence this.'
+                )
+            except Exception:
+                pass
+        session = start(client, viewer, target, step_timeout, progress, _cancellation)
     session._agent = local
     return session
 

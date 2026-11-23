@@ -1,3 +1,5 @@
+import type { SessionProfileFields } from '../session-profile.js';
+
 export type Platform = 'ios' | 'android' | 'web' | 'mac' | 'linux';
 export type MobilePlatform = 'ios' | 'android';
 export type ComputerPlatform = 'mac' | 'linux';
@@ -26,6 +28,9 @@ export interface StartDeviceRequest {
   os_version?: string;
   idle_timeout_seconds?: number;
   web?: { viewport?: WebViewportRequest; sign_in?: WebSignInRequest };
+  session_profile?: SessionProfileFields['session_profile'];
+  session_profile_source?: SessionProfileFields['session_profile_source'];
+  session_profile_files?: SessionProfileFields['session_profile_files'];
 }
 
 export interface StartDeviceResponse {

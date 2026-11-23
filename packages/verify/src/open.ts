@@ -7,6 +7,7 @@ import { DeviceSession, type OpenedSession } from './session.js';
 import { ComputerSession } from './computer-session.js';
 import type { LocalAgent } from './agent/loop.js';
 import { chooseAgent, type ModelOption } from './agent/providers.js';
+import { isLegacyProfileRefusal, planSessionProfile, type SessionProfilePlan } from './session-profile.js';
 
 export interface OpenOptions {
   /** The config file to read target names from. Defaults to the nearest verify.config.ts at or above the current folder. */
@@ -19,6 +20,11 @@ export interface OpenOptions {
   model?: ModelOption;
   /** Runs every instruction and validation on a custom agent from localAgent(). Pass model or agent, not both. */
   agent?: LocalAgent;
+  /**
+   * A session profile from session.profiles in .revyl/config.yaml, such as 'signed-in', that Revyl runs before open() returns,
+   * or 'none' for no profile. Left out, the project's session.default_profile runs when it sets one. Web, iOS, Android and Mac only.
+   */
+  profile?: string;
 }
 
 export interface AttachOptions extends Pick<OpenOptions, 'log' | 'backendUrl' | 'appUrl'> {
@@ -27,7 +33,7 @@ export interface AttachOptions extends Pick<OpenOptions, 'log' | 'backendUrl' | 
 
 const signIns = new Map<string, Promise<Credentials>>();
 
-async function credentialsForUse(options: Pick<OpenOptions, 'backendUrl' | 'appUrl'>): Promise<Credentials> {
+export async function credentialsForUse(options: Pick<OpenOptions, 'backendUrl' | 'appUrl'>): Promise<Credentials> {
   const credentials = await resolveCredentials();
   if (credentials) return credentials;
   if (!process.stdin.isTTY || !process.stderr.isTTY || process.env.CI) throw new VerifyError('AUTH_MISSING', missingCredentialsMessage());
@@ -78,9 +84,20 @@ export async function open(target: string | TargetConfig, options: OpenOptions =
   if (agent && (resolved.platform === 'mac' || resolved.platform === 'linux')) {
     throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'Your own model runs steps on browsers and devices, not on computers.');
   }
+  const profile = await planSessionProfile(options.profile, resolved.platform, process.cwd());
   const credentials = await credentialsForUse(options);
   const log = options.log === false ? undefined : (options.log ?? ((line: string) => void process.stderr.write(`[verify] ${line}\n`)));
   const client = new RevylClient({ token: credentials.token, backendUrl: options.backendUrl });
-  if (resolved.platform === 'mac' || resolved.platform === 'linux') return ComputerSession.start(client, resolved, { stepTimeout, log, appUrl: options.appUrl });
-  return DeviceSession.start(client, resolved, { stepTimeout, log, appUrl: options.appUrl, ...(agent ? { agent } : {}) });
+  const chosen = resolved;
+  const start = (plan: SessionProfilePlan | undefined): Promise<OpenedSession> =>
+    chosen.platform === 'mac' || chosen.platform === 'linux'
+      ? ComputerSession.start(client, chosen, { stepTimeout, log, appUrl: options.appUrl, ...(plan ? { profile: plan } : {}) })
+      : DeviceSession.start(client, chosen, { stepTimeout, log, appUrl: options.appUrl, ...(agent ? { agent } : {}), ...(plan ? { profile: plan } : {}) });
+  try {
+    return await start(profile);
+  } catch (error) {
+    if (!profile?.implicit || !isLegacyProfileRefusal(error)) throw error;
+    log?.(`Skipping default session profile ${profile.name}: Revyl doesn't run session profiles for API starts yet. Pass profile: 'none' to silence this.`);
+    return start(undefined);
+  }
 }

@@ -1,6 +1,7 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { VerifyError, errorMessage, type RefusalReason } from '../errors.js';
 import { VERSION } from '../version.js';
+import { profileRefusalError, type SessionProfilePlan } from '../session-profile.js';
 import type {
   AppResponse,
   BuildPage,
@@ -58,7 +59,7 @@ export class RevylClient {
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   }
 
-  async send(method: 'GET' | 'POST', path: string, options: RequestOptions = {}): Promise<RawResponse> {
+  async send(method: 'GET' | 'POST' | 'DELETE', path: string, options: RequestOptions = {}): Promise<RawResponse> {
     const url = new URL(path, this.backendUrl);
     for (const [key, value] of Object.entries(options.query ?? {})) {
       if (value === undefined) continue;
@@ -83,10 +84,12 @@ export class RevylClient {
     return parseJson<T>(response, `${method} ${path}`);
   }
 
-  async startDevice(request: StartDeviceRequest, signal?: AbortSignal): Promise<StartDeviceResponse> {
+  async startDevice(request: StartDeviceRequest, signal?: AbortSignal, profile?: SessionProfilePlan): Promise<StartDeviceResponse> {
     const path = '/api/v1/execution/start_device';
     const response = await this.send('POST', path, { body: request, retry: false, timeoutMs: 120_000, signal });
-    if (response.status < 200 || response.status >= 300) throw (request.platform !== 'web' && mobileStartRefusal(response)) || apiError('POST', path, response);
+    if (response.status < 200 || response.status >= 300) {
+      throw (profile && profileRefusalError(response, profile, request.platform)) || (request.platform !== 'web' && mobileStartRefusal(response)) || apiError('POST', path, response);
+    }
     return parseJson<StartDeviceResponse>(response, `POST ${path}`);
   }
 
@@ -133,8 +136,8 @@ export class RevylClient {
     return page.items[0];
   }
 
-  whoAmI(): Promise<WhoAmI> {
-    return this.json('GET', '/api/v1/entity/users/get_user_uuid');
+  whoAmI(signal?: AbortSignal): Promise<WhoAmI> {
+    return this.json('GET', '/api/v1/entity/users/get_user_uuid', { signal });
   }
 
   worker(
@@ -152,7 +155,7 @@ export class RevylClient {
     });
   }
 
-  private async sendOnce(method: 'GET' | 'POST', url: URL, options: RequestOptions): Promise<RawResponse | VerifyError> {
+  private async sendOnce(method: 'GET' | 'POST' | 'DELETE', url: URL, options: RequestOptions): Promise<RawResponse | VerifyError> {
     const timeout = AbortSignal.timeout(options.timeoutMs ?? this.requestTimeoutMs);
     const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
     const headers: Record<string, string> = {

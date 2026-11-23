@@ -15,6 +15,11 @@
 | Hosted parent inaccessible | `NOT_FOUND` | `computer_not_found` |
 | Hosted build input | `INVALID_ARGUMENT` | `web_build_required`, `web_build_not_supported`, or corresponding `ios_` / `android_` codes |
 | Hosted identity conflict | `SESSION_BUSY` | `web_session_conflict`, `ios_session_conflict`, `android_session_conflict` |
+| Session profile refused | `CONFIG_INVALID` | `session_profile_undefined`, `project_not_found`, `repository_connection_missing` |
+| Session profile request Verify built wrong | `INVALID_ARGUMENT` | `session_profile_source_required`, `session_profile_files_need_named` |
+| Session profile script missing | `SESSION_PROFILE_FAILED` (`outcome: 'script_unavailable'`) | `session_profile_script_unavailable` |
+| Repository unreadable after 3 attempts | `API_ERROR` | `repository_unavailable` |
+| Computer HTTP 409: no host can keep it running for the requested `timeoutMs` | `NOT_AVAILABLE_ON_PLATFORM` | `lifetime_unsupported` |
 
 `web_runtime_unavailable` does not distinguish full capacity from an unavailable runtime. `computer_limit` does not distinguish queued work from concurrency exhaustion. Inspect these fields to classify refusal without parsing prose; do not infer a specific cause or automatically start a replacement session.
 
@@ -38,13 +43,14 @@ try {
 | Code | What happened | What to do |
 | --- | --- | --- |
 | `INVALID_ARGUMENT` | A call got a bad value: an unknown target name, an empty step, two steps at once on one session, a point outside the screenshot, `typeFocused` on a computer without `{ clear: false }`, a device model or OS version Revyl doesn't offer, or an iOS or Android app or build id Revyl can't find | The message names the argument, and for a device, the values Revyl accepts |
-| `CONFIG_NOT_FOUND` | `open('name')` found no `verify.config.ts` at or above the current folder | Run `npx @revyl/verify init`, pass `options.config`, or pass a target object |
-| `CONFIG_INVALID` | The config failed validation or did not load | The message names the exact option and the rule |
+| `CONFIG_NOT_FOUND` | `open('name')` found no `verify.config.ts` at or above the current folder, or `open(target, { profile })` found no `.revyl/config.yaml` there | Run `npx @revyl/verify init`, pass `options.config`, or pass a target object |
+| `CONFIG_INVALID` | The config failed validation or did not load, `.revyl/config.yaml` can't give the session profile Verify needs (no `project.id` UUID, or the name isn't in `session.profiles`), or Revyl refused the profile with `session_profile_undefined`, `project_not_found` or `repository_connection_missing` | The message names the exact option and the rule |
 | `AUTH_MISSING` | No `REVYL_API_KEY` and no saved login | Run `npx @revyl/verify login` in a terminal, or set `REVYL_API_KEY` |
 | `AUTH_REJECTED` | Revyl rejected the credentials, or refused a computer screen action with HTTP 403 | Create a new API key, or log in again. For a screen action, the key's owner needs the Member role or above, and CI runner keys can't control the screen yet |
 | `EDGE_BLOCKED` | An HTTP 403 has a `text/html` content type and nonempty `cf-ray`, without a valid JSON body | Check network access or contact support; Verify does not retry the request |
 | `API_ERROR` | Revyl returned an unexpected response | Try again; after an exact action, check the session first, since the action may have run. If it persists, report it with the session link |
 | `SESSION_START_FAILED` | The browser, device, or computer did not start, or the app an iOS or Android target names by bundle id could not be launched (the message names the bundle id and has the session link) | Computer `no_host` reports the 120-second unclaimed-start context; `device_limit` reports queued-work/concurrency context. Inspect the session and cleanup before starting again. |
+| `SESSION_PROFILE_FAILED` | A session profile failed: Verify couldn't send its script, Revyl couldn't find it, or it ran and failed. `error.outcome` is `script_failed`, `script_timed_out`, `script_unavailable`, `output_invalid` or `runner_failed`, and `error.failureReason` is Revyl's reason | Follow the message for the outcome; see [Session profiles](api.md#session-profile-errors). Revyl stops the session itself |
 | `SESSION_ENDED` | The session was closed, stopped, or expired, or Revyl answered 404 for the session itself | Close explicitly; computer expiry does not prove release |
 | `SESSION_BUSY` | A step conflict, computer operation limit, someone controlling a computer's screen in the Revyl viewer, or recording requested before terminal state and confirmed release | Inspect the state before another call; a terminal computer alone does not prove release |
 | `COMPUTER_LIMIT` | Computer admission was refused due to queued work (including iOS) or the concurrency limit | Wait for capacity; Verify does not retry or stop a definitely refused start |
