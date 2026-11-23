@@ -81,6 +81,7 @@ type Session struct {
 	sizeFromHealth           bool
 	screenshotScale          *screenshotScale
 	host                     *Session
+	persistentName           string
 }
 
 func (s *Session) ID() string        { return s.id }
@@ -484,6 +485,9 @@ func (s *Session) Close(ctx context.Context) error {
 		err := childErr
 		if !s.leaveComputerRunning {
 			err = s.closeComputer(ctx)
+			if err == nil && s.persistentName != "" {
+				err = s.awaitPersistentSave(ctx)
+			}
 			if err != nil {
 				err = errors.Join(err, childErr)
 			} else if childErr != nil {

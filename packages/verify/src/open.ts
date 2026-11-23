@@ -27,7 +27,7 @@ export interface AttachOptions extends Pick<OpenOptions, 'log' | 'backendUrl' | 
 
 const signIns = new Map<string, Promise<Credentials>>();
 
-async function credentialsForUse(options: Pick<OpenOptions, 'backendUrl' | 'appUrl'>): Promise<Credentials> {
+export async function credentialsForUse(options: Pick<OpenOptions, 'backendUrl' | 'appUrl'>): Promise<Credentials> {
   const credentials = await resolveCredentials();
   if (credentials) return credentials;
   if (!process.stdin.isTTY || !process.stderr.isTTY || process.env.CI) throw new VerifyError('AUTH_MISSING', missingCredentialsMessage());

@@ -35,7 +35,7 @@ export class ComputerSession implements Session {
   readonly id: string;
   readonly viewerUrl: string;
   readonly steps: StepResult[] = [];
-  private readonly lifetime = new AbortController();
+  protected readonly lifetime = new AbortController();
   private closePromise: Promise<void> | undefined;
   private expiresAtMs: number | undefined;
   private screenReadyUntilMs = 0;
@@ -43,7 +43,7 @@ export class ComputerSession implements Session {
   private readonly childStarts = new Set<Promise<Session>>();
   private closing = false;
 
-  private constructor(private readonly client: RevylClient, target: ResolvedComputerTarget, private readonly options: SessionOptions, id: string = randomUUID(), private readonly stopOnClose = true) {
+  protected constructor(protected readonly client: RevylClient, target: ResolvedComputerTarget, protected readonly options: SessionOptions, id: string = randomUUID(), private readonly stopOnClose = true) {
     this.id = id;
     this.target = target.name;
     this.platform = target.platform;
@@ -59,18 +59,7 @@ export class ComputerSession implements Session {
       session.log(`starting computer ${session.viewerUrl}`);
       const response = await session.request('POST', '', { computer_session_id: session.id, os: target.platform === 'mac' ? 'macos' : 'linux', ...(target.timeoutMs !== undefined ? { timeout_seconds: target.timeoutMs / 1_000 } : {}) }, signal);
       createAcknowledged = true;
-      let report = session.parseReport(response);
-      for (;;) {
-        if (report.state === 'active') break;
-        if (report.state !== 'starting') {
-          const reason = report.failure_reason === 'no_host' ? ' No host claimed the start within the 120-second unclaimed-start window.' : report.failure_reason === 'device_limit' ? ` ${COMPUTER_CAPACITY}` : '';
-          throw new VerifyError('SESSION_START_FAILED', `The ${session.target} computer ended before it was ready (${report.state}).${reason} See ${session.viewerUrl}`);
-        }
-        await delay(2_000, undefined, { signal });
-        report = session.parseReport(await session.request('GET', '/report', undefined, signal));
-      }
-      session.screenReadyUntilMs = Date.now() + 30_000;
-      session.log('ready');
+      await session.awaitActive(session.parseReport(response), signal);
       return session;
     } catch (error) {
       const timedOut = signal.aborted;
@@ -83,6 +72,20 @@ export class ComputerSession implements Session {
       if (timedOut) throw new VerifyError('TIMEOUT', `The ${session.target} computer was not ready within ${target.startTimeout} ms. A possible cause is that no computer could be assigned. ${COMPUTER_AVAILABILITY} Inspect ${session.viewerUrl}`);
       throw error;
     }
+  }
+
+  protected async awaitActive(report: ComputerReport, signal: AbortSignal): Promise<void> {
+    for (;;) {
+      if (report.state === 'active') break;
+      if (report.state !== 'starting') {
+        const reason = report.failure_reason === 'no_host' ? ' No host claimed the start within the 120-second unclaimed-start window.' : report.failure_reason === 'device_limit' ? ` ${COMPUTER_CAPACITY}` : '';
+        throw new VerifyError('SESSION_START_FAILED', `The ${this.target} computer ended before it was ready (${report.state}).${reason} See ${this.viewerUrl}`);
+      }
+      await delay(2_000, undefined, { signal });
+      report = this.parseReport(await this.request('GET', '/report', undefined, signal));
+    }
+    this.screenReadyUntilMs = Date.now() + 30_000;
+    this.log('ready');
   }
 
   get closed(): boolean {
@@ -483,7 +486,7 @@ export class ComputerSession implements Session {
     }
   }
 
-  private async request(method: 'GET' | 'POST', suffix: string, body: unknown, signal: AbortSignal, timeoutMs?: number): Promise<RawResponse> {
+  protected async request(method: 'GET' | 'POST', suffix: string, body: unknown, signal: AbortSignal, timeoutMs?: number): Promise<RawResponse> {
     const path = `/api/v1/computer-runs${suffix === '' ? '' : `/${this.id}${suffix}`}`;
     let response: RawResponse;
     try {
@@ -565,7 +568,7 @@ export class ComputerSession implements Session {
     }
   }
 
-  private parseReport(response: RawResponse): ComputerReport {
+  protected parseReport(response: RawResponse): ComputerReport {
     const report = parseComputerJson<ComputerReport>(response);
     if (!report || report.computer_session_id !== this.id || !STATES.has(report.state)) throw invalidResponse();
     if (report.expires_at != null) this.expiresAtMs = Math.max(parseTimestamp(report.expires_at).getTime(), this.expiresAtMs ?? -Infinity);
@@ -585,7 +588,7 @@ export class ComputerSession implements Session {
     return Promise.reject(new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `${method}() is not available on computers. ${SCREEN_CALLS} See ${this.viewerUrl}`));
   }
 
-  private log(line: string): void {
+  protected log(line: string): void {
     this.options.log?.(`${this.target}: ${line}`);
   }
 }

@@ -58,7 +58,7 @@ export class RevylClient {
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   }
 
-  async send(method: 'GET' | 'POST', path: string, options: RequestOptions = {}): Promise<RawResponse> {
+  async send(method: 'GET' | 'POST' | 'DELETE', path: string, options: RequestOptions = {}): Promise<RawResponse> {
     const url = new URL(path, this.backendUrl);
     for (const [key, value] of Object.entries(options.query ?? {})) {
       if (value === undefined) continue;
@@ -152,7 +152,7 @@ export class RevylClient {
     });
   }
 
-  private async sendOnce(method: 'GET' | 'POST', url: URL, options: RequestOptions): Promise<RawResponse | VerifyError> {
+  private async sendOnce(method: 'GET' | 'POST' | 'DELETE', url: URL, options: RequestOptions): Promise<RawResponse | VerifyError> {
     const timeout = AbortSignal.timeout(options.timeoutMs ?? this.requestTimeoutMs);
     const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
     const headers: Record<string, string> = {
