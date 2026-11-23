@@ -519,7 +519,7 @@ export class ComputerSession implements Session {
         if (isVerifyError(error)) throw new VerifyError(error.code, `Could not read the computer state. See ${this.viewerUrl}`);
         throw error;
       }
-      if (response.status !== 409 || responseTopLevelCode(response) !== 'session_profile_running') break;
+      if (!isProfileRunning(response)) break;
       if (profileDeadline === undefined) {
         profileDeadline = Date.now() + this.startTimeoutMs;
         signal = this.observationSignal(this.startTimeoutMs);
@@ -670,13 +670,13 @@ function decodeBytes(value: unknown, maxBytes: number): Buffer {
   return bytes;
 }
 
-function responseTopLevelCode(response: RawResponse): string | undefined {
+function isProfileRunning(response: RawResponse): boolean {
+  if (response.status !== 409) return false;
   try {
-    const parsed: unknown = JSON.parse(new TextDecoder().decode(response.body));
-    const code = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as { code?: unknown }).code : undefined;
-    return typeof code === 'string' ? code : undefined;
+    const parsed = JSON.parse(new TextDecoder().decode(response.body)) as { code?: unknown; detail?: unknown } | null;
+    return parsed?.code === 'session_profile_running' || parsed?.detail === 'session_profile_running';
   } catch {
-    return undefined;
+    return false;
   }
 }
 

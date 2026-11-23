@@ -441,7 +441,7 @@ func (s *Session) computerRequestTimeout(ctx context.Context, method, suffix str
 	var profileDeadline time.Time
 	for attempt := 0; ; attempt++ {
 		r, err = s.client.send(ctx, method, path, body, method == "GET" && suffix != "/screen/screenshot", timeout, false)
-		if err != nil || r.status != 409 || responseTopLevelCode(r) != "session_profile_running" {
+		if err != nil || !isProfileRunning(r) {
 			break
 		}
 		if profileDeadline.IsZero() {
@@ -600,13 +600,16 @@ func (s *Session) computerRequestTimeout(ctx context.Context, method, suffix str
 	return r, responseFailure(r, code, fmt.Sprintf("Revyl refused the computer request (%s). %s See %s", reason, next, s.viewer))
 }
 
-func responseTopLevelCode(r response) string {
+// isProfileRunning reports Revyl's 409 session_profile_running refusal, carried as detail (ComputerAPIError) or a top-level code.
+func isProfileRunning(r response) bool {
+	if r.status != 409 {
+		return false
+	}
 	var body map[string]any
 	if json.Unmarshal(r.body, &body) != nil {
-		return ""
+		return false
 	}
-	code, _ := body["code"].(string)
-	return code
+	return body["code"] == "session_profile_running" || body["detail"] == "session_profile_running"
 }
 
 func (s *Session) closeComputer(ctx context.Context) error {

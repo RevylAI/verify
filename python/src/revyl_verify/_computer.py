@@ -255,13 +255,17 @@ def _input_bytes(value: str | bytes) -> bytes:
     raise VerifyError("INVALID_ARGUMENT", "Computer input must be a UTF-8 string or bytes.")
 
 
-def _top_level_code(response: Response) -> str | None:
+def _is_profile_running(response: Response) -> bool:
+    if response.status != 409:
+        return False
     try:
         raw = response.json()
     except VerifyError:
-        return None
-    code = raw.get("code") if isinstance(raw, dict) else None
-    return code if isinstance(code, str) else None
+        return False
+    return isinstance(raw, dict) and "session_profile_running" in (
+        raw.get("code"),
+        raw.get("detail"),
+    )
 
 
 def _detail(response: Response) -> str | None:
@@ -552,7 +556,7 @@ class ComputerSession(Session):
                 raise VerifyError(
                     error.code, f"Could not read the computer state. See {self.viewer_url}"
                 ) from None
-            if response.status != 409 or _top_level_code(response) != "session_profile_running":
+            if not _is_profile_running(response):
                 break
             if profile_deadline is None:
                 profile_deadline = time.monotonic() + self._start_timeout
