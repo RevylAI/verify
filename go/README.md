@@ -173,6 +173,7 @@ The Go SDK does not read `verify.config.ts`, resolve named targets, or provide a
 | `OpenURL` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No |
 | `LaunchApp` | No, use `OpenURL` or `Navigate` | Yes | Yes | No |
 | `Navigate` | Yes | No, use `OpenURL` | No, use `OpenURL` | No |
+| `CDP`, for chromedp, Playwright and Puppeteer | Yes, see [CDP](#cdp-playwright-puppeteer) | No | No | No |
 | `Instruction`, `Validation`, your own model | Yes | Yes | Yes | No, use `Exec` and the screen calls above |
 | `Screenshot` | Yes | Yes | Yes | Yes |
 | `Exec`, files, processes | No, open a Mac computer | No, open a Mac computer | No, open a Mac computer | Yes |
@@ -260,6 +261,54 @@ if _, err := s.Tap(ctx, verify.Point{X: 660, Y: 1500}); err != nil { // the posi
 }
 size, err := s.ScreenSize(ctx) // the screenshot's size: X is 0 to size.Width - 1
 ```
+
+## CDP (Playwright, Puppeteer)
+
+Web only. `s.CDP(ctx)` returns a Chrome DevTools Protocol (CDP) endpoint for the session's cloud browser, so a program can attach chromedp, or a script Playwright or Puppeteer, next to Verify's steps. `Instruction`, `Validation`, `Screenshot` and the exact actions keep working while a client is attached.
+
+```go
+endpoint, err := s.CDP(ctx) // connect once, within 60 seconds
+if err != nil {
+	return err
+}
+allocCtx, disconnect := remote.NewAllocator(ctx, endpoint.URL, remote.NoModifyURL) // github.com/chromedp/chromedp/remote
+defer disconnect()                                                                  // closes the connection only
+browserCtx, cancel := chromedp.NewContext(allocCtx)
+defer cancel()
+targets, err := chromedp.Targets(browserCtx)
+if err != nil {
+	return err
+}
+var tab target.ID // github.com/chromedp/cdproto/target
+for _, t := range targets {
+	if t.Type == "page" { // the session's own tab
+		tab = t.TargetID
+		break
+	}
+}
+// Attach to that tab, and leave it open when the context ends.
+tabCtx, detach := chromedp.NewContext(browserCtx, chromedp.WithTargetID(tab), chromedp.WithDetachOnCancel())
+defer detach()
+heading, err := chromedp.Run(tabCtx, chromedp.Text(chromedp.CSS(".title")))
+_, err = s.Validation(ctx, "A list of products is shown")
+```
+
+It returns a `verify.CDPEndpoint` with `URL` and `ExpiresAt` (`time.Time`). [examples/cdp](examples/cdp/main.go) runs the whole program with chromedp v0.24: DOM, a click, console and network events, and a Verify validation while attached. It is its own Go module, so chromedp is not a dependency of Verify: `cd go/examples/cdp && go run .` with `REVYL_WEB_APP_ID` set. Older chromedp versions name the allocator `chromedp.NewRemoteAllocator(ctx, url, chromedp.NoModifyURL)`.
+
+- **The URL is a single-use credential.** It accepts one connection and expires at `ExpiresAt`, 60 seconds after `CDP` returns it. Call `CDP` again for each new connection. Don't log it, store it or pass it on; `fmt` prints the endpoint with the URL as `[redacted]`, but a CDP client's connection errors can include it, so remove it before you log one. Any connection attempt uses the URL up, even one that fails, so call `CDP` again before you retry.
+- **One connection at a time.** A second connection to the same session is refused until the first disconnects. Once the allocator's cancel function (`disconnect` above) has returned, the next URL from `CDP` connects.
+- **The connection ends with the session.** `Close`, the session's timeout or a failure closes it. After `Close`, `CDP` returns `ErrSessionEnded` without a request, and an earlier URL no longer works.
+- **Use the session's page.** In chromedp, attach to its target with `WithTargetID` and `WithDetachOnCancel`, as above, so that cancelling doesn't close the session's tab. In Playwright it is `browser.contexts()[0].pages()[0]`, and `browser.newContext()` is refused, because a session has one browser context. A tab you open with `context.newPage()` becomes the session's active tab: Verify steps, screenshots and the recording follow it until you close it, and then return to the session's tab. While another tab is open, `pages()[0]` may not be the session's tab, so find it by URL. In Puppeteer, connect with `defaultViewport: null` and use `(await browser.pages())[0]` while the session has one tab.
+- **Closing the browser only disconnects.** Playwright's and Puppeteer's `browser.close()` disconnect the script, and the session keeps running; call `Close` to end it. In Puppeteer, `browser.disconnect()` is the explicit form.
+- **Navigation is http(s) and `about:blank` only.** `file://`, `chrome://`, `data:`, `javascript:` and other schemes are refused with a CDP error.
+- **Downloads are off.** Download-behavior commands are accepted, but nothing is downloaded and no download path can be set.
+- **The window size is fixed.** Viewport and window-size emulation (chromedp's `EmulateViewport`) and `Browser.close` are refused; the browser keeps the size the session opened with. Set the target's `Viewport` to choose it.
+- **Refusals are CDP errors that start with `Revyl:`**, so the program sees why.
+- **A reply over 24 MB is dropped** with the CDP error `Revyl: the reply was larger than 24 MB and was dropped`; the connection and the session keep working.
+- **Files come from your machine.** Playwright's `setInputFiles()` with files from the script's machine works; file paths on the browser's host are refused.
+- Everything else works as with a local Chrome: the DOM, evaluating JavaScript, console and network events, request interception and screenshots.
+
+On iOS, Android and Mac computers `CDP` returns `ErrNotAvailableOnPlatform` before any request; use `Instruction`, `Validation`, `Screenshot` and the exact actions there, or `Exec` and `Screenshot` on a computer. A session that is no longer running returns `ErrSessionEnded`, a view-only session `ErrAuthRejected`, and a Revyl backend without CDP `ErrNotAvailableOnPlatform` saying so. HTTP 503 returns `ErrAPI`, and calling `CDP` again is safe.
 
 ## Your own model
 

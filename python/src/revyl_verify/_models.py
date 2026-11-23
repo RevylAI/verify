@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from datetime import datetime
 from typing import Literal
 from urllib.parse import urlsplit
@@ -253,3 +253,15 @@ class ComputerRecording:
     url: str
     duration_seconds: float | None = None
     started_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class CDPEndpoint:
+    """A Chrome DevTools Protocol browser endpoint for a web session, from ``cdp()``.
+
+    ``url`` is a credential: it works for one connection and expires at ``expires_at``,
+    60 seconds after ``cdp()`` returned it. Don't log it or store it; repr() leaves it out.
+    """
+
+    url: str = field(repr=False)
+    expires_at: datetime

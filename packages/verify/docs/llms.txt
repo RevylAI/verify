@@ -7,7 +7,7 @@
 Mac computers are available to organizations on a current paid Revyl plan. See computers.md#availability-and-errors.
 
 - [Getting started](getting-started.md): install, authenticate, init, run a script
-- [API](api.md): open(), attach(), hosted children, navigate(), report(), agent steps, screenshot(), exec(), file/process methods, close()
+- [API](api.md): open(), attach(), hosted children, navigate(), cdp() for Playwright and Puppeteer on web, report(), agent steps, screenshot(), exec(), file/process methods, close()
 - [Configuration](configuration.md): verify.config.ts targets, environment variables, the init and whoami commands
 - [Web](web.md): Revyl web sessions, URLs and builds, sign-in, steps, and exact actions
 - [Mobile](mobile.md): iOS and Android devices, installing apps, and exact actions

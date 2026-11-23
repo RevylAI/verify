@@ -247,11 +247,48 @@ size = session.screen_size()  # the screenshot's size: x is 0 to size.width - 1
 | `open_url(url)` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No |
 | `launch_app(bundle_id)` | No, use `open_url` or `navigate` | Yes | Yes | No |
 | `navigate(url)` | Yes | No, use `open_url` | No, use `open_url` | No |
+| `cdp()`, for Playwright and Puppeteer | Yes, see [CDP](#cdp-playwright-puppeteer) | No | No | No |
 | `instruction`, `validation`, your own model | Yes | Yes | Yes | No, use `exec()` and the screen calls above |
 | `screenshot()` | Yes | Yes | Yes | Yes |
 | `exec`, files, processes | No, open a Mac computer | No, open a Mac computer | No, open a Mac computer | Yes |
 
 Coordinates follow the rule in [Exact actions](#exact-actions). A call a platform doesn't support raises `NOT_AVAILABLE_ON_PLATFORM`, and its message names the alternative.
+
+## CDP (Playwright, Puppeteer)
+
+Web only. `session.cdp()` returns a Chrome DevTools Protocol (CDP) endpoint for the session's cloud browser, so a script can attach Playwright or another CDP client next to Verify's steps. `instruction()`, `validation()`, `screenshot()` and the exact actions keep working while the script is attached. `AsyncSession.cdp()` is the same, awaited.
+
+```python
+from playwright.sync_api import sync_playwright  # pip install playwright; no browser download
+
+from revyl_verify import Target, open
+
+with open(Target(platform="web", app_id="<web app id>")) as session:
+    with sync_playwright() as playwright:
+        endpoint = session.cdp()  # connect once, within 60 seconds
+        browser = playwright.chromium.connect_over_cdp(endpoint.url)
+        page = browser.contexts[0].pages[0]  # the session's own tab
+        page.locator("#user-name").fill("standard_user")
+        session.validation("The username field shows standard_user")
+        browser.close()  # only disconnects Playwright; leaving the with block ends the session
+```
+
+It returns a `CDPEndpoint` with `url` (`str`) and `expires_at` (a timezone-aware `datetime`). [`examples/cdp_playwright.py`](examples/cdp_playwright.py) runs a full script: DOM, locators, a console message, network requests and a Verify validation while attached (`cd python && uv run python examples/cdp_playwright.py` with `REVYL_WEB_APP_ID` set).
+
+- **The url is a single-use credential.** It accepts one connection and expires at `expires_at`, 60 seconds after `cdp()` returns it. Call `cdp()` again for each new connection. Don't log it, store it or pass it on; `repr()` of the endpoint leaves it out, but Playwright's connection errors can include it, so remove it before you log one. Any connection attempt uses the url up, even one that fails, so call `cdp()` again before you retry.
+- **One connection at a time.** A second connection to the same session is refused until the first disconnects. Once `browser.close()` has returned, the next url from `cdp()` connects.
+- **The connection ends with the session.** `close()`, the session's timeout or a failure closes it. After `close()`, `cdp()` raises `SESSION_ENDED` without a request, and an earlier url no longer works.
+- **Use the session's page.** In Playwright that is `browser.contexts[0].pages[0]`. `browser.new_context()` is refused, because a session has one browser context. A tab you open with `context.new_page()` becomes the session's active tab: Verify steps, screenshots and the recording follow it until you close it, and then return to the session's tab. While another tab is open, `pages[0]` may not be the session's tab, so find it by URL. In Puppeteer, connect with `defaultViewport: null` and use `(await browser.pages())[0]` while the session has one tab.
+- **`browser.close()` only disconnects.** In Playwright and Puppeteer it disconnects the script, and the session keeps running; call `session.close()` to end it. In Puppeteer, `browser.disconnect()` is the explicit form.
+- **Navigation is http(s) and `about:blank` only.** `file://`, `chrome://`, `data:`, `javascript:` and other schemes are refused with a CDP error.
+- **Downloads are off.** Download-behavior commands are accepted, but nothing is downloaded and no download path can be set.
+- **The window size is fixed.** Viewport and window-size emulation (`page.set_viewport_size()`) and `Browser.close` are refused; the browser keeps the size the session opened with. Set the target's `viewport` to choose it.
+- **Refusals are CDP errors that start with `Revyl:`**, so the script sees why.
+- **A reply over 24 MB is dropped** with the CDP error `Revyl: the reply was larger than 24 MB and was dropped` (Playwright reports it from `page.evaluate` as "Execution context was destroyed"); the connection and the session keep working.
+- **Files come from your machine.** Playwright's `set_input_files()` with files from the script's machine works; file paths on the browser's host are refused.
+- Everything else works as with a local Chrome: locators, DOM, `evaluate`, console and network events, request interception and screenshots.
+
+On iOS, Android and Mac computers `cdp()` raises `NOT_AVAILABLE_ON_PLATFORM` before any request; use `instruction()`, `validation()`, `screenshot()` and the exact actions there, or `exec()` and `screenshot()` on a computer. A session that is no longer running raises `SESSION_ENDED`, a view-only session `AUTH_REJECTED`, and a Revyl backend without CDP `NOT_AVAILABLE_ON_PLATFORM` saying so. HTTP 503 raises `API_ERROR`, and calling `cdp()` again is safe.
 
 ## Your own model
 
