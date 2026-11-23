@@ -38,7 +38,6 @@ const (
 var (
 	profileNamePattern    = regexp.MustCompile(`^[a-z0-9-]{1,64}$`)
 	profileBareCode       = regexp.MustCompile(`^[a-z0-9_]+$`)
-	profileOldDevice      = regexp.MustCompile(`(?i)need a CLI start or Open preview`)
 	profileYAMLLine       = regexp.MustCompile(`line (\d+)`)
 	profileScriptSuffixes = []string{".js", ".py", ".sh", ".ts"}
 	profileRetryDelays    = []time.Duration{time.Second, 2 * time.Second}
@@ -65,9 +64,11 @@ type profileFiles struct {
 	ScriptFile                 *profileScriptFile `json:"script_file,omitempty"`
 }
 
-// sessionProfilePlan is what Open sends for a session profile, and the name it waits on. name is empty for Profile "none".
+// sessionProfilePlan is what Open sends for a session profile, and the name it waits on. implicit marks the project's default,
+// which the caller didn't ask for.
 type sessionProfilePlan struct {
 	name       string
+	implicit   bool
 	configPath string
 	source     *profileSource
 	files      *profileFiles
@@ -75,10 +76,6 @@ type sessionProfilePlan struct {
 
 func (p *sessionProfilePlan) addTo(request map[string]any) {
 	if p == nil {
-		return
-	}
-	if p.name == "" {
-		request["session_profile"] = profileInstruction{Instruction: profileNone}
 		return
 	}
 	request["session_profile"] = profileInstruction{Instruction: "named", Name: p.name}
@@ -95,20 +92,20 @@ type reportedProfile struct {
 	missingGitBranchName string
 }
 
-// planSessionProfile plans the session profile Open sends: "none", an explicit name, or the project's session.default_profile
-// when profile is empty. Nil when nothing is sent. Reads .revyl/config.yaml at or above cwd.
+// planSessionProfile plans the session profile Open sends: an explicit name, or the project's session.default_profile when
+// profile is empty. Nil when nothing is sent, which is always the case for profile "none". Reads .revyl/config.yaml at or above cwd.
 func planSessionProfile(profile string, platform Platform, cwd string) (*sessionProfilePlan, error) {
 	if profile != "" && profile != profileNone && !profileNamePattern.MatchString(profile) {
 		return nil, failure(ErrInvalidArgument, "open(): profile must be a session profile name from session.profiles in .revyl/config.yaml (1-64 lowercase letters, digits or hyphens), or 'none'.")
+	}
+	if profile == profileNone {
+		return nil, nil
 	}
 	if platform != Web && platform != IOS && platform != Android && platform != Mac {
 		if profile == "" {
 			return nil, nil
 		}
 		return nil, failure(ErrNotAvailableOnPlatform, fmt.Sprintf("open(): session profiles run on web, iOS, Android and Mac sessions, not %s. Leave out profile.", platform))
-	}
-	if profile == profileNone {
-		return &sessionProfilePlan{}, nil
 	}
 	if absolute, err := filepath.Abs(cwd); err == nil {
 		cwd = absolute
@@ -171,7 +168,7 @@ func planSessionProfile(profile string, platform Platform, cwd string) (*session
 	if err != nil {
 		return nil, err
 	}
-	return &sessionProfilePlan{name: name, configPath: configPath, source: &profileSource{ProjectID: projectID, GitBranchName: gitBranch(projectRoot)}, files: files}, nil
+	return &sessionProfilePlan{name: name, implicit: profile == "", configPath: configPath, source: &profileSource{ProjectID: projectID, GitBranchName: gitBranch(projectRoot)}, files: files}, nil
 }
 
 func findProfileConfig(cwd string) string {
@@ -721,7 +718,7 @@ func profileFailedError(profile *reportedProfile, plan *sessionProfilePlan, view
 	if !known {
 		fix = "Check the session link for what happened."
 	}
-	return &Error{Code: ErrSessionProfileFailed, Message: fmt.Sprintf("Session profile %q failed (%s)%s %s Revyl stopped the session. See %s", name, outcome, reason, fix, viewer), Outcome: profile.outcome, FailureReason: profile.failureReason}
+	return &Error{Code: ErrSessionProfileFailed, Message: fmt.Sprintf("Session profile %q failed (%s)%s %s Revyl stops the session. See %s", name, outcome, reason, fix, viewer), Outcome: profile.outcome, FailureReason: profile.failureReason}
 }
 
 // profileNotReportedError is NOT_AVAILABLE_ON_PLATFORM for a session that became active without reporting the profile Verify sent.
@@ -797,17 +794,27 @@ func profileRefusalError(r response, plan *sessionProfilePlan, platform Platform
 		}
 		return failed
 	}
-	detail, _ := body["detail"].(string)
-	oldDevice := platform != Mac && r.status == 422 && profileOldDevice.MatchString(raw)
-	oldComputer := platform == Mac && detail == "invalid_request"
-	if !oldDevice && !oldComputer {
+	if r.status != 422 {
 		return nil
 	}
-	reason := ""
-	if said != "" {
-		reason = " (" + said[:len(said)-1] + ")"
+	detail, _ := body["detail"].(string)
+	nested, _ := body["detail"].(map[string]any)
+	legacyDevice := platform != Mac && (detail == profileLegacyDeviceDetail || nested != nil && nested["error"] == "web_session_profile_start_unsupported" && nested["message"] == profileLegacyDeviceDetail)
+	legacyComputer := platform == Mac && detail == "invalid_request" && len(body) == 1
+	if !legacyDevice && !legacyComputer {
+		return nil
 	}
-	return &Error{Code: ErrNotAvailableOnPlatform, HTTPStatus: r.status, Message: fmt.Sprintf("This Revyl backend doesn't support session profiles on %s yet%s. Pass %s to start without one.", platform, reason, profileNoneHint)}
+	return &Error{Code: ErrNotAvailableOnPlatform, HTTPStatus: r.status, Message: "Revyl doesn't run session profiles for API starts yet; open the session without Profile.", legacyProfileRefusal: true}
+}
+
+const profileLegacyDeviceDetail = "Session profiles on this start need a CLI start or Open preview in this release"
+
+// isLegacyProfileRefusal reports whether Revyl refused the start the way a backend without hosted profiles does: the device and
+// web 422 that needs a CLI start or Open preview, or the computer create's bare invalid_request, which its strict schema answers
+// for the profile fields.
+func isLegacyProfileRefusal(err error) bool {
+	var typed *Error
+	return errors.As(err, &typed) && typed.legacyProfileRefusal
 }
 
 // withRepositoryRetry runs a start or create, repeating it with the same body while Revyl answers repository_unavailable: 3

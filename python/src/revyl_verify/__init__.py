@@ -144,7 +144,7 @@ def open(
     profile: str | None = None,
     _cancellation: Cancellation | None = None,
 ) -> Session:
-    from ._session_profile import plan_session_profile
+    from ._session_profile import is_legacy_profile_refusal, plan_session_profile
     from ._transport import Client
 
     if not isinstance(target, Target):
@@ -163,9 +163,21 @@ def open(
     progress = _progress(log)
     viewer = origin(app_url or "https://app.revyl.ai", app=True)
     client = Client(backend_url, app_url, _cancellation)
-    session = (ComputerSession if computer else Session).start(
-        client, viewer, target, step_timeout, progress, _cancellation, profile=plan
-    )
+    start = (ComputerSession if computer else Session).start
+    try:
+        session = start(client, viewer, target, step_timeout, progress, _cancellation, profile=plan)
+    except VerifyError as error:
+        if plan is None or not plan.implicit or not is_legacy_profile_refusal(error):
+            raise
+        if progress is not None:
+            try:
+                progress(
+                    f"{target.platform}: Revyl doesn't run session profiles for API starts yet; "
+                    f"opening without default profile {plan.name}"
+                )
+            except Exception:
+                pass
+        session = start(client, viewer, target, step_timeout, progress, _cancellation)
     session._agent = local
     return session
 

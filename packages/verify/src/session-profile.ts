@@ -12,7 +12,7 @@ export type SessionProfileOutcome = 'succeeded' | 'script_failed' | 'script_time
 
 /** The session_profile fields a start or create request carries. */
 export interface SessionProfileFields {
-  session_profile: { instruction: 'named'; name: string } | { instruction: 'none' };
+  session_profile: { instruction: 'named'; name: string };
   session_profile_source?: { project_id: string; git_branch_name?: string };
   session_profile_files?: {
     script: string;
@@ -21,9 +21,10 @@ export interface SessionProfileFields {
   };
 }
 
-/** What open() sends for a session profile, and the name it waits on. name is undefined for profile 'none'. */
+/** What open() sends for a session profile, and the name it waits on. implicit marks the project's default, which the caller didn't ask for. */
 export interface SessionProfilePlan {
   name?: string;
+  implicit?: true;
   configPath?: string;
   fields: SessionProfileFields;
 }
@@ -54,18 +55,18 @@ const PROFILE_PLATFORMS = new Set<Platform>(['web', 'ios', 'android', 'mac']);
 const NONE_HINT = "profile: 'none'";
 
 /**
- * Plans the session profile open() sends: profile 'none', an explicit name, or the project's session.default_profile
- * when profile is undefined. Undefined when nothing is sent. Reads .revyl/config.yaml at or above cwd.
+ * Plans the session profile open() sends: an explicit name, or the project's session.default_profile when profile is
+ * undefined. Undefined when nothing is sent, which is always the case for profile 'none'. Reads .revyl/config.yaml at or above cwd.
  */
 export async function planSessionProfile(profile: unknown, platform: Platform, cwd: string): Promise<SessionProfilePlan | undefined> {
   if (profile !== undefined && (typeof profile !== 'string' || (profile !== NONE && !PROFILE_NAME.test(profile)))) {
     throw new VerifyError('INVALID_ARGUMENT', "open(): profile must be a session profile name from session.profiles in .revyl/config.yaml (1-64 lowercase letters, digits or hyphens), or 'none'.");
   }
+  if (profile === NONE) return undefined;
   if (!PROFILE_PLATFORMS.has(platform)) {
     if (profile === undefined) return undefined;
     throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `open(): session profiles run on web, iOS, Android and Mac sessions, not ${platform}. Leave out profile.`);
   }
-  if (profile === NONE) return { fields: { session_profile: { instruction: 'none' } } };
   const configPath = findConfig(cwd);
   if (!configPath) {
     if (profile === undefined) return undefined;
@@ -104,6 +105,7 @@ export async function planSessionProfile(profile: unknown, platform: Platform, c
   return {
     name,
     configPath,
+    ...(profile === undefined ? { implicit: true as const } : {}),
     fields: {
       session_profile: { instruction: 'named', name },
       session_profile_source: { project_id: projectId, ...(branch ? { git_branch_name: branch } : {}) },
@@ -513,7 +515,7 @@ export function profileFailedError(profile: ReportedSessionProfile, plan: Sessio
   const outcome = profile.outcome ?? 'unknown';
   const reason = profile.failureReason ? `: ${sentence(profile.failureReason)}` : '.';
   const fix = OUTCOME_FIXES[outcome] ?? 'Check the session link for what happened.';
-  return new VerifyError('SESSION_PROFILE_FAILED', `Session profile "${name}" failed (${outcome})${reason} ${fix} Revyl stopped the session. See ${viewerUrl}`, {
+  return new VerifyError('SESSION_PROFILE_FAILED', `Session profile "${name}" failed (${outcome})${reason} ${fix} Revyl stops the session. See ${viewerUrl}`, {
     outcome: profile.outcome as SessionProfileOutcome | undefined,
     failureReason: profile.failureReason,
   });
@@ -558,12 +560,27 @@ export function profileRefusalError(response: RawResponse, plan: SessionProfileP
       ...(code === 'session_profile_script_unavailable' ? { outcome: 'script_unavailable' as const, ...(said ? { failureReason: said } : {}) } : {}),
     });
   }
-  const oldDevice = platform !== 'mac' && response.status === 422 && /need a CLI start or Open preview/i.test(raw ?? '');
-  const oldComputer = platform === 'mac' && body.detail === 'invalid_request';
-  if (oldDevice || oldComputer) {
-    return new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `This Revyl backend doesn't support session profiles on ${platform} yet${said ? ` (${said.replace(/[.!?]$/, '')})` : ''}. Pass ${NONE_HINT} to start without one.`, { httpStatus: response.status });
-  }
-  return undefined;
+  if (response.status !== 422) return undefined;
+  const detail = body.detail;
+  const legacyDevice = platform !== 'mac' && (detail === LEGACY_DEVICE_DETAIL || (isMapping(detail) && detail.error === 'web_session_profile_start_unsupported' && detail.message === LEGACY_DEVICE_DETAIL));
+  const legacyComputer = platform === 'mac' && detail === 'invalid_request' && Object.keys(body).length === 1;
+  if (!legacyDevice && !legacyComputer) return undefined;
+  const error = new VerifyError('NOT_AVAILABLE_ON_PLATFORM', LEGACY_UNSUPPORTED, { httpStatus: response.status });
+  legacyRefusals.add(error);
+  return error;
+}
+
+const LEGACY_DEVICE_DETAIL = 'Session profiles on this start need a CLI start or Open preview in this release';
+const LEGACY_UNSUPPORTED = "Revyl doesn't run session profiles for API starts yet; open the session without profile.";
+const legacyRefusals = new WeakSet<VerifyError>();
+
+/**
+ * Whether Revyl refused the start the way a backend without hosted profiles does: the device and web 422 that needs a
+ * CLI start or Open preview, or the computer create's bare invalid_request, which its strict schema answers for the
+ * profile fields.
+ */
+export function isLegacyProfileRefusal(error: unknown): boolean {
+  return error instanceof VerifyError && legacyRefusals.has(error);
 }
 
 /** Runs a start or create, repeating it with the same body (and session id, where it has one) while Revyl answers repository_unavailable: 3 attempts in all. */

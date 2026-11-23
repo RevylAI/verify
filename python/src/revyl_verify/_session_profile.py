@@ -4,6 +4,7 @@ import os
 import posixpath
 import re
 import stat
+import weakref
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, cast
@@ -28,6 +29,7 @@ class SessionProfilePlan:
     name: str | None
     config_path: str | None
     fields: dict[str, Json]
+    implicit: bool = False
 
 
 @dataclass(frozen=True)
@@ -82,6 +84,8 @@ def plan_session_profile(
             "open(): profile must be a session profile name from session.profiles in "
             ".revyl/config.yaml (1-64 lowercase letters, digits or hyphens), or 'none'.",
         )
+    if profile == _NONE:
+        return None
     if platform not in _PROFILE_PLATFORMS:
         if profile is None:
             return None
@@ -90,8 +94,6 @@ def plan_session_profile(
             "open(): session profiles run on web, iOS, Android and Mac sessions, "
             f"not {platform}. Leave out profile.",
         )
-    if profile == _NONE:
-        return SessionProfilePlan(None, None, {"session_profile": {"instruction": "none"}})
     config_path = _find_config(cwd)
     if config_path is None:
         if profile is None:
@@ -163,6 +165,7 @@ def plan_session_profile(
             "session_profile_source": source,
             "session_profile_files": files,
         },
+        implicit=profile is None,
     )
 
 
@@ -355,7 +358,7 @@ def profile_failed_error(
     fix = _OUTCOME_FIXES.get(outcome, "Check the session link for what happened.")
     return VerifyError(
         "SESSION_PROFILE_FAILED",
-        f'Session profile "{name}" failed ({outcome}){reason} {fix} Revyl stopped the session. '
+        f'Session profile "{name}" failed ({outcome}){reason} {fix} Revyl stops the session. '
         f"See {viewer_url}",
         outcome=cast("SessionProfileOutcome | None", profile.outcome),
         failure_reason=profile.failure_reason,
@@ -460,21 +463,39 @@ def profile_refusal_error(
             outcome="script_unavailable" if script_unavailable else None,
             failure_reason=said if script_unavailable and said else None,
         )
-    old_device = (
-        platform != "mac"
-        and response.status == 422
-        and re.search(r"need a CLI start or Open preview", raw or "", re.I) is not None
-    )
-    old_computer = platform == "mac" and body.get("detail") == "invalid_request"
-    if old_device or old_computer:
-        hint = f" ({said[:-1]})" if said else ""
-        return VerifyError(
-            "NOT_AVAILABLE_ON_PLATFORM",
-            f"This Revyl backend doesn't support session profiles on {platform} yet{hint}. "
-            f"Pass {_NONE_HINT} to start without one.",
-            http_status=response.status,
+    if response.status != 422:
+        return None
+    body_detail = body.get("detail")
+    legacy_device = platform != "mac" and (
+        body_detail == _LEGACY_DEVICE_DETAIL
+        or (
+            isinstance(body_detail, dict)
+            and body_detail.get("error") == "web_session_profile_start_unsupported"
+            and body_detail.get("message") == _LEGACY_DEVICE_DETAIL
         )
-    return None
+    )
+    legacy_computer = platform == "mac" and body_detail == "invalid_request" and len(body) == 1
+    if not legacy_device and not legacy_computer:
+        return None
+    error = VerifyError(
+        "NOT_AVAILABLE_ON_PLATFORM", _LEGACY_UNSUPPORTED, http_status=response.status
+    )
+    _legacy_refusals.add(error)
+    return error
+
+
+_LEGACY_DEVICE_DETAIL = (
+    "Session profiles on this start need a CLI start or Open preview in this release"
+)
+_LEGACY_UNSUPPORTED = (
+    "Revyl doesn't run session profiles for API starts yet; open the session without profile."
+)
+_legacy_refusals: weakref.WeakSet[VerifyError] = weakref.WeakSet()
+
+
+def is_legacy_profile_refusal(error: BaseException) -> bool:
+    """Whether Revyl refused the start the way a backend without hosted profiles does."""
+    return isinstance(error, VerifyError) and error in _legacy_refusals
 
 
 def _sentence(text: str) -> str:

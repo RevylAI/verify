@@ -7,7 +7,7 @@ import { DeviceSession, type OpenedSession } from './session.js';
 import { ComputerSession } from './computer-session.js';
 import type { LocalAgent } from './agent/loop.js';
 import { chooseAgent, type ModelOption } from './agent/providers.js';
-import { planSessionProfile } from './session-profile.js';
+import { isLegacyProfileRefusal, planSessionProfile, type SessionProfilePlan } from './session-profile.js';
 
 export interface OpenOptions {
   /** The config file to read target names from. Defaults to the nearest verify.config.ts at or above the current folder. */
@@ -88,6 +88,16 @@ export async function open(target: string | TargetConfig, options: OpenOptions =
   const credentials = await credentialsForUse(options);
   const log = options.log === false ? undefined : (options.log ?? ((line: string) => void process.stderr.write(`[verify] ${line}\n`)));
   const client = new RevylClient({ token: credentials.token, backendUrl: options.backendUrl });
-  if (resolved.platform === 'mac' || resolved.platform === 'linux') return ComputerSession.start(client, resolved, { stepTimeout, log, appUrl: options.appUrl, ...(profile ? { profile } : {}) });
-  return DeviceSession.start(client, resolved, { stepTimeout, log, appUrl: options.appUrl, ...(agent ? { agent } : {}), ...(profile ? { profile } : {}) });
+  const chosen = resolved;
+  const start = (plan: SessionProfilePlan | undefined): Promise<OpenedSession> =>
+    chosen.platform === 'mac' || chosen.platform === 'linux'
+      ? ComputerSession.start(client, chosen, { stepTimeout, log, appUrl: options.appUrl, ...(plan ? { profile: plan } : {}) })
+      : DeviceSession.start(client, chosen, { stepTimeout, log, appUrl: options.appUrl, ...(agent ? { agent } : {}), ...(plan ? { profile: plan } : {}) });
+  try {
+    return await start(profile);
+  } catch (error) {
+    if (!profile?.implicit || !isLegacyProfileRefusal(error)) throw error;
+    log?.(`${chosen.name}: Revyl doesn't run session profiles for API starts yet; opening without default profile ${profile.name}`);
+    return start(undefined);
+  }
 }

@@ -139,9 +139,6 @@ func Open(ctx context.Context, target Target, options ...OpenOption) (*Session, 
 	if err != nil {
 		return nil, err
 	}
-	callerCtx := ctx
-	ctx, cancel := context.WithTimeout(callerCtx, target.StartTimeout)
-	defer cancel()
 	if ctx.Err() != nil {
 		return nil, contextError(ctx)
 	}
@@ -149,6 +146,20 @@ func Open(ctx context.Context, target Target, options ...OpenOption) (*Session, 
 	if err != nil {
 		return nil, err
 	}
+	s, err := openStart(ctx, c, viewer, target, opt, agent, profile)
+	if err == nil || profile == nil || !profile.implicit || !isLegacyProfileRefusal(err) {
+		return s, err
+	}
+	if opt.Log != nil {
+		opt.Log(string(target.Platform) + ": Revyl doesn't run session profiles for API starts yet; opening without default profile " + profile.name)
+	}
+	return openStart(ctx, c, viewer, target, opt, agent, nil)
+}
+
+// openStart starts one session within the target's start timeout. Each call generates new session IDs.
+func openStart(callerCtx context.Context, c *client, viewer string, target Target, opt OpenOptions, agent *agent, profile *sessionProfilePlan) (*Session, error) {
+	ctx, cancel := context.WithTimeout(callerCtx, target.StartTimeout)
+	defer cancel()
 	if target.Platform.computer() {
 		return startComputer(ctx, c, viewer, target, opt, profile)
 	}

@@ -196,9 +196,9 @@ with open(web, profile="none") as session:
 | --- | --- |
 | `"signed-in"` | That profile, with the project and the script from this checkout. |
 | left out | The project's `session.default_profile`, the same way, when `.revyl/config.yaml` sets one. Otherwise nothing, so the start request is the same as before profiles existed. |
-| `"none"` | No profile, not even the default. Needs no `.revyl/config.yaml`. |
+| `"none"` | No profile, not even the default: Verify sends no profile fields, so the start request is the same as before profiles existed. Needs no `.revyl/config.yaml`. |
 
-Profiles work on web, iOS, Android and Mac computers. On a Linux computer, `profile` raises `NOT_AVAILABLE_ON_PLATFORM` before anything is sent, and no default runs. Hosted sessions (`computer.open()`), `attach()` and `current_computer()` never run a profile: they take no `profile` argument, so passing one raises `TypeError`. `async_open()` takes `profile` the same way.
+Profiles work on web, iOS, Android and Mac computers. On a Linux computer, a profile name raises `NOT_AVAILABLE_ON_PLATFORM` before anything is sent, and no default runs; `"none"` is accepted. Hosted sessions (`computer.open()`), `attach()` and `current_computer()` never run a profile: they take no `profile` argument, so passing one raises `TypeError`. `async_open()` takes `profile` the same way.
 
 ### Where Verify reads the profile
 
@@ -228,6 +228,16 @@ On a browser or device, the script runs on Revyl's hosted runner, not on your ma
 
 `open()` returns when the session is ready and Revyl reports the profile's status as `succeeded`, within the target's `start_timeout` (600 seconds by default). While it waits, it logs `<platform>: waiting for session profile <name>`. Verify never shows the script's output: Revyl doesn't send it, because setup scripts often print secrets. On a Mac computer, Revyl refuses commands and screen actions with HTTP 409 `session_profile_running` while the profile runs, without running them. If a call on a computer, such as one you `attach()` to, still gets that refusal, Verify waits and sends the same call again, for up to the start timeout (600 seconds for `attach()` and `current_computer()`), then raises `TIMEOUT` naming the profile. It repeats only calls Revyl refused that way.
 
+### While Revyl's production backend doesn't run profiles
+
+Revyl's production backend doesn't run session profiles for starts from Verify yet. Until it does:
+
+- **`profile="<name>"`** raises `NOT_AVAILABLE_ON_PLATFORM`: `Revyl doesn't run session profiles for API starts yet; open the session without profile.` Nothing runs. A refused iOS or Android start still shows in Revyl as one failed session; a refused web start or Mac create leaves nothing.
+- **`profile` left out, with `session.default_profile` set:** Verify logs `<platform>: Revyl doesn't run session profiles for API starts yet; opening without default profile <name>` and opens the session again without it, with a new session ID. `open()` then works as it did before profiles existed.
+- **`profile="none"`** sends nothing and works everywhere.
+
+Once the backend runs profiles, the same calls run them, with no change to your code.
+
 ### Session profile errors
 
 Neither errors nor logs contain the script's content or output. A refusal keeps Revyl's code in `error.reason`, such as `project_not_found`, and Revyl's sentence in the message.
@@ -235,7 +245,7 @@ Neither errors nor logs contain the script's content or output. A refusal keeps 
 | Error | When | What to do |
 | --- | --- | --- |
 | `INVALID_ARGUMENT` | `profile` isn't a profile name (1-64 lowercase letters, digits or hyphens) or `"none"` | Pass a name from `session.profiles`, or `"none"` |
-| `NOT_AVAILABLE_ON_PLATFORM` | A Linux computer; or this Revyl backend doesn't run session profiles on that platform yet. When a session starts without reporting its profile, Verify stops it | Leave out `profile`, or pass `profile="none"` |
+| `NOT_AVAILABLE_ON_PLATFORM` | A Linux computer; Revyl's backend doesn't run session profiles for API starts yet (see [above](#while-revyls-production-backend-doesnt-run-profiles)); or a session started without reporting its profile, which Verify then stops | Leave out `profile`, or pass `profile="none"` |
 | `CONFIG_NOT_FOUND` | `profile` names a profile, but no `.revyl/config.yaml` is in the current folder or above it | Run from your app's checkout, or pass `profile="none"` |
 | `CONFIG_INVALID` | `.revyl/config.yaml` isn't valid YAML, `project.id` isn't a UUID, or `session.profiles` doesn't define the name (the message lists the ones it does); or Revyl refused with `session_profile_undefined`, `project_not_found` (`project.id` isn't in this API key's organization) or `repository_connection_missing` (connect the repository's GitHub or GitLab app to the project in Revyl) | The message names the file and the fix |
 | `SESSION_PROFILE_FAILED` | Verify couldn't send the script (missing, outside the repository, not executable, over 64 KiB or not UTF-8); Revyl couldn't find it (`session_profile_script_unavailable`); or the profile ran and failed. `error.outcome` says how and `error.failure_reason` says why | Follow the message, as the next table says. Revyl stops a session whose profile failed, so Verify doesn't, and `error.cleanup_status` is `not_required` |

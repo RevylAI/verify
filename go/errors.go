@@ -86,6 +86,8 @@ type Error struct {
 	Outcome string
 	// FailureReason is set on ErrSessionProfileFailed: Revyl's reason, which never holds a secret or the script's output.
 	FailureReason string
+
+	legacyProfileRefusal bool
 }
 
 func (e *Error) Error() string { return fmt.Sprintf("%s: %s", e.Code, e.Message) }
