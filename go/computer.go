@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -23,6 +24,31 @@ import (
 )
 
 const computerAvailability = "Mac computers need a current paid Revyl plan, and Linux computers are not generally available. Ask support@revyl.ai about access."
+
+const macUpgradeRefusal = "Mac computers come with Pro, so Revyl refused this computer (computer_not_enabled, upgrade_required)."
+
+var (
+	offerMessagePattern = regexp.MustCompile(`^[^\x00-\x1f\x7f\x{85}\x{2028}\x{2029}]{1,160}$`)
+	billingURLPattern   = regexp.MustCompile(`^https://[!-~]+$`)
+)
+
+func macUpgradeMessage(r response) string {
+	var body struct {
+		UnlocksWithCard bool            `json:"unlocks_with_card"`
+		Offer           json.RawMessage `json:"offer"`
+	}
+	if json.Unmarshal(r.body, &body) != nil || !body.UnlocksWithCard {
+		return ""
+	}
+	var offer struct {
+		Message    string `json:"message"`
+		BillingURL string `json:"billing_url"`
+	}
+	if json.Unmarshal(body.Offer, &offer) == nil && strings.TrimSpace(offer.Message) != "" && offerMessagePattern.MatchString(offer.Message) && billingURLPattern.MatchString(offer.BillingURL) {
+		return macUpgradeRefusal + " " + offer.Message + ": " + offer.BillingURL
+	}
+	return macUpgradeRefusal + " Add a card in Revyl's billing settings to unlock them."
+}
 
 var computerRefusalNextSteps = map[Code]string{
 	ErrAuthRejected:       "Check that REVYL_API_KEY is a current key and that its owner has the Member role or above in this computer's organization.",
@@ -509,6 +535,11 @@ func (s *Session) computerRequestTimeout(ctx context.Context, method, suffix str
 	}
 	if suffix == "/screen/screenshot" && ((detail == "screen_unavailable" && (r.status == 409 || r.status == 503)) || (detail == "screen_starting" && r.status == 409)) {
 		return r, nil
+	}
+	if detail == "computer_not_enabled" {
+		if upgrade := macUpgradeMessage(r); upgrade != "" {
+			return r, &Error{Code: ErrNotAvailableOnPlatform, Reason: ReasonUpgradeRequired, HTTPStatus: r.status, Message: upgrade + " See " + s.viewer}
+		}
 	}
 	if detail == "computer_not_enabled" || (r.status == 503 && detail == "runtime_unavailable") {
 		return r, responseFailure(r, ErrNotAvailableOnPlatform, fmt.Sprintf("Revyl refused the computer request (%s). %s See %s", detail, computerAvailability, s.viewer))

@@ -60,6 +60,7 @@ RefusalReason = Literal[
     "project_not_found",
     "repository_unavailable",
     "lifetime_unsupported",
+    "upgrade_required",
 ]
 SessionProfileOutcome = Literal[
     "succeeded",
@@ -380,6 +381,35 @@ def refusal_reason(response: Response) -> RefusalReason | None:
         if isinstance(value, str) and value in get_args(_ResponseRefusalReason):
             return cast(RefusalReason, value)
     return None
+
+
+_MAC_UPGRADE_REFUSAL = (
+    "Mac computers come with Pro, so Revyl refused this computer "
+    "(computer_not_enabled, upgrade_required)."
+)
+_OFFER_MESSAGE = re.compile(r"[^\x00-\x1f\x7f\x85\u2028\u2029]{1,160}")
+_BILLING_URL = re.compile(r"https://[!-~]+")
+
+
+def mac_upgrade_message(response: Response) -> str | None:
+    try:
+        raw = obj(response.json())
+    except VerifyError:
+        return None
+    if raw.get("unlocks_with_card") is not True:
+        return None
+    offer = raw.get("offer")
+    message = offer.get("message") if isinstance(offer, dict) else None
+    url = offer.get("billing_url") if isinstance(offer, dict) else None
+    if (
+        isinstance(message, str)
+        and message.strip()
+        and _OFFER_MESSAGE.fullmatch(message)
+        and isinstance(url, str)
+        and _BILLING_URL.fullmatch(url)
+    ):
+        return f"{_MAC_UPGRADE_REFUSAL} {message}: {url}"
+    return f"{_MAC_UPGRADE_REFUSAL} Add a card in Revyl's billing settings to unlock them."
 
 
 def start_refusal(response: Response) -> VerifyError | None:

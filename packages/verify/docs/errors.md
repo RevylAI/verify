@@ -20,6 +20,7 @@
 | Session profile script missing | `SESSION_PROFILE_FAILED` (`outcome: 'script_unavailable'`) | `session_profile_script_unavailable` |
 | Repository unreadable after 3 attempts | `API_ERROR` | `repository_unavailable` |
 | Computer HTTP 409: no host can keep it running for the requested `timeoutMs` | `NOT_AVAILABLE_ON_PLATFORM` | `lifetime_unsupported` |
+| Computer HTTP 403 `computer_not_enabled` that Pro would lift (`unlocks_with_card: true`) | `NOT_AVAILABLE_ON_PLATFORM` | `upgrade_required` |
 
 `web_runtime_unavailable` does not distinguish full capacity from an unavailable runtime. `computer_limit` does not distinguish queued work from concurrency exhaustion. Inspect these fields to classify refusal without parsing prose; do not infer a specific cause or automatically start a replacement session.
 

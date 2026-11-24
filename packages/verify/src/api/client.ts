@@ -230,6 +230,22 @@ export function responseDetail(response: RawResponse): string | undefined {
   return undefined;
 }
 
+const MAC_UPGRADE_REFUSAL = 'Mac computers come with Pro, so Revyl refused this computer (computer_not_enabled, upgrade_required).';
+
+export function macUpgradeMessage(response: RawResponse): string | undefined {
+  let body: { unlocks_with_card?: unknown; offer?: { message?: unknown; billing_url?: unknown } | null } | null;
+  try {
+    body = JSON.parse(new TextDecoder().decode(response.body));
+  } catch {
+    return undefined;
+  }
+  if (body?.unlocks_with_card !== true) return undefined;
+  const message = body.offer?.message;
+  const url = body.offer?.billing_url;
+  if (typeof message === 'string' && message.trim() !== '' && /^[^\x00-\x1f\x7f\x85\u2028\u2029]{1,160}$/u.test(message) && typeof url === 'string' && /^https:\/\/[!-~]+$/.test(url)) return `${MAC_UPGRADE_REFUSAL} ${message}: ${url}`;
+  return `${MAC_UPGRADE_REFUSAL} Add a card in Revyl's billing settings to unlock them.`;
+}
+
 export function responseErrorCode(response: RawResponse): string | undefined {
   try {
     const parsed = JSON.parse(new TextDecoder().decode(response.body)) as { error?: unknown };

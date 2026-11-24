@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { RevylClient, edgeBlockedError, responseDetail, responseErrorCode, responseRefusalReason, sessionViewerUrl, type RawResponse } from './api/client.js';
+import { RevylClient, edgeBlockedError, macUpgradeMessage, responseDetail, responseErrorCode, responseRefusalReason, sessionViewerUrl, type RawResponse } from './api/client.js';
 import type { ComputerCommand, ComputerCommandResponse, ComputerPlatform, ComputerRecordingResponse, ComputerReport, ComputerResult, ComputerScreenshot } from './api/types.js';
 import { trackSession, untrackSession } from './cleanup.js';
 import { validateHostedTarget, type HostedTargetConfig, type ResolvedComputerTarget } from './config.js';
@@ -546,6 +546,8 @@ export class ComputerSession implements Session {
       const code = raw?.detail ?? raw?.message ?? raw?.error;
       if ((code === 'screen_unavailable' && (response.status === 409 || response.status === 503)) || (code === 'screen_starting' && response.status === 409)) return response;
     }
+    const upgrade = detail === 'computer_not_enabled' ? macUpgradeMessage(response) : undefined;
+    if (upgrade) throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `${upgrade} See ${this.viewerUrl}`, { reason: 'upgrade_required', httpStatus: response.status });
     if (detail === 'computer_not_enabled' || (response.status === 503 && detail === 'runtime_unavailable')) {
       throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `Revyl refused the computer request (${detail}). ${COMPUTER_AVAILABILITY} See ${this.viewerUrl}`, refusal);
     }

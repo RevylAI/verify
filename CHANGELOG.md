@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Computers: a Mac computer create that Revyl refuses with `computer_not_enabled` and `unlocks_with_card: true`, as it does for a Free-plan organization, throws `NOT_AVAILABLE_ON_PLATFORM` with the new reason `upgrade_required` instead of no reason and the generic support guidance. The message reads `Mac computers come with Pro, so Revyl refused this computer (computer_not_enabled, upgrade_required).`, then Revyl's upgrade offer and billing link (`<offer message>: <https billing link>`) when Revyl sends one with an HTTPS link and a single-line message of at most 160 characters, and otherwise `Add a card in Revyl's billing settings to unlock them.` `open()` adds the session link as before; `openPersistent()` refuses the same way. The code is unchanged, the create is still not retried and no stop is sent, and any other `computer_not_enabled` refusal keeps its current message.
+- Python: the same, with `reason="upgrade_required"` on `open()` and `open_persistent()`.
+- Go: the same, with `Reason` `ReasonUpgradeRequired` on `Open` and `OpenPersistent`.
+
 ## 0.7.0 (2026-11-23)
 
 - Web sessions: `cdp()` (TypeScript, Python, `AsyncSession`) and `CDP(ctx)` (Go) return a single-use Chrome DevTools Protocol endpoint, `{ url, expiresAt }` / `CDPEndpoint(url, expires_at)` / `CDPEndpoint{URL, ExpiresAt}`, valid for 60 seconds, so Playwright (`connectOverCDP`), Puppeteer or chromedp can attach to the session's browser while `instruction()` and `validation()` keep working. It posts `device-proxy/{run}/cdp`. iOS, Android and computers throw `NOT_AVAILABLE_ON_PLATFORM` before any request, a closed session `SESSION_ENDED`, and a backend without the route `NOT_AVAILABLE_ON_PLATFORM`. The endpoint's url is left out of `console.log`, `repr()` and `fmt` output. The API page and the Python and Go READMEs list the rules (one connection at a time, the session's own page, `browser.close()` only disconnects, http(s) navigation only, no downloads, a fixed window size, a 24 MB reply limit), with runnable Playwright and chromedp examples in `examples/web-cdp`, `python/examples/cdp_playwright.py` and `go/examples/cdp`.
