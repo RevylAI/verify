@@ -208,16 +208,6 @@ On a browser or device, the script runs on Revyl's hosted runner, not on your ma
 
 `Open` returns when the session is ready and Revyl reports the profile's status as `succeeded`, within the target's `StartTimeout` (10 minutes by default) and the caller's context. While it waits, it logs `<platform>: waiting for session profile <name>` through `OpenOptions.Log`. Verify never shows the script's output: Revyl doesn't send it, because setup scripts often print secrets. On a Mac computer, Revyl refuses commands and screen actions with HTTP 409 `session_profile_running` while the profile runs, without running them. If a call on a computer, such as one you `Attach` to, still gets that refusal, Verify waits and sends the same call again, for up to the start timeout (10 minutes for `Attach` and `CurrentComputer`), then returns `ErrTimeout` naming the profile. It repeats only calls Revyl refused that way.
 
-### While Revyl's production backend doesn't run profiles
-
-Revyl's production backend doesn't run session profiles for starts from Verify yet. Until it does:
-
-- **`Profile: "<name>"`** returns `ErrNotAvailableOnPlatform`: `Revyl doesn't run session profiles for API starts yet; open the session without Profile.` Nothing runs. A refused iOS or Android start still shows in Revyl as one failed session; a refused web start or Mac create leaves nothing.
-- **`Profile` left empty, with `session.default_profile` set:** Verify logs `Skipping default session profile <name>: Revyl doesn't run session profiles for API starts yet. Pass Profile: "none" to silence this.` through `OpenOptions.Log` and opens the session again without it, with a new session ID. `Open` then works as it did before profiles existed.
-- **`Profile: "none"`** sends nothing and works everywhere.
-
-Once the backend runs profiles, the same calls run them, with no change to your code.
-
 ### Session profile errors
 
 Neither errors nor logs contain the script's content or output. Check the code with `errors.Is(err, verify.ErrSessionProfileFailed)` and read the details with `errors.As(err, &sdkError)`. A refusal keeps Revyl's code in `sdkError.Reason`, such as `verify.ReasonProjectNotFound` (`project_not_found`), and Revyl's sentence in the message.
@@ -225,7 +215,7 @@ Neither errors nor logs contain the script's content or output. Check the code w
 | Error | When | What to do |
 | --- | --- | --- |
 | `ErrInvalidArgument` | `Profile` isn't a profile name (1-64 lowercase letters, digits or hyphens) or `"none"` | Pass a name from `session.profiles`, or `"none"` |
-| `ErrNotAvailableOnPlatform` | A Linux computer; Revyl's backend doesn't run session profiles for API starts yet (see [above](#while-revyls-production-backend-doesnt-run-profiles)); or a session started without reporting its profile, which Verify then stops | Leave out `Profile`, or pass `Profile: "none"` |
+| `ErrNotAvailableOnPlatform` | A Linux computer, or a session started without reporting its profile, which Verify then stops | Leave out `Profile`, or pass `Profile: "none"` |
 | `ErrConfigNotFound` | `Profile` names a profile, but no `.revyl/config.yaml` is in the working directory or above it | Run from your app's checkout, or pass `Profile: "none"` |
 | `ErrConfigInvalid` | `.revyl/config.yaml` isn't valid YAML, `project.id` isn't a UUID, or `session.profiles` doesn't define the name (the message lists the ones it does); or Revyl refused with `session_profile_undefined`, `project_not_found` (`project.id` isn't in this API key's organization) or `repository_connection_missing` (connect the repository's GitHub or GitLab app to the project in Revyl) | The message names the file and the fix |
 | `ErrSessionProfileFailed` | Verify couldn't send the script (missing, outside the repository, not executable, over 64 KiB or not UTF-8); Revyl couldn't find it (`session_profile_script_unavailable`); or the profile ran and failed. `sdkError.Outcome` says how and `sdkError.FailureReason` says why | Follow the message, as the next table says. Revyl stops a session whose profile failed, so Verify doesn't |
