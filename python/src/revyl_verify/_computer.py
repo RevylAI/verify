@@ -53,6 +53,7 @@ from ._transport import (
     VerifyError,
     decode_bytes,
     edge_blocked_error,
+    mac_upgrade_message,
     obj,
     refusal_reason,
     timestamp,
@@ -596,6 +597,14 @@ class ComputerSession(Session):
             or (detail == "screen_starting" and response.status == 409)
         ):
             return response
+        upgrade = mac_upgrade_message(response) if detail == "computer_not_enabled" else None
+        if upgrade is not None:
+            raise VerifyError(
+                "NOT_AVAILABLE_ON_PLATFORM",
+                f"{upgrade} See {self.viewer_url}",
+                reason="upgrade_required",
+                http_status=response.status,
+            )
         if detail == "computer_not_enabled" or (
             response.status == 503 and detail == "runtime_unavailable"
         ):

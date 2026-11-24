@@ -21,6 +21,7 @@ from ._transport import (
     Response,
     VerifyError,
     edge_blocked_error,
+    mac_upgrade_message,
     obj,
     origin,
     timestamp,
@@ -599,6 +600,14 @@ def _call(
     detail = _detail(response)
     if detail is not None and detail in accept:
         return response
+    upgrade = mac_upgrade_message(response) if detail == "computer_not_enabled" else None
+    if upgrade is not None:
+        raise VerifyError(
+            "NOT_AVAILABLE_ON_PLATFORM",
+            upgrade,
+            reason="upgrade_required",
+            http_status=response.status,
+        )
     known = _REFUSALS.get(detail or "")
     if known is not None:
         raise VerifyError(

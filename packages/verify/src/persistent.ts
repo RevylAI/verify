@@ -1,5 +1,5 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import { RevylClient, edgeBlockedError, responseDetail, type RawResponse } from './api/client.js';
+import { RevylClient, edgeBlockedError, macUpgradeMessage, responseDetail, type RawResponse } from './api/client.js';
 import type { ComputerReport } from './api/types.js';
 import { ComputerSession, computerOperationId } from './computer-session.js';
 import { trackSession } from './cleanup.js';
@@ -353,6 +353,8 @@ async function call(client: RevylClient, method: 'GET' | 'POST' | 'DELETE', path
   const detail = responseDetail(response);
   if (detail && options.accept?.includes(detail)) return response;
   const refusal = { httpStatus: response.status };
+  const upgrade = detail === 'computer_not_enabled' ? macUpgradeMessage(response) : undefined;
+  if (upgrade) throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', upgrade, { ...refusal, reason: 'upgrade_required' });
   const known = detail ? REFUSALS[detail] : undefined;
   if (known) throw new VerifyError(known[0], known[1], { ...refusal, reason: known[2] });
   if (response.status === 401 || response.status === 403) throw new VerifyError('AUTH_REJECTED', `Revyl rejected the request (HTTP ${response.status}${detail ? `, ${detail}` : ''}). Check that REVYL_API_KEY is a current key and that its owner has the Member role or above.`, refusal);

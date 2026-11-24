@@ -673,6 +673,11 @@ func persistentCall(ctx context.Context, c *client, method, path string, body an
 	if blocked := responseFailure(r, ErrAPI, ""); errors.Is(blocked, ErrEdgeBlocked) {
 		return r, blocked
 	}
+	if detail == "computer_not_enabled" {
+		if upgrade := macUpgradeMessage(r); upgrade != "" {
+			return r, &Error{Code: ErrNotAvailableOnPlatform, Reason: ReasonUpgradeRequired, HTTPStatus: r.status, Message: upgrade}
+		}
+	}
 	if known, ok := persistentRefusals[detail]; ok {
 		var reason RefusalReason
 		if detail == string(ReasonPersistentComputersNotEnabled) {

@@ -8,7 +8,7 @@ import { attach, open, defineConfig, VerifyError, isVerifyError } from '@revyl/v
 
 Starts a Revyl cloud browser, device, or Mac computer. Mobile first-screen readiness is [best-effort](mobile.md#steps), not a foreground/rendered-readiness guarantee. Computer starts retain a 10-minute default timeout; an unclaimed start may fail after 120 seconds with no-host context.
 
-Mac computers are available to organizations on a current paid Revyl plan.
+Mac computers are available to organizations on a current paid Revyl plan. On a Free-plan organization, starting one throws `NOT_AVAILABLE_ON_PLATFORM` with `reason: 'upgrade_required'` and a message with Revyl's billing link to upgrade to Pro; see [computer availability](computers.md#availability-and-errors).
 
 ```ts
 const web = await open('web');                                       // a target named in verify.config.ts
