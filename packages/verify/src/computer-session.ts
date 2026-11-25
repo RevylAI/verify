@@ -28,7 +28,10 @@ const REFUSAL_NEXT_STEPS = {
   SESSION_BUSY: 'The computer is busy with other work; try again once it finishes.',
   API_ERROR: 'Try again; if it keeps failing, send this message to support@revyl.ai.',
 } satisfies Partial<Record<VerifyErrorCode, string>>;
-const SCREEN_CALLS = 'For the screen, use screenshot(), tap({ x, y }) or tap({ target }), typeFocused(text, { clear: false }) and pressKey(); for commands, use exec().';
+const RECORDING_WAIT_MS = 900_000;
+const RECORDING_POLL_MS = 5_000;
+const COMPUTER_CONTROL_CHARACTER = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+const SCREEN_CALLS = 'For the screen, use screenshot(), tap({ x, y }) or tap({ target }), type({ target }, text), typeFocused(text, { clear: false }) and pressKey(); for commands, use exec().';
 
 export class ComputerSession implements Session {
   readonly platform: ComputerPlatform;
@@ -194,8 +197,19 @@ export class ComputerSession implements Session {
     return { x: x as number, y: y as number };
   }
 
-  type(): Promise<never> {
-    return this.unavailable('type');
+  /** Clicks a field, selects its text unless clear is false, and types, so the text replaces what was there. Returns the point clicked. */
+  async type(at: Location, text: string, options: { clear?: boolean } & ActionOptions = {}): Promise<Point> {
+    checkSettle(options.settle);
+    if (typeof text !== 'string' || text.length > 16_384) throw new VerifyError('INVALID_ARGUMENT', 'type() takes text of at most 16384 characters.');
+    const control = COMPUTER_CONTROL_CHARACTER.exec(text);
+    if (control) throw new VerifyError('INVALID_ARGUMENT', `Nothing was typed: type() on a computer takes newline and tab but no other control characters, and the text has one at index ${control.index}. Use pressKey() for keys such as 'escape'.`);
+    const point = await this.tap(at);
+    if (options.clear !== false) {
+      await this.pressKey('a', { modifiers: [this.platform === 'mac' ? 'meta' : 'ctrl'] });
+      if (!text) await this.pressKey('backspace');
+    }
+    await this.typeFocused(text, { clear: false });
+    return point;
   }
 
   /** Types into whatever has keyboard focus. Computers can't clear a field, so pass { clear: false }. */
@@ -203,7 +217,7 @@ export class ComputerSession implements Session {
     checkSettle(options.settle);
     if (options.clear !== false) throw new VerifyError('INVALID_ARGUMENT', "On a computer, typeFocused() can't clear the field first, so pass { clear: false } to type at the cursor: typeFocused(text, { clear: false }). To replace text, select it first, for example with pressKey('a', { modifiers: ['meta'] }) (Command+A on a Mac computer).");
     if (typeof text !== 'string' || text.length > 16_384) throw new VerifyError('INVALID_ARGUMENT', 'typeFocused() takes text of at most 16384 characters.');
-    const control = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.exec(text);
+    const control = COMPUTER_CONTROL_CHARACTER.exec(text);
     if (control) throw new VerifyError('INVALID_ARGUMENT', `Nothing was typed: typeFocused() on a computer takes newline and tab but no other control characters, and the text has one at index ${control.index}. Use pressKey() for keys such as 'escape'.`);
     const chunks: string[] = [];
     let chunk = '';
@@ -294,14 +308,27 @@ export class ComputerSession implements Session {
     this.log(`lifetime extended to ${report.expires_at}`);
   }
 
-  async recording(): Promise<ComputerRecording | null> {
-    const signal = AbortSignal.timeout(30_000);
-    const report = this.parseReport(await this.request('GET', '/report', undefined, signal));
+  /** After close(), waits until Revyl has saved the computer's recording, usually seconds, and returns it; null when none was saved within timeoutMs (default 15 minutes). Each check can take up to 30 more seconds, so a late answer isn't lost. */
+  async recording(options: { timeoutMs?: number } = {}): Promise<ComputerRecording | null> {
+    const timeoutMs = options.timeoutMs ?? RECORDING_WAIT_MS;
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 3_600_000) throw new VerifyError('INVALID_ARGUMENT', 'recording() timeoutMs is whole milliseconds from 0 to 3600000.');
+    const deadline = Date.now() + timeoutMs;
+    const report = this.parseReport(await this.request('GET', '/report', undefined, AbortSignal.timeout(30_000)));
     if (!['stopped', 'failed', 'owner_lost'].includes(report.state) || report.release !== 'confirmed') {
-      throw new VerifyError('SESSION_BUSY', `The computer recording can be requested only after terminal state and confirmed release. See ${this.viewerUrl}`);
+      throw new VerifyError('SESSION_BUSY', `The computer is still running, so it has no recording yet. Call close() first, then recording(), which waits until Revyl has saved the video. See ${this.viewerUrl}`);
     }
-    const response = await this.request('GET', '/recording', undefined, signal);
-    if (response.status === 404 && responseErrorCode(response) === 'recording_unavailable') return null;
+    let response: RawResponse;
+    for (let waited = false; ; waited = true) {
+      response = await this.request('GET', '/recording', undefined, AbortSignal.timeout(30_000));
+      if (response.status !== 404 || responseErrorCode(response) !== 'recording_unavailable') break;
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        if (waited) this.log(`no recording was saved within ${Math.round(timeoutMs / 1_000)} seconds`);
+        return null;
+      }
+      if (!waited) this.log('waiting for Revyl to save the recording');
+      await delay(Math.min(RECORDING_POLL_MS, remainingMs));
+    }
     const raw = parseComputerJson<ComputerRecordingResponse>(response);
     if (!raw || typeof raw.url !== 'string' || !/^https:\/\//i.test(raw.url) || /[\x00-\x20\x7f]/.test(raw.url)) throw invalidResponse();
     let url: URL;

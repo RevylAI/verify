@@ -230,7 +230,12 @@ func (s *Session) logLine(message string) {
 	}
 }
 
-const computerScreenCalls = "For the screen, use Screenshot, Tap with a Point or an Element, TypeFocused with Clear set to false, and PressKey; for commands, use Exec."
+const (
+	recordingWait = 15 * time.Minute
+	recordingPoll = 5 * time.Second
+)
+
+const computerScreenCalls = "For the screen, use Screenshot, Tap with a Point or an Element, Type with an Element, TypeFocused with Clear set to false, and PressKey; for commands, use Exec."
 
 func (s *Session) computerAgentUnavailable(method string) error {
 	return failure(ErrNotAvailableOnPlatform, method+" is not available on computers. "+computerScreenCalls+" See "+s.viewer)
@@ -330,6 +335,37 @@ func (s *Session) computerTapTarget(ctx context.Context, target string) (Point, 
 		return Point{}, failure(ErrActionUncertain, "Revyl answered the described click without the point it clicked, so where it landed is unknown. Take a Screenshot to check. See "+s.viewer)
 	}
 	return Point{X: *result.Point.X, Y: *result.Point.Y}, nil
+}
+
+func (s *Session) computerType(ctx context.Context, at Location, text string, clearFirst bool) (Point, error) {
+	if !utf8.ValidString(text) || textLength(text) > 16384 {
+		return Point{}, failure(ErrInvalidArgument, "Type takes UTF-8 text of at most 16384 characters.")
+	}
+	for index, character := range text {
+		if (character < 0x20 && character != '\n' && character != '\t') || (character >= 0x7f && character <= 0x9f) {
+			return Point{}, failure(ErrInvalidArgument, fmt.Sprintf("Nothing was typed: Type on a computer takes newline and tab but no other control characters, and the text has one at index %d. Use PressKey for keys such as KeyEscape.", textLength(text[:index])))
+		}
+	}
+	point, err := s.computerTap(ctx, at)
+	if err != nil {
+		return Point{}, err
+	}
+	if clearFirst {
+		selectAll := ModifierMeta
+		if s.platform != Mac {
+			selectAll = ModifierCtrl
+		}
+		if err := s.computerPressKey(ctx, Key("a"), []KeyOptions{{Modifiers: []KeyModifier{selectAll}}}); err != nil {
+			return Point{}, err
+		}
+		if text == "" {
+			if err := s.computerPressKey(ctx, KeyBackspace, nil); err != nil {
+				return Point{}, err
+			}
+		}
+	}
+	keep := false
+	return point, s.computerTypeFocused(ctx, text, []TypeOptions{{Clear: &keep}})
 }
 
 func (s *Session) computerTypeFocused(ctx context.Context, text string, options []TypeOptions) error {
@@ -1154,13 +1190,22 @@ func (s *Session) Extend(ctx context.Context, timeout time.Duration) error {
 	return nil
 }
 
+// Recording returns a computer's recording after Close, waiting until Revyl has saved it, usually seconds after Close.
+// It returns nil, nil when none was saved within 15 minutes or before ctx's deadline.
 func (s *Session) Recording(ctx context.Context) (*ComputerRecording, error) {
 	if !s.platform.computer() {
 		return nil, s.assertComputerOpen()
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	r, err := s.computerRequest(ctx, "GET", "/report", nil)
+	deadline := time.Now().Add(recordingWait)
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+		deadline = ctxDeadline
+	}
+	get := func(suffix string) (response, error) {
+		requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		return s.computerRequest(requestCtx, "GET", suffix, nil)
+	}
+	r, err := get("/report")
 	if err != nil {
 		return nil, err
 	}
@@ -1169,11 +1214,39 @@ func (s *Session) Recording(ctx context.Context) (*ComputerRecording, error) {
 		return nil, err
 	}
 	if report.Release != "confirmed" || (report.State != "stopped" && report.State != "failed" && report.State != "owner_lost") {
-		return nil, failure(ErrSessionBusy, "Recording is available only after confirmed physical release. See "+s.viewer)
+		return nil, failure(ErrSessionBusy, "The computer is still running, so it has no recording yet. Call Close first, then Recording, which waits until Revyl has saved the video. See "+s.viewer)
 	}
-	r, err = s.computerRequest(ctx, "GET", "/recording", nil)
-	if err != nil || r.status == 404 {
-		return nil, err
+	for waited := false; ; waited = true {
+		if r, err = get("/recording"); err != nil {
+			if waited && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return nil, nil
+			}
+			return nil, err
+		}
+		if r.status != 404 {
+			break
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			if waited {
+				s.logLine("no recording was saved in time")
+			}
+			return nil, nil
+		}
+		if !waited {
+			s.logLine("waiting for Revyl to save the recording")
+		}
+		timer := time.NewTimer(min(recordingPoll, remaining))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				s.logLine("no recording was saved in time")
+				return nil, nil
+			}
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
 	}
 	var raw struct {
 		URL       string   `json:"url"`

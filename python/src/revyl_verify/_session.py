@@ -620,6 +620,15 @@ class Session:
             "step_output_not_available",
         ):
             code = "NOT_AVAILABLE_ON_PLATFORM"
+        elif error == "no_focused_input":
+            return VerifyError(
+                "ACTION_FAILED",
+                "Nothing was typed: no text field has focus (no_focused_input). Use "
+                'type("the email field", text), which taps the field and types into it, or tap '
+                f"the field first. See {self.viewer_url}",
+                reason="no_focused_input",
+                http_status=response.status,
+            )
         elif screen_error in _WEB_TARGET_ERRORS:
             return VerifyError(
                 "ACTION_FAILED",
@@ -789,8 +798,8 @@ class Session:
         if self.platform != "web":
             raise VerifyError(
                 "NOT_AVAILABLE_ON_PLATFORM",
-                "type_focused() is available only on web sessions; on iOS and Android, "
-                "use type(location, text), which taps the field first.",
+                "type_focused() isn't available on iOS and Android sessions. Use "
+                'type("the email field", text), which taps the field and types into it.',
             )
         if not isinstance(text, str) or text_length(text) > 16_384:
             raise VerifyError(
@@ -1564,7 +1573,7 @@ class Session:
     def terminate(self, handle_id: str, *, timeout: float = 30) -> None:
         self._computer_only()
 
-    def recording(self) -> ComputerRecording | None:
+    def recording(self, *, timeout: float = 900) -> ComputerRecording | None:
         self._computer_only()
 
     def extend(self, timeout: int) -> None:

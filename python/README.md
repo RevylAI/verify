@@ -104,10 +104,10 @@ with open(Target(platform="mac", start_timeout=600)) as session:
     processes = session.processes()
     session.screenshot(path="mac.png")
 
-recording = session.recording()
+recording = session.recording()  # after close; waits until the video is saved
 ```
 
-`exec(argv, stdin=bytes_or_string, timeout=30, check=True)` preserves argument boundaries and raises on command failure by default. File and process operations are computer-only. File paths are workspace-relative, not arbitrary absolute guest paths. `recording()` returns computer recording metadata or `None`, including after close; it does not wait for or download a recording. Signed URLs in that metadata are credentials. Recording is locally unavailable on devices.
+`exec(argv, stdin=bytes_or_string, timeout=30, check=True)` preserves argument boundaries and raises on command failure by default. File and process operations are computer-only. File paths are workspace-relative, not arbitrary absolute guest paths. To get the screen recording, call `recording()` after the computer is closed (after its `with` block or `close()`), on the same object and before your script exits: Revyl saves the video a few seconds after release, so it asks every 5 seconds until it is saved and returns `ComputerRecording(url, duration_seconds, started_at)`, or `None` if none was saved within `timeout` seconds (`recording(timeout=900)`, 15 minutes by default; 0 asks once; a check under way at that point can take up to 30 seconds more). Called on a computer that is still running it raises `SESSION_BUSY` saying to close it first. `attach()` can't reopen a closed computer, so a later process can't fetch it. Since 0.5.1; earlier versions returned `None` at once while the video was still uploading. It doesn't download the video. Signed URLs in that metadata are credentials. Recording is locally unavailable on devices.
 
 Since 0.4.0, a script can click, type and press keys on the computer's screen at points it reads off `screenshot()`:
 
@@ -121,13 +121,13 @@ with open(Target(platform="mac", start_timeout=600)) as computer:
     computer.exec(["open", "-a", "TextEdit", "notes.txt"])  # exec runs in the workspace
     time.sleep(3)  # let the window open
     computer.screenshot(path=".verify/mac.png")  # open it and find the text
-    computer.tap(Point(400, 300))  # the point as you read it
-    computer.type_focused("First line\nSecond line", clear=False)
-    computer.press_key("a", modifiers=["meta"])  # Command+A selects all
-    computer.type_focused("Replacement", clear=False)  # typing replaces the selection
+    document = "the white text area of the TextEdit window"
+    computer.type(document, "First line\nSecond line")  # clicks, selects all, types
+    computer.type_focused("\nThird line", clear=False)  # types where the cursor already is
+    computer.tap(Point(400, 300))  # or click a point as you read it
 ```
 
-On a computer, `type_focused` needs `clear=False`: it types where the cursor is and clears nothing, so to replace text, select it first. `"meta"` is Command and `"alt"` is Option. `screen_size()` works too. `tap("the Help menu in the menu bar")` clicks a description and returns the `Point` it clicked. It takes several seconds and can click a look-alike, or something else when the target isn't on the screen, so check the point or take a screenshot afterwards, and use `tap(Point(x, y))` from a screenshot for anything that's hard to undo. `locate()` and the other exact actions aren't available on computers and raise `NOT_AVAILABLE_ON_PLATFORM` before anything is sent. When Revyl answers `screen_starting`, nothing happened, so Verify waits and tries again for up to 30 seconds. A script keeps control of the screen for 120 seconds after its last action, so a teammate can't take control in the Revyl viewer until then; while someone does control it there, actions raise `SESSION_BUSY` and nothing happens. A 403 raises `AUTH_REJECTED`: the key's owner needs the Member role or above, and CI runner keys can't control the screen yet. [computers.md](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#screen) lists every screen error.
+On a computer, as everywhere, type with `type("description", text)`: it clicks the field, selects its text with Command+A unless `clear=False`, and types. `type_focused` needs `clear=False`: it types where the cursor is and clears nothing, so to replace text, select it first. `"meta"` is Command and `"alt"` is Option. `screen_size()` works too. `tap("the Help menu in the menu bar")` clicks a description and returns the `Point` it clicked. It takes several seconds and can click a look-alike, or something else when the target isn't on the screen, so check the point or take a screenshot afterwards, and use `tap(Point(x, y))` from a screenshot for anything that's hard to undo. `locate()` and the exact actions other than `tap`, `type`, `type_focused`, `press_key` and `screen_size` aren't available on computers and raise `NOT_AVAILABLE_ON_PLATFORM` before anything is sent. When Revyl answers `screen_starting`, nothing happened, so Verify waits and tries again for up to 30 seconds. A script keeps control of the screen for 120 seconds after its last action, so a teammate can't take control in the Revyl viewer until then; while someone does control it there, actions raise `SESSION_BUSY` and nothing happens. A 403 raises `AUTH_REJECTED`: the key's owner needs the Member role or above, and CI runner keys can't control the screen yet. [computers.md](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#screen) lists every screen error.
 
 **Breaking wire change:** computer-operation arguments use `argv_b64` (one padded URL-safe base64 UTF-8 string per argument) and file paths use `path_b64`, with no raw `argv` or `path`. This SDK is incompatible with the previous backend contract. Deploy the encoded-only backend before publishing or upgrading to this SDK. Public APIs and decoded limits are unchanged; `stdin` and file `data` retain their existing standard base64 encoding, and process commands are unchanged. Encoding is not encryption, and Verify does not fall back to plaintext or replay the request.
 
@@ -251,7 +251,9 @@ Neither errors nor logs contain the script's content or output. A refusal keeps 
 
 ## Exact actions
 
-**Since 0.2.0. Early access.** Web, iOS and Android sessions take device actions that need no agent. They match the TypeScript SDK's exact actions in snake_case, and `AsyncSession` has the same methods to await. `double_tap`, `long_press`, `drag`, `type_focused`, `go_home`, and Web keys and modifiers in `press_key`, are new in 0.3.0. `tap` (by point or description), `screen_size`, `type_focused` and `press_key` on a Mac computer's screen are new in 0.4.0; see [Mac computer](#mac-computer).
+**Since 0.2.0. Early access.** Web, iOS and Android sessions take device actions that need no agent. They match the TypeScript SDK's exact actions in snake_case, and `AsyncSession` has the same methods to await. `double_tap`, `long_press`, `drag`, `type_focused`, `go_home`, and Web keys and modifiers in `press_key`, are new in 0.3.0. `tap` (by point or description), `screen_size`, `type_focused` and `press_key` on a Mac computer's screen are new in 0.4.0, and `type` there in 0.5.1; see [Mac computer](#mac-computer).
+
+**Typing: one rule on every platform.** To type, call `type("Email field", text)`: it taps the field you describe and types into it, replacing its text unless you pass `clear=False`. It works the same on Web, iOS, Android and a Mac computer. `type_focused(text)` types wherever focus already is, without tapping, and only on Web and computers; on Web, when no field has focus it raises `ACTION_FAILED` with `reason="no_focused_input"` and types nothing.
 
 ```python
 from revyl_verify import Point, Target, open
@@ -272,7 +274,7 @@ with open(Target(platform="ios", bundle_id="com.apple.Preferences")) as session:
     session.go_home()  # the home screen, on iOS and Android
 ```
 
-On Web, type where the focus is and press more keys:
+On Web, type into a field, then where the focus moves, and press more keys:
 
 ```python
 import os
@@ -281,10 +283,9 @@ from revyl_verify import Target, open
 
 web = Target(platform="web", app_id=os.environ["REVYL_WEB_APP_ID"], url="https://www.saucedemo.com")
 with open(web) as session:
-    session.tap("Username field")
-    session.type_focused("standard_user")  # replaces the focused field's text unless clear=False
+    session.type("Username field", "standard_user")  # taps the field, then types
     session.press_key("tab")  # focus moves to the password field
-    session.type_focused("secret_sauce")
+    session.type_focused("secret_sauce")  # replaces the focused field's text unless clear=False
     session.press_key("enter")
     session.tap("Open Menu button")
     session.press_key("escape")  # closes the menu
@@ -298,8 +299,8 @@ A location is a `Point(x, y)` in whole, non-negative screenshot pixels from the 
 | `tap(at)` | Taps (clicks on Web and Mac computers) and returns the `Point` tapped. On a Mac computer a described tap takes several seconds and can click a look-alike, so check the point |
 | `double_tap(at)` | Double-taps (double-clicks on Web) and returns the `Point` |
 | `long_press(at, duration=None)` | Presses and holds for `duration` seconds, 0.001 to 5 in whole milliseconds (1.5 by default), and returns the `Point` |
-| `type(at, text, clear=True)` | Taps a text field and types into it, clearing it first unless `clear` is `False`; returns the `Point` tapped |
-| `type_focused(text, clear=True)` | Web and Mac computers: types into the field that already has focus, without clicking. Focus the field first, for example with `tap` or `press_key("tab")`. With no field focused nothing is typed and nothing is raised, so check the result. On Web it replaces the field's text unless `clear` is `False`. On a Mac computer pass `clear=False`: it types where the cursor is, and leaving `clear` out raises `INVALID_ARGUMENT`. To replace text there, select it first with `press_key("a", modifiers=["meta"])`. On iOS and Android it raises `NOT_AVAILABLE_ON_PLATFORM`; use `type(location, text)` |
+| `type(at, text, clear=True)` | The way to type, on every platform. Taps a text field and types into it, clearing it first unless `clear` is `False`; returns the `Point` tapped. On a Mac computer it clicks the field, selects its text with Command+A unless `clear` is `False`, and types |
+| `type_focused(text, clear=True)` | Web and Mac computers: types into the field that already has focus, without clicking. Prefer `type("description", text)`. On Web, with no field focused nothing is typed and it raises `ACTION_FAILED` with `reason="no_focused_input"`; on a Mac computer the keys go to whatever has focus, so check the result. On Web it replaces the field's text unless `clear` is `False`. On a Mac computer pass `clear=False`: it types where the cursor is, and leaving `clear` out raises `INVALID_ARGUMENT`. To replace text there, select it first with `press_key("a", modifiers=["meta"])`. On iOS and Android it raises `NOT_AVAILABLE_ON_PLATFORM` before anything is sent; use `type("description", text)` |
 | `swipe(direction, from_=None)` | Swipes from a location or the screen's center; `"up"` moves the finger up, which scrolls content down |
 | `drag(start, end)` | Presses at one location, moves to the other and releases, for example to reorder a list, move a slider or select text |
 | `press_key(key, modifiers=())` | Presses a key on the focused element. Every platform takes `"enter"` and `"backspace"`. Web and Mac computers also take `"tab"`, `"escape"`, `"delete"`, `"space"`, `"arrowup"`, `"arrowdown"`, `"arrowleft"`, `"arrowright"`, `"home"`, `"end"`, `"pageup"` and `"pagedown"`, and `modifiers`: up to four of `"ctrl"`, `"shift"`, `"alt"` and `"meta"`, held while the key is pressed. With modifiers a lowercase letter or digit works too. The shortcut key differs: select all with `press_key("a", modifiers=["meta"])` on a Mac computer, where `"meta"` is Command and `"alt"` is Option, and with `press_key("a", modifiers=["ctrl"])` on Web, where `"meta"` is not the shortcut key. Other keys and any modifiers raise `NOT_AVAILABLE_ON_PLATFORM` on iOS and Android |
@@ -339,9 +340,10 @@ size = session.screen_size()  # the screenshot's size: x is 0 to size.width - 1
 | --- | --- | --- | --- | --- |
 | `tap(Point(x, y))`, `tap("description")`, `screen_size` | Yes | Yes | Yes | Yes |
 | `locate` | Yes | Yes | Yes | No, use `tap("description")`, which returns the point it clicked, or read the point off `screenshot()` |
-| `double_tap`, `long_press`, `type`, `swipe`, `drag` | Yes | Yes | Yes | No |
+| `type("description", text)`, the way to type | Yes | Yes | Yes | Yes: clicks the field, selects its text unless `clear=False`, then types |
+| `double_tap`, `long_press`, `swipe`, `drag` | Yes | Yes | Yes | No |
 | `press_key(key, modifiers)` | Yes: `"enter"`, `"backspace"`, `"tab"`, `"escape"`, arrows and more, with modifiers | `"enter"` and `"backspace"` only | `"enter"` and `"backspace"` only | Yes: the Web keys and modifiers, where `"meta"` is Command |
-| `type_focused(text, clear)` | Yes, types into the focused field | No, use `type(location, text)` | No, use `type(location, text)` | Yes, with `clear=False` |
+| `type_focused(text, clear)` | Yes, types into the focused field; `ACTION_FAILED` (`no_focused_input`) when none has focus | No, use `type("description", text)` | No, use `type("description", text)` | Yes, with `clear=False` |
 | `back()` | Yes, browser history | No, tap the on-screen back control | Yes, the system back button | No |
 | `go_home()` | No, use `open_url` or `navigate` | Yes, the home screen | Yes, the home screen | No |
 | `open_url(url)` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No |
@@ -568,7 +570,7 @@ Use an empty `dist/` before building; the package checker rejects stale or extra
 
 ## Troubleshooting
 
-- **`NOT_AVAILABLE_ON_PLATFORM`:** computers do not support instruction/validation, your own model, or exact actions other than `tap`, `screen_size()`, `type_focused(text, clear=False)` and `press_key`; devices do not support commands, files, processes or recording metadata; iOS has no `back()`, Web has no `launch_app()` or `go_home()`, and iOS and Android have no `type_focused()` and no keys other than Enter and Backspace.
+- **`NOT_AVAILABLE_ON_PLATFORM`:** computers do not support instruction/validation, your own model, or exact actions other than `tap`, `type`, `screen_size()`, `type_focused(text, clear=False)` and `press_key`; devices do not support commands, files, processes or recording metadata; iOS has no `back()`, Web has no `launch_app()` or `go_home()`, and iOS and Android have no `type_focused()` and no keys other than Enter and Backspace.
 - **`SESSION_PROFILE_FAILED`:** the session profile's script couldn't be sent, Revyl couldn't find it, or it ran and failed. `error.outcome` and `error.failure_reason` say which; see [Session profile errors](#session-profile-errors).
 - **`MODEL_KEY_MISSING`:** the provider's key variable named in the message is not set. Set it, or pass `CustomModel(id, base_url, api_key=...)`.
 - **`MODEL_ERROR`:** the model's endpoint refused the request or the model misbehaved. The message names the host, the HTTP status and the next step: a rejected key and the variable it came from, an unknown model, the path Verify added on a 404, a rate limit after retries, a text-only model, no tool support, a reply cut off at its output cap, or three turns without a tool call.

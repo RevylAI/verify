@@ -9,10 +9,10 @@ Use Go 1.26.9 or later and a Revyl account. Set `REVYL_API_KEY` through your she
 The module lives in the repository's `go/` subdirectory. Install the tagged release with:
 
 ```sh
-go get github.com/RevylAI/verify/go@v0.6.0
+go get github.com/RevylAI/verify/go@v0.6.1
 ```
 
-Go releases use independent repository tags such as `go/v0.6.0`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
+Go releases use independent repository tags such as `go/v0.6.1`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
 
 ## Quick start: iOS Settings
 
@@ -21,7 +21,7 @@ This program opens the iOS Settings app on a cloud simulator, which every accoun
 ```sh
 mkdir verify-go && cd verify-go
 go mod init example.com/verify-go
-go get github.com/RevylAI/verify/go@v0.6.0
+go get github.com/RevylAI/verify/go@v0.6.1
 ```
 
 Save this as `main.go`:
@@ -235,9 +235,10 @@ Neither errors nor logs contain the script's content or output. Check the code w
 | --- | --- | --- | --- | --- |
 | `Tap` with a `verify.Point` or a `verify.Element`, `ScreenSize` | Yes | Yes | Yes | Yes |
 | `Locate` | Yes | Yes | Yes | No, tap a `verify.Element`, which returns the point it clicked, or read the point off `Screenshot` |
-| `DoubleTap`, `LongPress`, `Type`, `Swipe`, `Drag` | Yes | Yes | Yes | No |
+| `Type(ctx, verify.Element("…"), text)`, the way to type | Yes | Yes | Yes | Yes: clicks the field, selects its text unless `Clear` points to `false`, then types |
+| `DoubleTap`, `LongPress`, `Swipe`, `Drag` | Yes | Yes | Yes | No |
 | `PressKey(ctx, key, KeyOptions{Modifiers})` | Yes: `KeyEnter`, `KeyBackspace`, `KeyTab`, `KeyEscape`, arrows and more, with modifiers | `KeyEnter` and `KeyBackspace` only | `KeyEnter` and `KeyBackspace` only | Yes: the Web keys and modifiers, where `ModifierMeta` is Command |
-| `TypeFocused` | Yes, types into the focused field | No, use `Type(ctx, location, text)` | No, use `Type(ctx, location, text)` | Yes, with `Clear` pointing to `false` |
+| `TypeFocused` | Yes, types into the focused field; `ErrActionFailed` (`no_focused_input`) when none has focus | No, use `Type(ctx, verify.Element("…"), text)` | No, use `Type(ctx, verify.Element("…"), text)` | Yes, with `Clear` pointing to `false` |
 | `Back` | Yes, browser history | No, tap the on-screen back control | Yes, the system back button | No |
 | `GoHome` | No, use `OpenURL` or `Navigate` | Yes, the home screen | Yes, the home screen | No |
 | `OpenURL` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No |
@@ -252,7 +253,7 @@ Coordinates follow the rule in [Exact actions](#exact-actions). A call a platfor
 
 ## Exact actions
 
-**Since Go `v0.3.0`. Early access.** Web, iOS and Android sessions take device actions that need no agent. `DoubleTap`, `LongPress`, `Drag`, `TypeFocused`, `GoHome`, and Web keys and modifiers in `PressKey`, are new in `v0.4.0`. `Tap` (with a point or an `Element`), `ScreenSize`, `TypeFocused` and `PressKey` on a Mac computer's screen are new in `v0.5.0`; see [Mac screen](#mac-screen). A location is a `verify.Point{X, Y}` in whole, non-negative screenshot pixels from the top-left corner, or a `verify.Element("Login button")` that Revyl's grounding model finds on the current screen.
+**Since Go `v0.3.0`. Early access.** Web, iOS and Android sessions take device actions that need no agent. `DoubleTap`, `LongPress`, `Drag`, `TypeFocused`, `GoHome`, and Web keys and modifiers in `PressKey`, are new in `v0.4.0`. `Tap` (with a point or an `Element`), `ScreenSize`, `TypeFocused` and `PressKey` on a Mac computer's screen are new in `v0.5.0`, and `Type` there in `v0.6.1`; see [Mac screen](#mac-screen). A location is a `verify.Point{X, Y}` in whole, non-negative screenshot pixels from the top-left corner, or a `verify.Element("Login button")` that Revyl's grounding model finds on the current screen.
 
 ```go
 if _, err := s.Tap(ctx, verify.Element("General")); err != nil {
@@ -279,16 +280,18 @@ if err := s.GoHome(ctx); err != nil { // the home screen, on iOS and Android
 }
 ```
 
-On Web, type where the focus is and press more keys:
+**Typing: one rule on every platform.** To type, call `s.Type(ctx, verify.Element("Email field"), text)`: it taps the field you describe and types into it, replacing its text unless `TypeOptions.Clear` points to `false`. It works the same on Web, iOS, Android and a Mac computer. `TypeFocused` types wherever focus already is, without tapping, and only on Web and computers; on Web, when no field has focus it returns `ErrActionFailed` with `Reason` `ReasonNoFocusedInput` (`no_focused_input`) and types nothing.
+
+On Web, type into a field, then where the focus moves, and press more keys:
 
 ```go
-if _, err := s.Tap(ctx, verify.Element("Username field")); err != nil {
-	return err
-}
-if err := s.TypeFocused(ctx, "standard_user"); err != nil { // replaces the focused field's text unless Clear points to false
+if _, err := s.Type(ctx, verify.Element("Username field"), "standard_user"); err != nil { // taps the field, then types
 	return err
 }
 if err := s.PressKey(ctx, verify.KeyTab); err != nil { // focus moves to the password field
+	return err
+}
+if err := s.TypeFocused(ctx, "secret_sauce"); err != nil { // replaces the focused field's text unless Clear points to false
 	return err
 }
 if err := s.PressKey(ctx, verify.Key("a"), verify.KeyOptions{Modifiers: []verify.KeyModifier{verify.ModifierCtrl}}); err != nil { // a chord
@@ -304,8 +307,8 @@ if err := s.PressKey(ctx, verify.KeyEscape); err != nil {
 | `Tap(ctx, at)` | Taps (clicks on Web and Mac computers) and returns the `Point` tapped. On a Mac computer a tap on a `verify.Element` takes several seconds and can click a look-alike, so check the point |
 | `DoubleTap(ctx, at)` | Double-taps (double-clicks on Web) and returns the `Point` |
 | `LongPress(ctx, at, LongPressOptions{Duration})` | Presses and holds for `Duration`, whole milliseconds from 1 millisecond to 5 seconds (zero means 1.5 seconds), and returns the `Point` |
-| `Type(ctx, at, text, TypeOptions{Clear})` | Taps a text field and types into it, clearing it first unless `Clear` points to `false` |
-| `TypeFocused(ctx, text, TypeOptions{Clear})` | Web and Mac computers: types into the field that already has focus, without clicking. Focus the field first, for example with `Tap` or `PressKey(ctx, verify.KeyTab)`. With no field focused nothing is typed and no error is returned, so check the result. On Web it replaces the field's text unless `Clear` points to `false`. On a Mac computer `Clear` must point to `false`: it types where the cursor is, and leaving `Clear` unset returns `ErrInvalidArgument`. To replace text there, select it first with `PressKey(ctx, verify.Key("a"), verify.KeyOptions{Modifiers: []verify.KeyModifier{verify.ModifierMeta}})`. On iOS and Android it returns `ErrNotAvailableOnPlatform`; use `Type(ctx, location, text)` |
+| `Type(ctx, at, text, TypeOptions{Clear})` | The way to type, on every platform. Taps a text field and types into it, clearing it first unless `Clear` points to `false`, and returns the `Point` tapped. On a Mac computer it clicks the field, selects its text with Command+A unless `Clear` points to `false`, and types |
+| `TypeFocused(ctx, text, TypeOptions{Clear})` | Web and Mac computers: types into the field that already has focus, without clicking. Prefer `Type(ctx, verify.Element("…"), text)`. On Web, with no field focused nothing is typed and it returns `ErrActionFailed` with `Reason` `ReasonNoFocusedInput`; on a Mac computer the keys go to whatever has focus, so check the result. On Web it replaces the field's text unless `Clear` points to `false`. On a Mac computer `Clear` must point to `false`: it types where the cursor is, and leaving `Clear` unset returns `ErrInvalidArgument`. To replace text there, select it first with `PressKey(ctx, verify.Key("a"), verify.KeyOptions{Modifiers: []verify.KeyModifier{verify.ModifierMeta}})`. On iOS and Android it returns `ErrNotAvailableOnPlatform` before anything is sent; use `Type(ctx, verify.Element("…"), text)` |
 | `Swipe(ctx, direction, SwipeOptions{From})` | Swipes from a location or the screen's center; `SwipeUp` moves the finger up, which scrolls content down |
 | `Drag(ctx, from, to)` | Presses at one location, moves to the other and releases, for example to reorder a list, move a slider or select text |
 | `PressKey(ctx, key, KeyOptions{Modifiers})` | Presses a key on the focused element. Every platform takes `KeyEnter` and `KeyBackspace`. Web and Mac computers also take `KeyTab`, `KeyEscape`, `KeyDelete`, `KeySpace`, `KeyArrowUp`, `KeyArrowDown`, `KeyArrowLeft`, `KeyArrowRight`, `KeyHome`, `KeyEnd`, `KeyPageUp` and `KeyPageDown`, and `Modifiers`: up to four of `ModifierCtrl`, `ModifierShift`, `ModifierAlt` and `ModifierMeta`, held while the key is pressed. With modifiers a lowercase letter or digit works too, such as `verify.Key("a")`. The shortcut key differs: select all with `ModifierMeta` on a Mac computer, where it is Command and `ModifierAlt` is Option, and with `ModifierCtrl` on Web, where `ModifierMeta` is not the shortcut key. Other keys and any modifiers return `ErrNotAvailableOnPlatform` on iOS and Android |
@@ -627,7 +630,19 @@ Operations submit once, then poll the deterministic operation ID after an asynch
 
 An unclaimed start may fail with `no_host` after 120 seconds from creation. Verify stops readiness polling and attempts bounded cleanup; this does not shorten the default 10-minute startup timeout for already-claimed guests or prove that physical release succeeded.
 
-`Recording(ctx)` works after `Close` and checks the terminal report and confirmed physical release before requesting retained recording metadata. It returns `*ComputerRecording{URL, Duration, StartedAt}` without downloading the video; `Duration` and `StartedAt` are nullable pointers. Recording processing is asynchronous, so a 404 `recording_unavailable` returns `(nil, nil)`; other errors remain typed. Before confirmed terminal release, it returns `ErrSessionBusy`. Signed recording URLs last up to one hour, are private, and are never logged; call `Recording` again to refresh metadata rather than retaining an expired URL.
+To get the screen recording, call `Recording(ctx)` after `Close`, on the same session and before your program exits:
+
+```go
+if err := s.Close(ctx); err != nil {
+	return err
+}
+recording, err := s.Recording(ctx) // waits until Revyl has saved the video
+if err != nil {
+	return err
+}
+```
+
+Revyl saves the video a few seconds after release, so `Recording` asks every 5 seconds until it is saved and returns `*ComputerRecording{URL, Duration, StartedAt}` without downloading the video; `Duration` and `StartedAt` are nullable pointers. It returns `(nil, nil)` only when none was saved within 15 minutes or before `ctx`'s deadline, and `ctx.Err()` when `ctx` is canceled. Since `v0.6.1`; earlier versions returned `(nil, nil)` at once while the video was still uploading. On a computer that is still running it returns `ErrSessionBusy` saying to call `Close` first. `Attach` can't reopen a closed computer, so a later process can't fetch it. Signed recording URLs last up to one hour, are private, and are never logged; call `Recording` again to refresh metadata rather than retaining an expired URL.
 
 ## Mac screen
 
@@ -644,23 +659,19 @@ time.Sleep(3 * time.Second) // let the window open
 if _, err := s.Screenshot(ctx, ".verify/mac.png"); err != nil { // open it and find the text
 	return err
 }
-if _, err := s.Tap(ctx, verify.Point{X: 400, Y: 300}); err != nil { // the point as you read it
+if _, err := s.Type(ctx, verify.Element("the white text area of the TextEdit window"), "First line\nSecond line"); err != nil { // clicks, selects all, types
 	return err
 }
 keep := false
-if err := s.TypeFocused(ctx, "First line\nSecond line", verify.TypeOptions{Clear: &keep}); err != nil {
+if err := s.TypeFocused(ctx, "\nThird line", verify.TypeOptions{Clear: &keep}); err != nil { // types where the cursor already is
 	return err
 }
-selectAll := verify.KeyOptions{Modifiers: []verify.KeyModifier{verify.ModifierMeta}} // Command+A
-if err := s.PressKey(ctx, verify.Key("a"), selectAll); err != nil {
-	return err
-}
-if err := s.TypeFocused(ctx, "Replacement", verify.TypeOptions{Clear: &keep}); err != nil { // replaces the selection
+if _, err := s.Tap(ctx, verify.Point{X: 400, Y: 300}); err != nil { // or click a point as you read it
 	return err
 }
 ```
 
-On a computer, `TypeFocused` needs `Clear` pointing to `false`: it types where the cursor is and clears nothing, so to replace text, select it first. `ModifierMeta` is Command and `ModifierAlt` is Option. `ScreenSize` works too. `Tap(ctx, verify.Element("the Help menu in the menu bar"))` clicks a description and returns the `Point` it clicked. It takes several seconds and can click a look-alike, or something else when the target isn't on the screen, so check the point or take a screenshot afterwards, and use a `verify.Point` from a screenshot for anything that's hard to undo. `Locate` and the other exact actions aren't available on computers and return `ErrNotAvailableOnPlatform` before anything is sent. When Revyl answers `screen_starting`, nothing happened, so Verify waits and tries again for up to 30 seconds. A program keeps control of the screen for 120 seconds after its last action, so a teammate can't take control in the Revyl viewer until then; while someone does control it there, actions return `ErrSessionBusy` and nothing happens. A 403 returns `ErrAuthRejected`: the key's owner needs the Member role or above, and CI runner keys can't control the screen yet. Revyl's `screen_input_uncertain` returns `ErrActionUncertain`, so take a screenshot before you act again. [computers.md](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#screen) lists every screen error.
+On a computer, as everywhere, type with `Type(ctx, verify.Element("description"), text)`: it clicks the field, selects its text with Command+A unless `Clear` points to `false`, and types. `TypeFocused` needs `Clear` pointing to `false`: it types where the cursor is and clears nothing, so to replace text, select it first. `ModifierMeta` is Command and `ModifierAlt` is Option. `ScreenSize` works too. `Tap(ctx, verify.Element("the Help menu in the menu bar"))` clicks a description and returns the `Point` it clicked. It takes several seconds and can click a look-alike, or something else when the target isn't on the screen, so check the point or take a screenshot afterwards, and use a `verify.Point` from a screenshot for anything that's hard to undo. `Locate` and the exact actions other than `Tap`, `Type`, `TypeFocused`, `PressKey` and `ScreenSize` aren't available on computers and return `ErrNotAvailableOnPlatform` before anything is sent. When Revyl answers `screen_starting`, nothing happened, so Verify waits and tries again for up to 30 seconds. A program keeps control of the screen for 120 seconds after its last action, so a teammate can't take control in the Revyl viewer until then; while someone does control it there, actions return `ErrSessionBusy` and nothing happens. A 403 returns `ErrAuthRejected`: the key's owner needs the Member role or above, and CI runner keys can't control the screen yet. Revyl's `screen_input_uncertain` returns `ErrActionUncertain`, so take a screenshot before you act again. [computers.md](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#screen) lists every screen error.
 
 ## Results and errors
 

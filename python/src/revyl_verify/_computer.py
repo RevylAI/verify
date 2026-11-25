@@ -116,7 +116,8 @@ _COMPUTER_KEYS: dict[str, str] = {
 }
 _SCREEN_CALLS = (
     'For the screen, use screenshot(), tap(Point(x, y)) or tap("description"), '
-    "type_focused(text, clear=False) and press_key(); for commands, use exec()."
+    'type("description", text), type_focused(text, clear=False) and press_key(); for '
+    "commands, use exec()."
 )
 _REFUSAL_NEXT_STEPS: dict[str, str] = {
     "AUTH_REJECTED": "Check that REVYL_API_KEY is a current key and that its owner has the "
@@ -1096,18 +1097,39 @@ class ComputerSession(Session):
             f"window. Try again later. See {self.viewer_url}",
         )
 
-    def recording(self) -> ComputerRecording | None:
-        deadline = Deadline(30)
-        report = self._report(self._request("GET", "/report", None, deadline))
+    def recording(self, *, timeout: float = 900) -> ComputerRecording | None:
+        """After close(), waits until Revyl has saved the computer's recording, usually seconds,
+        and returns it; None when none was saved within timeout seconds (default 15 minutes).
+        Each check can take up to 30 more seconds, so a late answer isn't lost."""
+        if (
+            isinstance(timeout, bool)
+            or not isinstance(timeout, (int, float))
+            or not 0 <= timeout <= 3600
+        ):
+            raise VerifyError("INVALID_ARGUMENT", "recording() timeout is seconds from 0 to 3600.")
+        until = time.monotonic() + timeout
+        report = self._report(self._request("GET", "/report", None, Deadline(30)))
         if report["state"] not in _TERMINAL or report.get("release") != "confirmed":
             raise VerifyError(
                 "SESSION_BUSY",
-                "The computer recording can be requested only after terminal state "
-                f"and confirmed release. See {self.viewer_url}",
+                "The computer is still running, so it has no recording yet. Call close() first, "
+                "then recording(), which waits until Revyl has saved the video. "
+                f"See {self.viewer_url}",
             )
-        response = self._request("GET", "/recording", None, deadline)
-        if response.status == 404:
-            return None
+        waited = False
+        while True:
+            response = self._request("GET", "/recording", None, Deadline(30))
+            if response.status != 404:
+                break
+            remaining = until - time.monotonic()
+            if remaining <= 0:
+                if waited:
+                    self._log(f"no recording was saved within {round(timeout)} seconds")
+                return None
+            if not waited:
+                self._log("waiting for Revyl to save the recording")
+                waited = True
+            time.sleep(min(5, remaining))
         raw = obj(response.json())
         url = raw.get("url")
         if not isinstance(url, str) or re.search(r"[\x00-\x20\x7f]", url):
@@ -1224,8 +1246,30 @@ class ComputerSession(Session):
             )
         return Point(x, y)
 
-    def type(self, at: Location, text: str, *, clear: bool = True, settle: bool = True) -> NoReturn:
-        self._unavailable("type")
+    def type(self, at: Location, text: str, *, clear: bool = True, settle: bool = True) -> Point:
+        """Clicks a field, selects its text unless clear is False, and types, so the text replaces
+        what was there. Returns the point clicked."""
+        _check_settle(settle)
+        if not isinstance(text, str) or text_length(text) > 16_384:
+            raise VerifyError("INVALID_ARGUMENT", "type() takes text of at most 16384 characters.")
+        if not isinstance(clear, bool):
+            raise VerifyError("INVALID_ARGUMENT", "clear must be a boolean.")
+        control = _CONTROL_CHARACTER.search(text)
+        if control is not None:
+            raise VerifyError(
+                "INVALID_ARGUMENT",
+                "Nothing was typed: type() on a computer takes newline and tab but no other "
+                "control characters, and the text has one at index "
+                f"{text_length(text[: control.start()])}. Use press_key() for keys such as "
+                "'escape'.",
+            )
+        point = self.tap(at)
+        if clear:
+            self.press_key("a", modifiers=["meta" if self.platform == "mac" else "ctrl"])
+            if not text:
+                self.press_key("backspace")
+        self.type_focused(text, clear=False)
+        return point
 
     def type_focused(self, text: str, *, clear: bool = True, settle: bool = True) -> None:
         """Types into whatever has keyboard focus. Computers can't clear a field: pass

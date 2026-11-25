@@ -53,7 +53,7 @@ Revyl runs one step at a time on a session. A step sent while another is still r
 
 ## Exact actions
 
-**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. The [Python](https://github.com/RevylAI/verify/blob/v0.7.0/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.7.0/go/README.md#exact-actions) READMEs show them with each language's names. When you know exactly what to click, skip the agent. Exact actions run in the browser as given, with no model, and mix freely with `instruction()` and `validation()`:
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. The [Python](https://github.com/RevylAI/verify/blob/v0.7.1/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.7.1/go/README.md#exact-actions) READMEs show them with each language's names. When you know exactly what to click, skip the agent. Exact actions run in the browser as given, with no model, and mix freely with `instruction()` and `validation()`:
 
 ```ts
 import { open } from '@revyl/verify';
@@ -86,10 +86,9 @@ import { open } from '@revyl/verify';
 
 const session = await open('web');                               // https://www.saucedemo.com in examples/web-store
 try {
-  await session.tap({ target: 'Username field' });
-  await session.typeFocused('standard_user');                    // types into the field that has focus, replacing its text
+  await session.type({ target: 'Username field' }, 'standard_user');  // taps the field, then types
   await session.pressKey('tab');                                 // focus moves to the password field
-  await session.typeFocused('secret_sauce');
+  await session.typeFocused('secret_sauce');                     // types into the field that has focus, replacing its text
   await session.pressKey('enter');
   await session.validation('A list of products is shown');
   await session.tap({ target: 'Open Menu button' });
@@ -104,15 +103,16 @@ try {
 }
 ```
 
-`typeFocused(text)` types where the focus already is, without clicking, and replaces the field's text unless you pass `{ clear: false }`. Focus the field first, with `tap()` or `pressKey('tab')`: with no field focused, nothing is typed and no error is thrown. `pressKey()` takes `'enter'`, `'backspace'`, `'tab'`, `'escape'`, `'delete'`, `'space'`, `'arrowup'`, `'arrowdown'`, `'arrowleft'`, `'arrowright'`, `'home'`, `'end'`, `'pageup'` and `'pagedown'`, with up to four `modifiers` held (`'ctrl'`, `'shift'`, `'alt'`, `'meta'`); with modifiers a lowercase letter or digit works too. The shortcut key on Web is `'ctrl'`, so select all with `pressKey('a', { modifiers: ['ctrl'] })`: `'meta'` is not the shortcut key here, though it is Command on a [Mac computer](computers.md#screen). `longPress()` holds for 1500 ms unless you pass `duration`, from 1 to 5000. `drag(from, to)` presses at one location, moves to the other and releases. A failed action throws `ACTION_FAILED`. One whose outcome Revyl can't confirm throws `ACTION_UNCERTAIN` or `TIMEOUT`, so check the session before acting again. Actions are never repeated. If Verify can't reach Revyl, the action fails with `API_ERROR` and isn't resent either, so check the session before trying it again. [api.md](api.md#exact-actions) lists every call.
+**Typing: one rule on every platform.** To type, call `type({ target: 'Email field' }, text)`: it taps the field you describe and types into it, replacing its text unless you pass `{ clear: false }`. It works the same on Web, iOS, Android and a Mac computer. `typeFocused(text)` types wherever focus already is, without tapping, and only on Web and computers; on Web, when no field has focus it throws `ACTION_FAILED` with reason `no_focused_input` and types nothing. `typeFocused` replaces the field's text unless you pass `{ clear: false }`; it suits a field you reached with `pressKey('tab')`. `pressKey()` takes `'enter'`, `'backspace'`, `'tab'`, `'escape'`, `'delete'`, `'space'`, `'arrowup'`, `'arrowdown'`, `'arrowleft'`, `'arrowright'`, `'home'`, `'end'`, `'pageup'` and `'pagedown'`, with up to four `modifiers` held (`'ctrl'`, `'shift'`, `'alt'`, `'meta'`); with modifiers a lowercase letter or digit works too. The shortcut key on Web is `'ctrl'`, so select all with `pressKey('a', { modifiers: ['ctrl'] })`: `'meta'` is not the shortcut key here, though it is Command on a [Mac computer](computers.md#screen). `longPress()` holds for 1500 ms unless you pass `duration`, from 1 to 5000. `drag(from, to)` presses at one location, moves to the other and releases. A failed action throws `ACTION_FAILED`. One whose outcome Revyl can't confirm throws `ACTION_UNCERTAIN` or `TIMEOUT`, so check the session before acting again. Actions are never repeated. If Verify can't reach Revyl, the action fails with `API_ERROR` and isn't resent either, so check the session before trying it again. [api.md](api.md#exact-actions) lists every call.
 
 | Call | Web | iOS | Android | Mac computer |
 | --- | --- | --- | --- | --- |
 | `tap({ x, y })`, `tap({ target })`, `screenSize` | Yes | Yes | Yes | Yes |
 | `locate` | Yes | Yes | Yes | No, use `tap({ target })`, which returns the point it clicked, or read the point off `screenshot()` |
-| `doubleTap`, `longPress`, `type`, `swipe`, `drag` | Yes | Yes | Yes | No |
+| `type({ target }, text)`, the way to type | Yes | Yes | Yes | Yes: clicks the field, selects its text unless `{ clear: false }`, then types |
+| `doubleTap`, `longPress`, `swipe`, `drag` | Yes | Yes | Yes | No |
 | `pressKey(key, { modifiers })` | Yes: `'enter'`, `'backspace'`, `'tab'`, `'escape'`, arrows and more, with modifiers | `'enter'` and `'backspace'` only | `'enter'` and `'backspace'` only | Yes: the Web keys and modifiers, where `'meta'` is Command |
-| `typeFocused(text, { clear })` | Yes, types into the focused field | No, use `type(location, text)` | No, use `type(location, text)` | Yes, with `{ clear: false }` |
+| `typeFocused(text, { clear })` | Yes, types into the focused field; `ACTION_FAILED` (`no_focused_input`) when none has focus | No, use `type({ target }, text)` | No, use `type({ target }, text)` | Yes, with `{ clear: false }` |
 | `back()` | Yes, browser history | No, tap the on-screen back control | Yes, the system back button | No |
 | `goHome()` | No, use `openUrl` or `navigate` | Yes, the home screen | Yes, the home screen | No |
 | `openUrl(url)` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No |

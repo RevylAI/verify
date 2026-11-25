@@ -61,14 +61,13 @@ try {
   await computer.exec(['open', '-a', 'TextEdit', 'notes.txt']);   // exec runs in the workspace
   await new Promise((resolve) => setTimeout(resolve, 3_000));      // let the window open
   await computer.screenshot({ path: '.verify/mac.png' });           // open it and find the text
-  await computer.tap({ x: 400, y: 300 });                           // the point as you read it
-  await computer.typeFocused('First line\nSecond line', { clear: false });
-  await computer.pressKey('a', { modifiers: ['meta'] });            // Command+A selects all
-  await computer.typeFocused('Replacement', { clear: false });      // typing replaces the selection
+  await computer.type({ target: 'the white text area of the TextEdit window' }, 'First line\nSecond line');  // clicks, selects all, types; check the point it returns
+  await computer.typeFocused('\nThird line', { clear: false });     // types where the cursor already is
   await computer.screenshot({ path: '.verify/mac-after.png' });
 } finally {
   await computer.close();
 }
+const recording = await computer.recording();                     // waits until Revyl has saved the video
 ```
 
 | Call | What it does |
@@ -77,10 +76,11 @@ try {
 | `screenSize()` | The screenshot's `{ width, height }`: x is 0 to width - 1, y is 0 to height - 1 |
 | `tap({ x, y })` | Clicks the point with the left button and resolves with it. Whole numbers from the top-left corner of the screenshot |
 | `tap({ target })` | Revyl finds the described element on a fresh screenshot, clicks it, and resolves with the point it clicked, in screenshot pixels. The description is 1 to 500 characters. Takes several seconds |
+| `type({ target }, text, { clear })` | The way to type: clicks the described field (or a point `{ x, y }`), selects its text with Command+A unless `clear` is `false`, then types, so the text replaces what was there. Resolves with the point clicked. The same limits on text as `typeFocused` |
 | `typeFocused(text, { clear: false })` | Types the text where the cursor is, in the app that has focus. `{ clear: false }` is required, because Verify doesn't clear anything first: to replace text, select it with `pressKey('a', { modifiers: ['meta'] })` and type over it. Up to 16,384 characters, including line breaks (`\n`) and tabs (`\t`); other control characters are refused before anything is typed. Long text goes in pieces of up to 500 characters, in order |
 | `pressKey(key, { modifiers })` | Presses a key: `'enter'`, `'backspace'`, `'tab'`, `'escape'`, `'delete'`, `'space'`, `'arrowup'`, `'arrowdown'`, `'arrowleft'`, `'arrowright'`, `'home'`, `'end'`, `'pageup'` or `'pagedown'`, with up to four `modifiers`: `'meta'` (Command), `'ctrl'`, `'alt'` (Option) and `'shift'`. With modifiers a lowercase letter or digit works too, so Command+A is `pressKey('a', { modifiers: ['meta'] })`. On Web the shortcut key is `'ctrl'` instead |
 
-`locate()` isn't available on computers, because Revyl can't find a point there without clicking it; `tap({ target })` returns the point it clicked instead. `doubleTap`, `longPress`, `type(location, text)`, `swipe`, `drag`, `back`, `goHome`, `openUrl` and `launchApp` aren't available on computers either, and a description works only in `tap`. They throw `NOT_AVAILABLE_ON_PLATFORM` before anything is sent; open apps and files with `exec()`, such as `exec(['open', '-a', 'TextEdit', 'notes.txt'])`. For TextEdit, open a file rather than the bare app: opened without a file, it may show a file picker instead of a document.
+`locate()` isn't available on computers, because Revyl can't find a point there without clicking it; `tap({ target })` returns the point it clicked instead. `doubleTap`, `longPress`, `swipe`, `drag`, `back`, `goHome`, `openUrl` and `launchApp` aren't available on computers either, and a description works only in `tap` and `type`. They throw `NOT_AVAILABLE_ON_PLATFORM` before anything is sent; open apps and files with `exec()`, such as `exec(['open', '-a', 'TextEdit', 'notes.txt'])`. For TextEdit, open a file rather than the bare app: opened without a file, it may show a file picker instead of a document.
 
 ### Described clicks
 
@@ -100,7 +100,7 @@ A script that controls the screen keeps control for 120 seconds after its last a
 | What happened | Error | What to do |
 | --- | --- | --- |
 | A point past the screen's edge (`screen_point_outside`), or a negative or fractional one | `INVALID_ARGUMENT`, and nothing was clicked | The message names the valid range |
-| `typeFocused` without `{ clear: false }`, with control characters other than `\n` and `\t`, or with more than 16,384 characters | `INVALID_ARGUMENT` before anything is sent | The message says how to fix the call |
+| `typeFocused` without `{ clear: false }`, or `type` or `typeFocused` with control characters other than `\n` and `\t`, or with more than 16,384 characters | `INVALID_ARGUMENT` before anything is sent | The message says how to fix the call |
 | The computer can't type some of the characters (`screen_text_unsupported`) | `INVALID_ARGUMENT`, and nothing was typed | Type those characters another way, such as writing a file with `writeFile` |
 | Someone controls the screen in the viewer (`screen_control_held`) | `SESSION_BUSY`, and nothing happened | Try again after they release it; control frees itself after 2 minutes without input |
 | Control of the screen changed hands before the action was sent (`screen_control_lost`) | `SESSION_BUSY`, and nothing happened | Try again; if someone controls the screen in the viewer, wait until they release it |
@@ -117,9 +117,16 @@ A script that controls the screen keeps control for 120 seconds after its last a
 
 When long text fails part way, the error says how many characters were certainly typed and whether the piece that failed may have been typed, counting characters as Unicode code points, so an emoji is one. Every other refusal names its reason and what to do next, such as starting a new computer after `run_closed`.
 
-## Recording metadata
+## Recording
 
-After terminal state **and** confirmed release, `await computer.recording()` returns `{ url, durationSeconds?, startedAt? }` or `null` if the recording is unavailable or still processing. `durationSeconds` is a finite nonnegative number; `startedAt` is a `Date`. Missing or nullable optional fields are omitted. Calling before terminal state and confirmed release throws `SESSION_BUSY`; Verify does not wait for the recording or download it. The method works after `close()` and checks the report before requesting the recording.
+To get a computer's screen recording, close it and then call `recording()` on the same object, in the same process:
+
+```ts
+await computer.close();
+const recording = await computer.recording();   // { url, durationSeconds?, startedAt? } or null
+```
+
+Revyl saves the video a few seconds after the computer is released, so `recording()` waits: it asks every 5 seconds until the video is saved, for up to `timeoutMs` (`recording({ timeoutMs })`, 900000, 15 minutes, by default; 0 asks once). It returns `null` only when none was saved in that time. A check already under way when the time runs out can take up to 30 seconds more, so its answer isn't lost. Since 0.7.1; earlier versions returned `null` at once while the video was still uploading. On a computer that is still running it throws `SESSION_BUSY` saying to call `close()` first. `attach()` can't reopen a closed computer, so get the recording before your script exits; after that it is only in the session at `viewerUrl`. `durationSeconds` is a finite nonnegative number; `startedAt` is a `Date`. Missing or nullable optional fields are omitted. Verify doesn't download the video.
 
 The HTTPS URL is signed and short-lived. Keep it private, including its query string; do not log or publish it. Call `recording()` again when a fresh URL is needed. The report carries no recording URL; `viewerUrl` remains a Revyl UI link, not a download URL. Web/mobile sessions reject `recording()` locally with `NOT_AVAILABLE_ON_PLATFORM`.
 

@@ -451,9 +451,9 @@ describe.each(['mac', 'linux'] as const)('%s computer recording', (platform) => 
     await expect((await start(fake, [], platform)).recording()).rejects.toMatchObject({ code: 'API_ERROR', message: 'Revyl returned an invalid computer response.' });
   });
 
-  it('returns null only for the recording_unavailable error without waiting', async () => {
+  it('returns null only for the recording_unavailable error once timeoutMs has passed', async () => {
     const fake = recordingFake().on('GET', /\/recording$/, () => json({ error: 'recording_unavailable' }, 404));
-    expect(await (await start(fake, [], platform)).recording()).toBeNull();
+    expect(await (await start(fake, [], platform)).recording({ timeoutMs: 0 })).toBeNull();
     expect(fake.calls('GET', /\/recording$/)).toHaveLength(1);
   });
 

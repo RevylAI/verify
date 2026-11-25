@@ -162,7 +162,8 @@ export interface Session {
   readonly steps: StepResult[];
   readonly closed: boolean;
   readonly expiresAt?: Date;
-  recording(): Promise<ComputerRecording | null>;
+  /** A computer's recording after close(), waiting until Revyl has saved it; null when none was saved within timeoutMs (default 15 minutes). Computers only. */
+  recording(options?: { timeoutMs?: number }): Promise<ComputerRecording | null>;
   /** Asks Revyl's agent to do something on the app. Browsers and devices only. */
   instruction(text: string, options?: StepOptions): Promise<StepResult>;
   /** Asks Revyl's agent whether something holds on screen. Browsers and devices only. */
@@ -203,9 +204,9 @@ export interface OpenedSession extends Session {
    * On web, { settle: false } returns without waiting for the page to settle; see ActionOptions.
    */
   tap(at: Location, options?: ActionOptions): Promise<Point>;
-  /** Taps a text field and types into it, clearing it first unless clear is false. Returns the point tapped. Browsers and devices only. */
+  /** The way to type on every platform: taps a text field and types into it, clearing it first unless clear is false. Returns the point tapped. */
   type(at: Location, text: string, options?: { clear?: boolean } & ActionOptions): Promise<Point>;
-  /** Types into the field that already has focus, without tapping, replacing its content unless clear is false. Web and Mac computers, where clear must be false; on iOS and Android, use type(location, text). */
+  /** Types into the field that already has focus, without tapping, replacing its content unless clear is false. Web and computers, where clear must be false; on iOS and Android, use type({ target }, text). */
   typeFocused(text: string, options?: { clear?: boolean } & ActionOptions): Promise<void>;
   /** Double-taps a point in screenshot pixels, or an element Revyl locates from a description. Returns the point, in screenshot pixels. Browsers and devices only. */
   doubleTap(at: Location, options?: ActionOptions): Promise<Point>;
@@ -728,7 +729,7 @@ export class DeviceSession implements Session {
 
   /** Types into the field that already has focus, without tapping, replacing its content unless clear is false. Web only. */
   async typeFocused(text: string, options: { clear?: boolean } & ActionOptions = {}): Promise<void> {
-    if (this.platform !== 'web') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'typeFocused() is available only on web sessions; on iOS and Android, use type(location, text), which taps the field first.');
+    if (this.platform !== 'web') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', "typeFocused() isn't available on iOS and Android sessions. Use type({ target: 'the email field' }, text), which taps the field and types into it.");
     if (typeof text !== 'string' || text.length > 16_384) throw new VerifyError('INVALID_ARGUMENT', 'typeFocused() takes text of at most 16384 characters.');
     const settle = checkSettle(options.settle);
     await this.perform({ kind: 'type_focused', text, clear: options.clear !== false }, undefined, undefined, settle);
@@ -1053,6 +1054,9 @@ export class DeviceSession implements Session {
         );
       }
       return new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `${baseAction} is not available on ${this.platform} sessions (${reason}).`);
+    }
+    if (code === 'no_focused_input') {
+      return new VerifyError('ACTION_FAILED', `Nothing was typed: no text field has focus (no_focused_input). Use type({ target: 'the email field' }, text), which taps the field and types into it, or tap the field first. See ${this.viewerUrl}`, { reason: 'no_focused_input', httpStatus: response.status });
     }
     if (WEB_TARGET_ERRORS.has(code ?? detail ?? '')) {
       return new VerifyError('ACTION_FAILED', `${baseAction} could not act on the screen (${code ?? detail}). Take a fresh screenshot and try again. See ${this.viewerUrl}`);

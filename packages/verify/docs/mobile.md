@@ -50,7 +50,7 @@ For Android Settings (`bundleId: 'com.android.settings'`), instruct the agent to
 
 ## Exact actions
 
-**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. The [Python](https://github.com/RevylAI/verify/blob/v0.7.0/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.7.0/go/README.md#exact-actions) READMEs show them with each language's names. When you know exactly what to press, skip the agent. Exact actions run on the device as given, with no model, and mix freely with `instruction()` and `validation()` in one script:
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. The [Python](https://github.com/RevylAI/verify/blob/v0.7.1/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.7.1/go/README.md#exact-actions) READMEs show them with each language's names. When you know exactly what to press, skip the agent. Exact actions run on the device as given, with no model, and mix freely with `instruction()` and `validation()` in one script:
 
 ```ts
 import { open } from '@revyl/verify';
@@ -97,7 +97,7 @@ try {
 }
 ```
 
-`goHome()` goes to the home screen on iOS and Android. `longPress()` holds for 1500 ms unless you pass `duration`, from 1 to 5000. `drag(from, to)` presses at one location, moves to the other and releases. On iOS and Android, type into a field with `type(location, text)`, which taps it first; `typeFocused()` is Web only and throws `NOT_AVAILABLE_ON_PLATFORM` here.
+`goHome()` goes to the home screen on iOS and Android. `longPress()` holds for 1500 ms unless you pass `duration`, from 1 to 5000. `drag(from, to)` presses at one location, moves to the other and releases. On iOS and Android, as everywhere, type with `type({ target: 'Search field' }, text)`, which taps the field and then types; `typeFocused()` throws `NOT_AVAILABLE_ON_PLATFORM` here before anything is sent, naming `type({ target }, text)`.
 
 On Android, `back()` presses the system back button. On both platforms, `goHome()` goes to the home screen, `launchApp(bundleId)` brings an installed app to the front and `openUrl('myapp://orders/42')` opens a deep link. A failed action throws `ACTION_FAILED`. One whose outcome Revyl can't confirm throws `ACTION_UNCERTAIN` or `TIMEOUT`, so check the session before acting again. Actions are never repeated. If Verify can't reach Revyl, the action fails with `API_ERROR` and isn't resent either, so check the session before trying it again. [api.md](api.md#exact-actions) lists every call.
 
@@ -105,9 +105,10 @@ On Android, `back()` presses the system back button. On both platforms, `goHome(
 | --- | --- | --- | --- | --- |
 | `tap({ x, y })`, `tap({ target })`, `screenSize` | Yes | Yes | Yes | Yes |
 | `locate` | Yes | Yes | Yes | No, use `tap({ target })`, which returns the point it clicked, or read the point off `screenshot()` |
-| `doubleTap`, `longPress`, `type`, `swipe`, `drag` | Yes | Yes | Yes | No |
+| `type({ target }, text)`, the way to type | Yes | Yes | Yes | Yes: clicks the field, selects its text unless `{ clear: false }`, then types |
+| `doubleTap`, `longPress`, `swipe`, `drag` | Yes | Yes | Yes | No |
 | `pressKey(key, { modifiers })` | Yes: `'enter'`, `'backspace'`, `'tab'`, `'escape'`, arrows and more, with modifiers | `'enter'` and `'backspace'` only | `'enter'` and `'backspace'` only | Yes: the Web keys and modifiers, where `'meta'` is Command |
-| `typeFocused(text, { clear })` | Yes, types into the focused field | No, use `type(location, text)` | No, use `type(location, text)` | Yes, with `{ clear: false }` |
+| `typeFocused(text, { clear })` | Yes, types into the focused field; `ACTION_FAILED` (`no_focused_input`) when none has focus | No, use `type({ target }, text)` | No, use `type({ target }, text)` | Yes, with `{ clear: false }` |
 | `back()` | Yes, browser history | No, tap the on-screen back control | Yes, the system back button | No |
 | `goHome()` | No, use `openUrl` or `navigate` | Yes, the home screen | Yes, the home screen | No |
 | `openUrl(url)` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No |

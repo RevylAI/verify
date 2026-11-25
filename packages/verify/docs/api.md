@@ -192,15 +192,18 @@ On iOS, Android and Mac computers `cdp()` throws `NOT_AVAILABLE_ON_PLATFORM` bef
 
 ## Exact actions
 
-**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. On a Mac computer's screen, `tap` (by point or by description), `screenSize`, `typeFocused` and `pressKey` are new in TypeScript 0.6.0, Python 0.4.0 and Go v0.5.0. The [Python](https://github.com/RevylAI/verify/blob/v0.7.0/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.7.0/go/README.md#exact-actions) READMEs show them with each language's names. Web, iOS and Android sessions, and a Mac computer's screen, take device actions that need no agent.
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. On a Mac computer's screen, `tap` (by point or by description), `screenSize`, `typeFocused` and `pressKey` are new in TypeScript 0.6.0, Python 0.4.0 and Go v0.5.0, and `type` in TypeScript 0.7.1, Python 0.5.1 and Go v0.6.1. The [Python](https://github.com/RevylAI/verify/blob/v0.7.1/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.7.1/go/README.md#exact-actions) READMEs show them with each language's names. Web, iOS and Android sessions, and a Mac computer's screen, take device actions that need no agent.
+
+**Typing: one rule on every platform.** To type, call `type({ target: 'Email field' }, text)`: it taps the field you describe and types into it, replacing its text unless you pass `{ clear: false }`. It works the same on Web, iOS, Android and a Mac computer. `typeFocused(text)` types wherever focus already is, without tapping, and only on Web and computers; on Web, when no field has focus it throws `ACTION_FAILED` with reason `no_focused_input` and types nothing.
 
 | Call | Web | iOS | Android | Mac computer |
 | --- | --- | --- | --- | --- |
 | `tap({ x, y })`, `tap({ target })`, `screenSize` | Yes | Yes | Yes | Yes |
 | `locate` | Yes | Yes | Yes | No, use `tap({ target })`, which returns the point it clicked, or read the point off `screenshot()` |
-| `doubleTap`, `longPress`, `type`, `swipe`, `drag` | Yes | Yes | Yes | No |
+| `type({ target }, text)`, the way to type | Yes | Yes | Yes | Yes: clicks the field, selects its text unless `{ clear: false }`, then types |
+| `doubleTap`, `longPress`, `swipe`, `drag` | Yes | Yes | Yes | No |
 | `pressKey(key, { modifiers })` | Yes: `'enter'`, `'backspace'`, `'tab'`, `'escape'`, arrows and more, with modifiers | `'enter'` and `'backspace'` only | `'enter'` and `'backspace'` only | Yes: the Web keys and modifiers, where `'meta'` is Command |
-| `typeFocused(text, { clear })` | Yes, types into the focused field | No, use `type(location, text)` | No, use `type(location, text)` | Yes, with `{ clear: false }` |
+| `typeFocused(text, { clear })` | Yes, types into the focused field; `ACTION_FAILED` (`no_focused_input`) when none has focus | No, use `type({ target }, text)` | No, use `type({ target }, text)` | Yes, with `{ clear: false }` |
 | `back()` | Yes, browser history | No, tap the on-screen back control | Yes, the system back button | No |
 | `goHome()` | No, use `openUrl` or `navigate` | Yes, the home screen | Yes, the home screen | No |
 | `openUrl(url)` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No |
@@ -220,8 +223,8 @@ A location is `{ x, y }` in screenshot pixels (see [Coordinates](#coordinates)) 
 | `tap(at)` | Taps (clicks on Web and Mac computers) and resolves with the point tapped. On a Mac computer a described tap takes several seconds, can click a look-alike, and can click something else when the target isn't on the screen, so check the point or a screenshot afterwards; see [computers.md](computers.md#screen) |
 | `doubleTap(at)` | Double-taps (double-clicks on Web) and resolves with the point |
 | `longPress(at, { duration })` | Presses and holds for `duration` milliseconds, 1 to 5000 (default 1500), and resolves with the point |
-| `type(at, text, { clear })` | Taps a text field and types into it, clearing it first unless `clear` is `false` |
-| `typeFocused(text, { clear })` | Web and Mac computers: types into the field that already has focus, without clicking. Focus the field first, for example with `tap` or `pressKey('tab')`. With no field focused nothing is typed and no error is thrown, so check the result. On Web it replaces the field's text unless `clear` is `false`. On a Mac computer pass `{ clear: false }`: it types where the cursor is, and leaving `clear` out throws `INVALID_ARGUMENT`. To replace text there, select it first with `pressKey('a', { modifiers: ['meta'] })`. On iOS and Android it throws `NOT_AVAILABLE_ON_PLATFORM`; use `type(location, text)` |
+| `type(at, text, { clear })` | The way to type, on every platform. Taps a text field and types into it, clearing it first unless `clear` is `false`, and resolves with the point tapped. On a Mac computer it clicks the field, selects its text with Command+A unless `clear` is `false`, and types, so the text replaces what was there |
+| `typeFocused(text, { clear })` | Web and Mac computers: types into the field that already has focus, without clicking, for example after `pressKey('tab')`. Prefer `type({ target }, text)`. On Web, with no field focused nothing is typed and it throws `ACTION_FAILED` with reason `no_focused_input`; on a Mac computer the keys go to whatever has focus, so check the result. On Web it replaces the field's text unless `clear` is `false`. On a Mac computer pass `{ clear: false }`: it types where the cursor is, and leaving `clear` out throws `INVALID_ARGUMENT`. To replace text there, select it first with `pressKey('a', { modifiers: ['meta'] })`. On iOS and Android it throws `NOT_AVAILABLE_ON_PLATFORM` before anything is sent; use `type({ target }, text)` |
 | `swipe(direction, { from })` | Swipes from a location or the screen's center; `'up'` moves the finger up, which scrolls content down |
 | `drag(from, to)` | Presses at one location, moves to the other and releases, for example to reorder a list, move a slider or select text |
 | `pressKey(key, { modifiers })` | Presses a key on the focused element. Every platform takes `'enter'` and `'backspace'`. Web and Mac computers also take `'tab'`, `'escape'`, `'delete'`, `'space'`, `'arrowup'`, `'arrowdown'`, `'arrowleft'`, `'arrowright'`, `'home'`, `'end'`, `'pageup'` and `'pagedown'`, and `modifiers`: up to four of `'ctrl'`, `'shift'`, `'alt'` and `'meta'`, held while the key is pressed. With modifiers a lowercase letter or digit works too. The shortcut key differs: select all with `pressKey('a', { modifiers: ['meta'] })` on a Mac computer, where `'meta'` is Command and `'alt'` is Option, and with `pressKey('a', { modifiers: ['ctrl'] })` on Web, where `'meta'` is not the shortcut key. Other keys and any modifiers throw `NOT_AVAILABLE_ON_PLATFORM` on iOS and Android |
@@ -301,7 +304,7 @@ When inspecting `revyl device report --session-id <id>`, read validation verdict
 
 ## Your own model
 
-**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0; the [Python](https://github.com/RevylAI/verify/blob/v0.7.0/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.7.0/go/README.md#your-own-model) READMEs show them with each language's names. Runs instructions and validations on a model you choose, in your process, instead of Revyl's agent. Revyl still provides the browser or device. Leave `model` out and Revyl's agent runs the step, as before.
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0; the [Python](https://github.com/RevylAI/verify/blob/v0.7.1/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.7.1/go/README.md#your-own-model) READMEs show them with each language's names. Runs instructions and validations on a model you choose, in your process, instead of Revyl's agent. Revyl still provides the browser or device. Leave `model` out and Revyl's agent runs the step, as before.
 
 ```ts
 const session = await open('ios', { model: 'anthropic/claude-sonnet-5-5' });  // every step on your model
@@ -352,17 +355,25 @@ For owning computers, cleanup must be confirmed; a terminal state alone does not
 
 ## Computer commands, files, and processes
 
-Mac sessions provide `exec(argv: string[], options?)`, `readFile(path, options?)` returning `Buffer`, `writeFile(path, string | Uint8Array, options?)`, `stat(path, options?)` returning `{ kind, size }`, `processes(options?)` returning `{ id, state, exitCode? }[]`, and `terminate(id, options?)`. They throw `NOT_AVAILABLE_ON_PLATFORM` on web/iOS/Android. See [computers.md](computers.md) for complete signatures, limits, timeouts, and examples. Both support `screenshot()`, and computers take `tap({ x, y })`, `screenSize()`, `typeFocused(text, { clear: false })` and `pressKey` on the screen (see [computers.md](computers.md#screen)); instruction/validation do not run on computers.
+Mac sessions provide `exec(argv: string[], options?)`, `readFile(path, options?)` returning `Buffer`, `writeFile(path, string | Uint8Array, options?)`, `stat(path, options?)` returning `{ kind, size }`, `processes(options?)` returning `{ id, state, exitCode? }[]`, and `terminate(id, options?)`. They throw `NOT_AVAILABLE_ON_PLATFORM` on web/iOS/Android. See [computers.md](computers.md) for complete signatures, limits, timeouts, and examples. Both support `screenshot()`, and computers take `tap({ x, y })`, `tap({ target })`, `type({ target }, text)`, `screenSize()`, `typeFocused(text, { clear: false })` and `pressKey` on the screen (see [computers.md](computers.md#screen)); instruction/validation do not run on computers.
 
 ### `session.extend(timeoutMs: number): Promise<void>`
 
 Computers only. Keeps a running computer going at least `timeoutMs` (whole seconds in milliseconds, from 60000 to 86400000) from now, up to 24 hours after it was created, and updates `expiresAt`. It never shortens the lifetime, so retrying is safe. Throws `COMPUTER_LIMIT` with reason `computer_long_limit` when the organization already has 2 computers running longer than 2 hours and `NOT_AVAILABLE_ON_PLATFORM` when the computer's host can't extend. Devices reject this call locally with `NOT_AVAILABLE_ON_PLATFORM`.
 
-### `session.recording(): Promise<ComputerRecording | null>`
+### `session.recording({ timeoutMs }?): Promise<ComputerRecording | null>`
 
-**Since 0.2.0.** This method is not available in 0.1.0.
+**Since 0.2.0.** Waits for the recording since 0.7.1.
 
-Computers only. First reads the report and requires terminal state plus confirmed release, otherwise throws `SESSION_BUSY`. Returns `{ url: string, durationSeconds?: number, startedAt?: Date }` or null for an unavailable recording. Nullable optional wire fields are omitted. This method works after `close()`, does not wait for upload, and does not download or fetch the URL. Keep the signed HTTPS URL and its query private. Request fresh metadata when the URL expires. The normal report has no recording URL. Devices reject this call locally with `NOT_AVAILABLE_ON_PLATFORM`.
+Computers only. Call it after `close()`, on the same session object and before your process exits:
+
+```ts
+await computer.close();
+const recording = await computer.recording();   // waits until Revyl has saved the video
+console.log(recording?.url);
+```
+
+It reads the report and requires terminal state plus confirmed release; on a computer that is still running it throws `SESSION_BUSY` saying to call `close()` first. Revyl saves the video a few seconds after release, so `recording()` asks every 5 seconds until it is saved and returns `{ url: string, durationSeconds?: number, startedAt?: Date }`. It returns `null` only when none was saved within `timeoutMs`: 900000 (15 minutes) by default, whole milliseconds from 0 to 3600000, where 0 asks once without waiting. A check already under way when `timeoutMs` runs out can take up to 30 seconds more, so its answer isn't lost. `attach()` can't reopen a closed computer, so a later process can't fetch it with Verify; the recording stays in the session at `viewerUrl`. Nullable optional wire fields are omitted. It does not download or fetch the URL. Keep the signed HTTPS URL and its query private. Request fresh metadata when the URL expires. The normal report has no recording URL. Devices reject this call locally with `NOT_AVAILABLE_ON_PLATFORM`.
 
 ## Other session properties
 

@@ -218,11 +218,11 @@ func (s *Session) Tap(ctx context.Context, at Location, options ...TapOptions) (
 
 // Type taps a text field and types into it, clearing it first unless TypeOptions.Clear is false. It returns the point tapped.
 func (s *Session) Type(ctx context.Context, at Location, text string, options ...TypeOptions) (Point, error) {
-	if s.platform.computer() {
-		return Point{}, s.computerAgentUnavailable("Type")
-	}
 	if len(options) > 1 {
 		return Point{}, failure(ErrInvalidArgument, "Type accepts at most one options value.")
+	}
+	if s.platform.computer() {
+		return s.computerType(ctx, at, text, len(options) == 0 || options[0].Clear == nil || *options[0].Clear)
 	}
 	if textLength(text) > 16384 {
 		return Point{}, failure(ErrInvalidArgument, "Type takes text of at most 16384 characters.")
@@ -283,7 +283,7 @@ func (s *Session) TypeFocused(ctx context.Context, text string, options ...TypeO
 		return failure(ErrInvalidArgument, "TypeFocused accepts at most one options value.")
 	}
 	if s.platform != Web {
-		return failure(ErrNotAvailableOnPlatform, "TypeFocused is available only on web sessions; on iOS and Android, use Type(ctx, location, text), which taps the field first.")
+		return failure(ErrNotAvailableOnPlatform, "TypeFocused isn't available on iOS and Android sessions. Use session.Type(ctx, verify.Element(\"the email field\"), text), which taps the field and types into it.")
 	}
 	if textLength(text) > 16384 {
 		return failure(ErrInvalidArgument, "TypeFocused takes text of at most 16384 characters.")
