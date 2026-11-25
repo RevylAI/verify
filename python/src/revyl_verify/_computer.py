@@ -1099,7 +1099,8 @@ class ComputerSession(Session):
 
     def recording(self, *, timeout: float = 900) -> ComputerRecording | None:
         """After close(), waits until Revyl has saved the computer's recording, usually seconds,
-        and returns it; None when none was saved within timeout seconds (default 15 minutes)."""
+        and returns it; None when none was saved within timeout seconds (default 15 minutes).
+        Each check can take up to 30 more seconds, so a late answer isn't lost."""
         if (
             isinstance(timeout, bool)
             or not isinstance(timeout, (int, float))
@@ -1117,8 +1118,7 @@ class ComputerSession(Session):
             )
         waited = False
         while True:
-            budget = min(30, max(1, until - time.monotonic())) if waited else 30
-            response = self._request("GET", "/recording", None, Deadline(budget))
+            response = self._request("GET", "/recording", None, Deadline(30))
             if response.status != 404:
                 break
             remaining = until - time.monotonic()

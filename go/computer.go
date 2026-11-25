@@ -1200,12 +1200,12 @@ func (s *Session) Recording(ctx context.Context) (*ComputerRecording, error) {
 	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
 		deadline = ctxDeadline
 	}
-	get := func(suffix string, timeout time.Duration) (response, error) {
-		requestCtx, cancel := context.WithTimeout(ctx, timeout)
+	get := func(suffix string) (response, error) {
+		requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		return s.computerRequest(requestCtx, "GET", suffix, nil)
 	}
-	r, err := get("/report", 30*time.Second)
+	r, err := get("/report")
 	if err != nil {
 		return nil, err
 	}
@@ -1217,11 +1217,7 @@ func (s *Session) Recording(ctx context.Context) (*ComputerRecording, error) {
 		return nil, failure(ErrSessionBusy, "The computer is still running, so it has no recording yet. Call Close first, then Recording, which waits until Revyl has saved the video. See "+s.viewer)
 	}
 	for waited := false; ; waited = true {
-		timeout := 30 * time.Second
-		if waited {
-			timeout = min(timeout, max(time.Second, time.Until(deadline)))
-		}
-		if r, err = get("/recording", timeout); err != nil {
+		if r, err = get("/recording"); err != nil {
 			if waited && errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				return nil, nil
 			}

@@ -308,7 +308,7 @@ export class ComputerSession implements Session {
     this.log(`lifetime extended to ${report.expires_at}`);
   }
 
-  /** After close(), waits until Revyl has saved the computer's recording, usually seconds, and returns it; null when none was saved within timeoutMs (default 15 minutes). */
+  /** After close(), waits until Revyl has saved the computer's recording, usually seconds, and returns it; null when none was saved within timeoutMs (default 15 minutes). Each check can take up to 30 more seconds, so a late answer isn't lost. */
   async recording(options: { timeoutMs?: number } = {}): Promise<ComputerRecording | null> {
     const timeoutMs = options.timeoutMs ?? RECORDING_WAIT_MS;
     if (!Number.isInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 3_600_000) throw new VerifyError('INVALID_ARGUMENT', 'recording() timeoutMs is whole milliseconds from 0 to 3600000.');
@@ -319,7 +319,7 @@ export class ComputerSession implements Session {
     }
     let response: RawResponse;
     for (let waited = false; ; waited = true) {
-      response = await this.request('GET', '/recording', undefined, AbortSignal.timeout(waited ? Math.min(30_000, Math.max(1_000, deadline - Date.now())) : 30_000));
+      response = await this.request('GET', '/recording', undefined, AbortSignal.timeout(30_000));
       if (response.status !== 404 || responseErrorCode(response) !== 'recording_unavailable') break;
       const remainingMs = deadline - Date.now();
       if (remainingMs <= 0) {
