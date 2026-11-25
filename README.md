@@ -119,7 +119,7 @@ Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v
 
 A call a platform doesn't support throws `NOT_AVAILABLE_ON_PLATFORM`, and its message names the alternative.
 
-Web is available to every organization. Mac computers are available to organizations on a current paid Revyl plan and have a server-bounded lifetime; see [computers](packages/verify/docs/computers.md). To get a Mac computer's screen recording, call `await computer.close()` and then `await computer.recording()` on the same object, in the same process: it waits until Revyl has saved the video, usually a few seconds, and returns `{ url, durationSeconds?, startedAt? }`, or `null` if none was saved within `timeoutMs` (15 minutes by default). `attach()` can't reopen a closed computer, so fetch the recording before your script exits.
+Web is available to every organization. Mac computers are available to organizations on a current paid Revyl plan and have a server-bounded lifetime; see [computers](packages/verify/docs/computers.md). To get a Mac computer's screen recording, call `await computer.close()` and then `await computer.recording()` on the same object, in the same process: it waits until Revyl has saved the video, usually a few seconds, and returns `{ url, durationSeconds?, startedAt? }`, or `null` if none was saved within `timeoutMs` (15 minutes by default; a check under way at that point can take up to 30 seconds more). `attach()` can't reopen a closed computer, so fetch the recording before your script exits.
 
 ## Documentation
 
