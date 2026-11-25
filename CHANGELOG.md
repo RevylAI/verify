@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.1 (unreleased)
+## 0.7.1 (2026-11-25)
 
 - Web: `typeFocused()` with no text field focused throws `ACTION_FAILED` with the new reason `no_focused_input` and the message `Nothing was typed: no text field has focus (no_focused_input). Use type({ target: 'the email field' }, text), which taps the field and types into it, or tap the field first.` Revyl answers this with HTTP 409, which 0.7.0 reported as `SESSION_BUSY`, so a script or agent gave up on a call it could fix. Your own model's loop now feeds the message back to the model instead of ending the step, because `ACTION_FAILED` doesn't abort it. A session that really is busy, such as a second step while one runs, still throws `SESSION_BUSY`.
 - Typing has one rule on every platform: `type({ target }, text)`. Mac computers now take `type(at, text, { clear })`: it clicks the field (a description or a point), selects its text with Command+A (Ctrl+A on Linux) unless `clear` is `false`, types, and resolves with the point clicked. It refuses control characters other than `\n` and `\t` before clicking. `typeFocused()` on iOS and Android still throws `NOT_AVAILABLE_ON_PLATFORM` before anything is sent, now naming `type({ target: 'the email field' }, text)`. The README, the API page and the web, mobile, computers, errors and agents pages teach `type({ target }, text)` as the way to type everywhere, and your own model's tool list describes `type` as the way to type and `type_focused` as needing a focused field.
@@ -8,7 +8,7 @@
 - Docs: session profiles run on Revyl's production backend, so the API page and the Python and Go READMEs no longer say a profile name is refused there (#66).
 - Computers: a Mac computer create that Revyl refuses with `computer_not_enabled` and `unlocks_with_card: true`, as it does for a Free-plan organization, throws `NOT_AVAILABLE_ON_PLATFORM` with the new reason `upgrade_required` instead of no reason and the generic support guidance. The message reads `Mac computers come with Pro, so Revyl refused this computer (computer_not_enabled, upgrade_required).`, then Revyl's upgrade offer and billing link (`<offer message>: <https billing link>`) when Revyl sends one with an HTTPS link and a single-line message of at most 160 characters, and otherwise `Add a card in Revyl's billing settings to unlock them.` `open()` adds the session link as before; `openPersistent()` refuses the same way. The code is unchanged, the create is still not retried and no stop is sent, and any other `computer_not_enabled` refusal keeps its current message.
 
-## Go 0.6.1 (unreleased)
+## Go 0.6.1 (2026-11-25)
 
 To be published as the `go/v0.6.1` tag.
 
@@ -18,7 +18,7 @@ To be published as the `go/v0.6.1` tag.
 - A Mac computer create refused with `computer_not_enabled` and `unlocks_with_card: true` returns `ErrNotAvailableOnPlatform` with `Reason` `ReasonUpgradeRequired` on `Open` and `OpenPersistent`, as in TypeScript 0.7.1.
 - `verify.Version` and the `User-Agent` report 0.6.1.
 
-## Python 0.5.1 (unreleased)
+## Python 0.5.1 (2026-11-25)
 
 - Web: `type_focused()` with no text field focused raises `ACTION_FAILED` with `reason="no_focused_input"` and a message naming `type("the email field", text)`, as in TypeScript 0.7.1, instead of `SESSION_BUSY`. A session that really is busy still raises `SESSION_BUSY`.
 - `type(at, text, clear=True)` works on Mac computers, as in TypeScript 0.7.1. `type_focused()` on iOS and Android names `type("the email field", text)`.
