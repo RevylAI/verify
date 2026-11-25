@@ -659,7 +659,7 @@ time.Sleep(3 * time.Second) // let the window open
 if _, err := s.Screenshot(ctx, ".verify/mac.png"); err != nil { // open it and find the text
 	return err
 }
-if _, err := s.Type(ctx, verify.Element("the TextEdit document"), "First line\nSecond line"); err != nil { // clicks, selects all, types
+if _, err := s.Type(ctx, verify.Element("the white text area of the TextEdit window"), "First line\nSecond line"); err != nil { // clicks, selects all, types
 	return err
 }
 keep := false

@@ -61,7 +61,7 @@ try {
   await computer.exec(['open', '-a', 'TextEdit', 'notes.txt']);   // exec runs in the workspace
   await new Promise((resolve) => setTimeout(resolve, 3_000));      // let the window open
   await computer.screenshot({ path: '.verify/mac.png' });           // open it and find the text
-  await computer.type({ target: 'the TextEdit document' }, 'First line\nSecond line');  // clicks, selects all, types
+  await computer.type({ target: 'the white text area of the TextEdit window' }, 'First line\nSecond line');  // clicks, selects all, types; check the point it returns
   await computer.typeFocused('\nThird line', { clear: false });     // types where the cursor already is
   await computer.screenshot({ path: '.verify/mac-after.png' });
 } finally {

@@ -121,7 +121,7 @@ with open(Target(platform="mac", start_timeout=600)) as computer:
     computer.exec(["open", "-a", "TextEdit", "notes.txt"])  # exec runs in the workspace
     time.sleep(3)  # let the window open
     computer.screenshot(path=".verify/mac.png")  # open it and find the text
-    computer.type("the TextEdit document", "First line\nSecond line")  # clicks, selects all, types
+    computer.type("the white text area of the TextEdit window", "First line\nSecond line")  # clicks, selects all, types
     computer.type_focused("\nThird line", clear=False)  # types where the cursor already is
     computer.tap(Point(400, 300))  # or click a point as you read it
 ```
