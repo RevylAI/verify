@@ -1117,7 +1117,8 @@ class ComputerSession(Session):
             )
         waited = False
         while True:
-            response = self._request("GET", "/recording", None, Deadline(30))
+            budget = min(30, max(1, until - time.monotonic())) if waited else 30
+            response = self._request("GET", "/recording", None, Deadline(budget))
             if response.status != 404:
                 break
             remaining = until - time.monotonic()
@@ -1265,6 +1266,8 @@ class ComputerSession(Session):
         point = self.tap(at)
         if clear:
             self.press_key("a", modifiers=["meta" if self.platform == "mac" else "ctrl"])
+            if not text:
+                self.press_key("backspace")
         self.type_focused(text, clear=False)
         return point
 

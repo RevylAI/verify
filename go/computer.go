@@ -358,6 +358,11 @@ func (s *Session) computerType(ctx context.Context, at Location, text string, cl
 		if err := s.computerPressKey(ctx, Key("a"), []KeyOptions{{Modifiers: []KeyModifier{selectAll}}}); err != nil {
 			return Point{}, err
 		}
+		if text == "" {
+			if err := s.computerPressKey(ctx, KeyBackspace, nil); err != nil {
+				return Point{}, err
+			}
+		}
 	}
 	keep := false
 	return point, s.computerTypeFocused(ctx, text, []TypeOptions{{Clear: &keep}})
@@ -1195,12 +1200,12 @@ func (s *Session) Recording(ctx context.Context) (*ComputerRecording, error) {
 	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
 		deadline = ctxDeadline
 	}
-	get := func(suffix string) (response, error) {
-		requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	get := func(suffix string, timeout time.Duration) (response, error) {
+		requestCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 		return s.computerRequest(requestCtx, "GET", suffix, nil)
 	}
-	r, err := get("/report")
+	r, err := get("/report", 30*time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -1212,13 +1217,20 @@ func (s *Session) Recording(ctx context.Context) (*ComputerRecording, error) {
 		return nil, failure(ErrSessionBusy, "The computer is still running, so it has no recording yet. Call Close first, then Recording, which waits until Revyl has saved the video. See "+s.viewer)
 	}
 	for waited := false; ; waited = true {
-		if r, err = get("/recording"); err != nil {
+		timeout := 30 * time.Second
+		if waited {
+			timeout = min(timeout, max(time.Second, time.Until(deadline)))
+		}
+		if r, err = get("/recording", timeout); err != nil {
+			if waited && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return nil, nil
+			}
 			return nil, err
 		}
 		if r.status != 404 {
 			break
 		}
-		remaining := time.Until(deadline) - time.Second
+		remaining := time.Until(deadline)
 		if remaining <= 0 {
 			if waited {
 				s.logLine("no recording was saved in time")
@@ -1232,6 +1244,10 @@ func (s *Session) Recording(ctx context.Context) (*ComputerRecording, error) {
 		select {
 		case <-ctx.Done():
 			timer.Stop()
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				s.logLine("no recording was saved in time")
+				return nil, nil
+			}
 			return nil, ctx.Err()
 		case <-timer.C:
 		}

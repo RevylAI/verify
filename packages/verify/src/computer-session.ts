@@ -204,7 +204,10 @@ export class ComputerSession implements Session {
     const control = COMPUTER_CONTROL_CHARACTER.exec(text);
     if (control) throw new VerifyError('INVALID_ARGUMENT', `Nothing was typed: type() on a computer takes newline and tab but no other control characters, and the text has one at index ${control.index}. Use pressKey() for keys such as 'escape'.`);
     const point = await this.tap(at);
-    if (options.clear !== false) await this.pressKey('a', { modifiers: [this.platform === 'mac' ? 'meta' : 'ctrl'] });
+    if (options.clear !== false) {
+      await this.pressKey('a', { modifiers: [this.platform === 'mac' ? 'meta' : 'ctrl'] });
+      if (!text) await this.pressKey('backspace');
+    }
     await this.typeFocused(text, { clear: false });
     return point;
   }
@@ -316,7 +319,7 @@ export class ComputerSession implements Session {
     }
     let response: RawResponse;
     for (let waited = false; ; waited = true) {
-      response = await this.request('GET', '/recording', undefined, AbortSignal.timeout(30_000));
+      response = await this.request('GET', '/recording', undefined, AbortSignal.timeout(waited ? Math.min(30_000, Math.max(1_000, deadline - Date.now())) : 30_000));
       if (response.status !== 404 || responseErrorCode(response) !== 'recording_unavailable') break;
       const remainingMs = deadline - Date.now();
       if (remainingMs <= 0) {
