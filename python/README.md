@@ -104,7 +104,7 @@ with open(Target(platform="mac", start_timeout=600)) as session:
     processes = session.processes()
     session.screenshot(path="mac.png")
 
-recording = session.recording()  # after the with block closes the computer; waits until the video is saved
+recording = session.recording()  # after close; waits until the video is saved
 ```
 
 `exec(argv, stdin=bytes_or_string, timeout=30, check=True)` preserves argument boundaries and raises on command failure by default. File and process operations are computer-only. File paths are workspace-relative, not arbitrary absolute guest paths. To get the screen recording, call `recording()` after the computer is closed (after its `with` block or `close()`), on the same object and before your script exits: Revyl saves the video a few seconds after release, so it asks every 5 seconds until it is saved and returns `ComputerRecording(url, duration_seconds, started_at)`, or `None` if none was saved within `timeout` seconds (`recording(timeout=900)`, 15 minutes by default; 0 asks once). Called on a computer that is still running it raises `SESSION_BUSY` saying to close it first. `attach()` can't reopen a closed computer, so a later process can't fetch it. Since 0.5.1; earlier versions returned `None` at once while the video was still uploading. It doesn't download the video. Signed URLs in that metadata are credentials. Recording is locally unavailable on devices.
