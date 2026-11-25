@@ -106,7 +106,7 @@ Illustrative output (durations vary):
 [verify] ios: closed
 ```
 
-Open the link to watch the session live. After the session ends, the link keeps its report and any available recording. The Revyl CLI prints the stored report with `revyl device report --session-id <id>` for web/mobile, or `revyl computer report <id>` for computers. Computer recordings can be absent or still processing after release; `recording()` retrieves optional private metadata without waiting or downloading.
+Open the link to watch the session live. After the session ends, the link keeps its report and any available recording. The Revyl CLI prints the stored report with `revyl device report --session-id <id>` for web/mobile, or `revyl computer report <id>` for computers. For a computer, call `recording()` after `close()` on the same object: it waits until Revyl has saved the video and returns its private link, without downloading it.
 
 For validation verdicts in device reports, inspect each step's `effective_status` and `validation_result`, and compare `validations_passed` with `total_validations`. `passed_steps`, `failed_steps`, and transport `status: success` can describe successful execution of a validation whose verdict is false. See the [live example](end-to-end.md#reading-the-verdict).
 

@@ -190,8 +190,8 @@ class AsyncSession:
     async def report(self) -> dict[str, Json]:
         return await self._call(self._session.report)
 
-    async def recording(self) -> ComputerRecording | None:
-        return await self._call(self._session.recording)
+    async def recording(self, *, timeout: float = 900) -> ComputerRecording | None:
+        return await self._call(functools.partial(self._session.recording, timeout=timeout))
 
     async def extend(self, timeout: int) -> None:
         await self._call(functools.partial(self._session.extend, timeout))

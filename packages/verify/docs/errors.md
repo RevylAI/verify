@@ -21,6 +21,7 @@
 | Repository unreadable after 3 attempts | `API_ERROR` | `repository_unavailable` |
 | Computer HTTP 409: no host can keep it running for the requested `timeoutMs` | `NOT_AVAILABLE_ON_PLATFORM` | `lifetime_unsupported` |
 | Computer HTTP 403 `computer_not_enabled` that Pro would lift (`unlocks_with_card: true`) | `NOT_AVAILABLE_ON_PLATFORM` | `upgrade_required` |
+| Web HTTP 409 on `typeFocused`: no text field has focus, and nothing was typed | `ACTION_FAILED` | `no_focused_input` |
 
 `web_runtime_unavailable` does not distinguish full capacity from an unavailable runtime. `computer_limit` does not distinguish queued work from concurrency exhaustion. Inspect these fields to classify refusal without parsing prose; do not infer a specific cause or automatically start a replacement session.
 
@@ -53,13 +54,13 @@ try {
 | `SESSION_START_FAILED` | The browser, device, or computer did not start, or the app an iOS or Android target names by bundle id could not be launched (the message names the bundle id and has the session link) | Computer `no_host` reports the 120-second unclaimed-start context; `device_limit` reports queued-work/concurrency context. Inspect the session and cleanup before starting again. |
 | `SESSION_PROFILE_FAILED` | A session profile failed: Verify couldn't send its script, Revyl couldn't find it, or it ran and failed. `error.outcome` is `script_failed`, `script_timed_out`, `script_unavailable`, `output_invalid` or `runner_failed`, and `error.failureReason` is Revyl's reason | Follow the message for the outcome; see [Session profiles](api.md#session-profile-errors). Revyl stops the session itself |
 | `SESSION_ENDED` | The session was closed, stopped, or expired, or Revyl answered 404 for the session itself | Close explicitly; computer expiry does not prove release |
-| `SESSION_BUSY` | A step conflict, computer operation limit, someone controlling a computer's screen in the Revyl viewer, or recording requested before terminal state and confirmed release | Inspect the state before another call; a terminal computer alone does not prove release |
+| `SESSION_BUSY` | A step conflict, computer operation limit, someone controlling a computer's screen in the Revyl viewer, or `recording()` on a computer you haven't closed | Inspect the state before another call; a terminal computer alone does not prove release |
 | `COMPUTER_LIMIT` | Computer admission was refused due to queued work (including iOS) or the concurrency limit | Wait for capacity; Verify does not retry or stop a definitely refused start |
 | `NOT_AVAILABLE_ON_PLATFORM` | The call is unavailable: computer agent steps, device shell/file/recording methods, an exact action the platform lacks (such as `back()` on iOS, `goHome()` or `launchApp()` on Web, `typeFocused()` or keys other than Enter and Backspace on iOS and Android), computer access or runtime unavailable, or a backend without web steps | See [web.md](web.md) and [computers.md](computers.md#availability-and-errors) |
 | `COMMAND_FAILED` | A computer command exited nonzero | Read its reason; use `exec(argv, { check: false })` to inspect the exit code and output instead |
 | `NOT_FOUND` | A computer file or resource was not found | Check the workspace-relative path |
 | `ACCESS_DENIED` | The computer refused access | Check permissions; do not assume host/root access |
-| `ACTION_FAILED` | Revyl refused or failed a request on the session | Read the reason in the message |
+| `ACTION_FAILED` | Revyl refused or failed a request on the session, such as `typeFocused` on Web with no field focused (reason `no_focused_input`) | Read the reason in the message; for `no_focused_input`, type with `type({ target }, text)`, which taps the field first |
 | `ACTION_UNCERTAIN` | The connection failed mid-request, or Revyl couldn't confirm a computer screen action, so the step may or may not have run | Verify does not repeat it; check the session link before deciding what to do |
 | `INSTRUCTION_FAILED` | Revyl's agent, or your model, could not do what the instruction asked. `error.result` is the failed `StepResult`, with `model` when it ran on your model | Make the instruction more specific, or split it into smaller steps |
 | `VALIDATION_FAILED` | The validation did not hold | The message has Revyl's reason; watch the recording at the session link |

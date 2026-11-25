@@ -1,10 +1,30 @@
 # Changelog
 
-## Unreleased
+## 0.7.1 (unreleased)
 
+- Web: `typeFocused()` with no text field focused throws `ACTION_FAILED` with the new reason `no_focused_input` and the message `Nothing was typed: no text field has focus (no_focused_input). Use type({ target: 'the email field' }, text), which taps the field and types into it, or tap the field first.` Revyl answers this with HTTP 409, which 0.7.0 reported as `SESSION_BUSY`, so a script or agent gave up on a call it could fix. Your own model's loop now feeds the message back to the model instead of ending the step, because `ACTION_FAILED` doesn't abort it. A session that really is busy, such as a second step while one runs, still throws `SESSION_BUSY`.
+- Typing has one rule on every platform: `type({ target }, text)`. Mac computers now take `type(at, text, { clear })`: it clicks the field (a description or a point), selects its text with Command+A (Ctrl+A on Linux) unless `clear` is `false`, types, and resolves with the point clicked. It refuses control characters other than `\n` and `\t` before clicking. `typeFocused()` on iOS and Android still throws `NOT_AVAILABLE_ON_PLATFORM` before anything is sent, now naming `type({ target: 'the email field' }, text)`. The README, the API page and the web, mobile, computers, errors and agents pages teach `type({ target }, text)` as the way to type everywhere, and your own model's tool list describes `type` as the way to type and `type_focused` as needing a focused field.
+- Computers: `recording()` after `close()` waits until Revyl has saved the video, asking every 5 seconds, and returns it; it returns `null` only when none was saved within `timeoutMs` (`recording({ timeoutMs })`, 15 minutes by default, 0 to ask once). Revyl saves the video a few seconds after release, so 0.7.0's `recording()` right after `close()` returned `null`, and `attach()` can't reopen a closed computer to fetch it later. Called on a running computer it still throws `SESSION_BUSY`, now saying to call `close()` first. The docs say to call `recording()` on the same object after `close()`, before the script exits.
+- Docs: session profiles run on Revyl's production backend, so the API page and the Python and Go READMEs no longer say a profile name is refused there (#66).
 - Computers: a Mac computer create that Revyl refuses with `computer_not_enabled` and `unlocks_with_card: true`, as it does for a Free-plan organization, throws `NOT_AVAILABLE_ON_PLATFORM` with the new reason `upgrade_required` instead of no reason and the generic support guidance. The message reads `Mac computers come with Pro, so Revyl refused this computer (computer_not_enabled, upgrade_required).`, then Revyl's upgrade offer and billing link (`<offer message>: <https billing link>`) when Revyl sends one with an HTTPS link and a single-line message of at most 160 characters, and otherwise `Add a card in Revyl's billing settings to unlock them.` `open()` adds the session link as before; `openPersistent()` refuses the same way. The code is unchanged, the create is still not retried and no stop is sent, and any other `computer_not_enabled` refusal keeps its current message.
-- Python: the same, with `reason="upgrade_required"` on `open()` and `open_persistent()`.
-- Go: the same, with `Reason` `ReasonUpgradeRequired` on `Open` and `OpenPersistent`.
+
+## Go 0.6.1 (unreleased)
+
+To be published as the `go/v0.6.1` tag.
+
+- Web: `TypeFocused` with no text field focused returns `ErrActionFailed` with `Reason` `ReasonNoFocusedInput` and a message naming `session.Type(ctx, verify.Element("the email field"), text)`, as in TypeScript 0.7.1, instead of `ErrSessionBusy`. A session that really is busy still returns `ErrSessionBusy`.
+- `Type(ctx, at, text, TypeOptions{Clear})` works on Mac computers, as in TypeScript 0.7.1. `TypeFocused` on iOS and Android names `Type(ctx, verify.Element(…), text)`.
+- Computers: `Recording(ctx)` after `Close` waits until Revyl has saved the video, for up to 15 minutes or `ctx`'s deadline, as in TypeScript 0.7.1; it returns `(nil, nil)` only when none was saved by then, and `ctx.Err()` when `ctx` is canceled.
+- A Mac computer create refused with `computer_not_enabled` and `unlocks_with_card: true` returns `ErrNotAvailableOnPlatform` with `Reason` `ReasonUpgradeRequired` on `Open` and `OpenPersistent`, as in TypeScript 0.7.1.
+- `verify.Version` and the `User-Agent` report 0.6.1.
+
+## Python 0.5.1 (unreleased)
+
+- Web: `type_focused()` with no text field focused raises `ACTION_FAILED` with `reason="no_focused_input"` and a message naming `type("the email field", text)`, as in TypeScript 0.7.1, instead of `SESSION_BUSY`. A session that really is busy still raises `SESSION_BUSY`.
+- `type(at, text, clear=True)` works on Mac computers, as in TypeScript 0.7.1. `type_focused()` on iOS and Android names `type("the email field", text)`.
+- Computers: `recording(timeout=900)` after the computer is closed waits until Revyl has saved the video, as in TypeScript 0.7.1, and returns `None` only when none was saved within `timeout` seconds. `AsyncSession.recording()` takes `timeout` too.
+- A Mac computer create refused with `computer_not_enabled` and `unlocks_with_card: true` raises `NOT_AVAILABLE_ON_PLATFORM` with `reason="upgrade_required"` on `open()` and `open_persistent()`, as in TypeScript 0.7.1.
+- The `User-Agent` reports 0.5.1.
 
 ## 0.7.0 (2026-11-23)
 

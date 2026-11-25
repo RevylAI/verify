@@ -446,10 +446,10 @@ func instructionTools(platform Platform, grounding Grounding) []ModelTool {
 		{Name: "tap", Description: "Tap an element.", Parameters: location},
 		{Name: "double_tap", Description: "Double-tap an element.", Parameters: location},
 		{Name: "long_press", Description: "Press and hold an element, for example to open a context menu.", Parameters: location},
-		{Name: "type", Description: "Tap a text field and type into it. Clears the field first unless clear is false.", Parameters: json.RawMessage(`{"type":"object","properties":{` + properties + `,"text":{"type":"string"},"clear":{"type":"boolean"}},"required":[` + required + `,"text"]}`)},
+		{Name: "type", Description: "Tap a text field and type into it. Use this to type. Clears the field first unless clear is false.", Parameters: json.RawMessage(`{"type":"object","properties":{` + properties + `,"text":{"type":"string"},"clear":{"type":"boolean"}},"required":[` + required + `,"text"]}`)},
 	}
 	if platform == Web {
-		tools = append(tools, ModelTool{Name: "type_focused", Description: "Type into the field that already has focus, without tapping. Clears the field first unless clear is false.", Parameters: json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"},"clear":{"type":"boolean"}},"required":["text"]}`)})
+		tools = append(tools, ModelTool{Name: "type_focused", Description: "Type into the field that already has focus, without tapping. Nothing is typed when no field has focus, so prefer type. Clears the field first unless clear is false.", Parameters: json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"},"clear":{"type":"boolean"}},"required":["text"]}`)})
 	}
 	tools = append(tools,
 		ModelTool{Name: "swipe", Description: "Swipe from a point, or from the screen's center. up moves the finger up, which scrolls content down.", Parameters: json.RawMessage(`{"type":"object","properties":{"direction":{"type":"string","enum":["up","down","left","right"]},` + properties + `},"required":["direction"]}`)},

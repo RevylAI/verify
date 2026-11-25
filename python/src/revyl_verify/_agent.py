@@ -715,7 +715,8 @@ def _instruction_tools(platform: DevicePlatform, grounding: Grounding) -> list[M
         ),
         ModelTool(
             "type",
-            "Tap a text field and type into it. Clears the field first unless clear is false.",
+            "Tap a text field and type into it. Use this to type. Clears the field first unless "
+            "clear is false.",
             {
                 "type": "object",
                 "properties": {
@@ -731,8 +732,9 @@ def _instruction_tools(platform: DevicePlatform, grounding: Grounding) -> list[M
         tools.append(
             ModelTool(
                 "type_focused",
-                "Type into the field that already has focus, without tapping. Clears the field "
-                "first unless clear is false.",
+                "Type into the field that already has focus, without tapping. Nothing is typed "
+                "when no field has focus, so prefer type. Clears the field first unless clear is "
+                "false.",
                 {
                     "type": "object",
                     "properties": {"text": {"type": "string"}, "clear": {"type": "boolean"}},

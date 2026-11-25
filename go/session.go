@@ -532,6 +532,8 @@ func (s *Session) workerError(method, action string, r response) error {
 		return httpError(r)
 	case r.status == 501 || detail.Error == "not_available_on_platform" || detail.Error == "step_output_not_available":
 		code = ErrNotAvailableOnPlatform
+	case detail.Error == "no_focused_input":
+		return &Error{Code: ErrActionFailed, Reason: ReasonNoFocusedInput, HTTPStatus: r.status, Message: "Nothing was typed: no text field has focus (no_focused_input). Use session.Type(ctx, verify.Element(\"the email field\"), text), which taps the field and types into it, or tap the field first. See " + s.viewer}
 	case webTargetErrors[targetError]:
 		return responseFailure(r, ErrActionFailed, fmt.Sprintf("%s could not act on the screen (%s). Take a fresh screenshot and try again. See %s", strings.Split(action, "/")[0], targetError, s.viewer))
 	case r.status == 404 || r.status == 410:

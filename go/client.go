@@ -19,7 +19,7 @@ import (
 const (
 	backendURL = "https://backend.revyl.ai"
 	appURL     = "https://app.revyl.ai"
-	Version    = "0.6.0"
+	Version    = "0.6.1"
 )
 
 type client struct {

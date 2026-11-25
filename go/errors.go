@@ -46,6 +46,7 @@ const (
 	ReasonRepositoryUnavailable           RefusalReason = "repository_unavailable"
 	ReasonLifetimeUnsupported             RefusalReason = "lifetime_unsupported"
 	ReasonUpgradeRequired                 RefusalReason = "upgrade_required"
+	ReasonNoFocusedInput                  RefusalReason = "no_focused_input"
 )
 
 func (c Code) Error() string { return string(c) }

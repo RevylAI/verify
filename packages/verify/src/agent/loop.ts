@@ -364,13 +364,13 @@ function instructionTools(platform: AgentControls['platform'], grounding: Ground
     { name: 'long_press', description: 'Press and hold an element, for example to open a context menu.', parameters: { type: 'object', ...at } },
     {
       name: 'type',
-      description: 'Tap a text field and type into it. Clears the field first unless clear is false.',
+      description: 'Tap a text field and type into it. Use this to type. Clears the field first unless clear is false.',
       parameters: { type: 'object', properties: { ...at.properties, text: { type: 'string' }, clear: { type: 'boolean' } }, required: [...at.required, 'text'] },
     },
     ...(web
       ? [{
           name: 'type_focused',
-          description: 'Type into the field that already has focus, without tapping. Clears the field first unless clear is false.',
+          description: 'Type into the field that already has focus, without tapping. Nothing is typed when no field has focus, so prefer type. Clears the field first unless clear is false.',
           parameters: { type: 'object', properties: { text: { type: 'string' }, clear: { type: 'boolean' } }, required: ['text'] },
         }]
       : []),

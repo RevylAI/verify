@@ -61,6 +61,7 @@ RefusalReason = Literal[
     "repository_unavailable",
     "lifetime_unsupported",
     "upgrade_required",
+    "no_focused_input",
 ]
 SessionProfileOutcome = Literal[
     "succeeded",
@@ -628,7 +629,7 @@ class Client:
         headers = {
             "Authorization": f"Bearer {self._token}",
             "Accept": "application/json",
-            "User-Agent": "revyl-verify/0.5.0 python",
+            "User-Agent": "revyl-verify/0.5.1 python",
             "X-Revyl-Client": "verify",
         }
         if worker:

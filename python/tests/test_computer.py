@@ -484,7 +484,7 @@ class ComputerTests(unittest.TestCase):
             )
             self.assert_code("API_ERROR", session.recording)
         self.api.recording = 404, {"error": "recording_unavailable"}
-        self.assertIsNone(session.recording())
+        self.assertIsNone(session.recording(timeout=0))
         self.api.recording = 404, {"error": "other"}
         self.assert_code("API_ERROR", session.recording)
 

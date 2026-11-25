@@ -1340,7 +1340,9 @@ func TestComputerRecordings(t *testing.T) {
 				if err := s.Close(ctx); err != nil {
 					t.Fatal(err)
 				}
-				recording, err := s.Recording(ctx)
+				recordingCtx, cancelRecording := context.WithTimeout(ctx, 2*time.Second)
+				defer cancelRecording()
+				recording, err := s.Recording(recordingCtx)
 				switch mode {
 				case "active", "terminal-unreleased", "active-released":
 					requireCode(t, err, verify.ErrSessionBusy)
@@ -1456,7 +1458,9 @@ func TestComputerExpiry(t *testing.T) {
 				if err := s.Close(ctx); err != nil {
 					t.Fatal(err)
 				}
-				if recording, err := s.Recording(ctx); recording != nil || err != nil {
+				recordingCtx, cancelRecording := context.WithTimeout(ctx, 2*time.Second)
+				defer cancelRecording()
+				if recording, err := s.Recording(recordingCtx); recording != nil || err != nil {
 					t.Fatal("close or recording was blocked by expired session lifetime")
 				}
 			})
