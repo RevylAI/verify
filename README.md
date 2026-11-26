@@ -76,7 +76,7 @@ await session.validation('The welcome screen is shown');
 
 **Typing: one rule on every platform.** To type, call `type({ target: 'Email field' }, text)`: it taps the field you describe and types into it, replacing its text unless you pass `{ clear: false }`. It works the same on Web, iOS, Android and a Mac computer. `typeFocused(text)` types wherever focus already is, without tapping, and only on Web and computers; on Web, when no field has focus it throws `ACTION_FAILED` with reason `no_focused_input` and types nothing.
 
-`doubleTap`, `typeFocused`, `back`, `goHome`, `openUrl`, `launchApp`, `locate` and `screenSize` round them out; [which call works where](#which-call-works-where) shows the platform limits. Early access. Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. On a Mac computer's screen, `tap` (by point or by description), `screenSize`, `typeFocused` and `pressKey` are new in TypeScript 0.6.0, Python 0.4.0 and Go v0.5.0, and `type` in TypeScript 0.7.1, Python 0.5.1 and Go v0.6.1. The [Python](https://github.com/RevylAI/verify/blob/v0.7.1/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.7.1/go/README.md#exact-actions) READMEs show them with each language's names. The [web](packages/verify/docs/web.md#exact-actions) and [mobile](packages/verify/docs/mobile.md#exact-actions) guides have runnable scripts, and [api.md](packages/verify/docs/api.md#exact-actions) lists every call.
+`doubleTap`, `typeFocused`, `back`, `goHome`, `openUrl`, `launchApp`, `locate` and `screenSize` round them out; [which call works where](#which-call-works-where) shows the platform limits. Early access. Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. On a Mac computer's screen, `tap` (by point or by description), `screenSize`, `typeFocused` and `pressKey` are new in TypeScript 0.6.0, Python 0.4.0 and Go v0.5.0, and `type` in TypeScript 0.7.1, Python 0.5.1 and Go v0.6.1. The [Python](https://github.com/RevylAI/verify/blob/v0.8.0/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.8.0/go/README.md#exact-actions) READMEs show them with each language's names. The [web](packages/verify/docs/web.md#exact-actions) and [mobile](packages/verify/docs/mobile.md#exact-actions) guides have runnable scripts, and [api.md](packages/verify/docs/api.md#exact-actions) lists every call.
 
 ## Your own model
 
@@ -90,7 +90,7 @@ await session.instruction('Open Privacy', { model: 'openai/gpt-5.5' });         
 await open('ios', { model: { id: 'qwen-3.8-27b', baseURL: 'https://api.cerebras.ai/v1', apiKey: process.env.CEREBRAS_API_KEY } });
 ```
 
-Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0; the [Python](https://github.com/RevylAI/verify/blob/v0.7.1/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.7.1/go/README.md#your-own-model) READMEs show them with each language's names. Built in: `anthropic`, `openai`, `google`, `openrouter`, `groq`, `cerebras`, `xai` and `ollama`; anything OpenAI-compatible works through `baseURL`. Early access; [Use your own model](packages/verify/docs/own-model.md) covers the providers, picking a model, what Revyl still sees, limits and troubleshooting.
+Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0; the [Python](https://github.com/RevylAI/verify/blob/v0.8.0/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.8.0/go/README.md#your-own-model) READMEs show them with each language's names. Built in: `anthropic`, `openai`, `google`, `openrouter`, `groq`, `cerebras`, `xai` and `ollama`; anything OpenAI-compatible works through `baseURL`. Early access; [Use your own model](packages/verify/docs/own-model.md) covers the providers, picking a model, what Revyl still sees, limits and troubleshooting.
 
 ## Packages
 
@@ -98,7 +98,7 @@ Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v
 | --- | --- | --- |
 | [`@revyl/verify`](https://www.npmjs.com/package/@revyl/verify) | `npm install @revyl/verify` | TypeScript SDK and the `verify` CLI (`init`, `login`, `logout`, `whoami`). Published on npm, Node.js 22.18 or later. |
 | [`revyl-verify`](https://www.npmjs.com/package/revyl-verify) (npm) | `npm install revyl-verify` | Alias of `@revyl/verify` at the same version. |
-| [Go module](https://github.com/RevylAI/verify/tree/go/v0.6.1/go) | `go get github.com/RevylAI/verify/go@v0.6.1` | Published as the `go/v0.6.1` tag, Go 1.26.9 or later. Calls return errors instead of throwing. |
+| [Go module](https://github.com/RevylAI/verify/tree/go/v0.7.0/go) | `go get github.com/RevylAI/verify/go@v0.7.0` | Published as the `go/v0.7.0` tag, Go 1.26.9 or later. Calls return errors instead of throwing. |
 | [`revyl-verify`](https://pypi.org/project/revyl-verify/) (PyPI) | `pip install revyl-verify` or `uv add revyl-verify` | Python SDK, published on PyPI. Python 3.10 or later, sync and asyncio APIs, no CLI; see the [Python guide](python/README.md). |
 
 ## Platforms
@@ -108,7 +108,7 @@ Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v
 | Web | Yes | Yes | — | Yes |
 | iOS simulator | Yes | Yes | — | Yes |
 | Android emulator | Yes | Yes | — | Yes |
-| Mac computer | — | Screen: `tap`, `type`, `typeFocused`, `pressKey` | Yes | Yes |
+| Mac computer | Validations and `extract` on a Mac opened with `inference: true`; no instructions | Screen: `tap`, `type`, `typeFocused`, `pressKey` | Yes | Yes |
 
 ### Which call works where
 
@@ -125,7 +125,8 @@ Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v
 | `openUrl(url)` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No |
 | `launchApp(bundleId)` | No, use `openUrl` or `navigate` | Yes | Yes | No |
 | `navigate(url)` | Yes | No, use `openUrl` | No, use `openUrl` | No |
-| `instruction`, `validation`, your own model | Yes | Yes | Yes | No, use `exec()` and the screen calls above |
+| `instruction`, your own model | Yes | Yes | Yes | No, use `tap({ target })`, `type({ target }, text)` and `exec()` |
+| `validation`, `extract` | Yes | Yes | Yes | Yes, on a Mac opened with `inference: true`, answered by its own model; see the [guide](packages/verify/docs/guides/mac-model-checks.md) |
 | `screenshot()` | Yes | Yes | Yes | Yes |
 | `exec`, files, processes | No, open a Mac computer | No, open a Mac computer | No, open a Mac computer | Yes |
 
@@ -136,6 +137,8 @@ A call a platform doesn't support throws `NOT_AVAILABLE_ON_PLATFORM`, and its me
 Web is available to every organization. Mac computers are available to organizations on a current paid Revyl plan and have a server-bounded lifetime; see [computers](packages/verify/docs/computers.md). To get a Mac computer's screen recording, call `await computer.close()` and then `await computer.recording()` on the same object, in the same process: it waits until Revyl has saved the video, usually a few seconds, and returns `{ url, durationSeconds?, startedAt? }`, or `null` if none was saved within `timeoutMs` (15 minutes by default; a check under way at that point can take up to 30 seconds more). `attach()` can't reopen a closed computer, so fetch the recording before your script exits.
 
 ## Documentation
+
+Three guides walk through what's new in 0.8.0: [checks on a Mac's own model](packages/verify/docs/guides/mac-model-checks.md), [testing an iOS or Web app inside an inference Mac](packages/verify/docs/guides/apps-inside-an-inference-mac.md), where its steps run on the Mac's model with no inference charge, and [keeping a Mac between runs](packages/verify/docs/guides/persistent-computers.md) with persistent computers and snapshots. Runnable examples are in [examples/mac-inference](examples/mac-inference), [python/examples/mac_inference.py](python/examples/mac_inference.py) and [go/examples/macinference](go/examples/macinference).
 
 The [documentation](packages/verify/docs/) covers the [API](packages/verify/docs/api.md), [configuration](packages/verify/docs/configuration.md), [web](packages/verify/docs/web.md), [mobile](packages/verify/docs/mobile.md), [computers](packages/verify/docs/computers.md), [CI](packages/verify/docs/ci.md), [your own model](packages/verify/docs/own-model.md), [errors and troubleshooting](packages/verify/docs/errors.md), [coding agents](packages/verify/docs/agents.md), and [live end-to-end results](packages/verify/docs/end-to-end.md). The npm package ships these pages in `node_modules/@revyl/verify/docs/`, with an [llms.txt](packages/verify/docs/llms.txt) index, so a coding agent can read the docs for the version you installed. The Revyl docs site has an overview at [docs.revyl.com/verify](https://docs.revyl.com/verify).
 

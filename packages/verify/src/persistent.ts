@@ -26,6 +26,16 @@ export interface PersistentOpenOptions extends PersistentOptions {
   fromSnapshot?: string;
   /** How long this run may last before the computer stops itself (keeping its disk), in ms: whole seconds from 60000 to 86400000. Defaults to 2 hours. Not applied when the computer was already running. Same as timeoutMs on open('mac'). */
   timeoutMs?: number;
+  /**
+   * Only when this call creates the computer: run it on Macs whose own vision model is loaded, as open({ platform: 'mac', inference: true })
+   * does, so validation() and extract() work on it. The computer keeps this for every later start.
+   */
+  inference?: boolean;
+  /**
+   * Only when this call starts a stopped computer that was created with inference: start this run on any Mac, without
+   * the model, for when no Mac with one is up. Later starts ask for the model again. Needs a Revyl backend that offers it.
+   */
+  withoutInference?: boolean;
   /** How long openPersistent() waits for the computer to be ready, in ms from 10000 to 1800000. Defaults to 900000 (15 minutes). Covers waiting for an earlier stop to finish saving, and a start from a snapshot, which takes up to about 3 minutes. Same unit as startTimeout on open('mac'). */
   startTimeout?: number;
 }
@@ -46,6 +56,8 @@ export interface PersistentComputer {
   /** Whether that save has been copied off the Mac that made it. saveSnapshot() needs this and waits for it. */
   savedOffHost: boolean;
   createdAt: Date;
+  /** When its current save stops being startable, if Revyl reports an end; after it, openPersistent() throws SESSION_START_FAILED (saved_disk_expired). */
+  savedDiskExpiresAt?: Date;
 }
 
 export interface ComputerSnapshot {
@@ -56,6 +68,8 @@ export interface ComputerSnapshot {
   savedAt: Date;
   /** When the save stops being usable, if it has an end. */
   expiresAt?: Date;
+  /** When a computer can no longer be created from it, if Revyl reports an end; after it, openPersistent() with fromSnapshot throws SESSION_START_FAILED (snapshot_expired). */
+  savedDiskExpiresAt?: Date;
 }
 
 /**
@@ -116,6 +130,7 @@ export class PersistentComputerSession extends ComputerSession {
     const session = new PersistentComputerSession(client, found.id, name, found.status === undefined, sessionOptions);
     const signal = AbortSignal.any([deadline, session.lifetime.signal]);
     const lifetime = options.timeoutMs === undefined ? undefined : { timeout_seconds: options.timeoutMs / 1_000 };
+    const startBody = options.withoutInference ? { ...lifetime, without_inference: true } : lifetime;
     let started = false;
     let attempted = false;
     try {
@@ -124,7 +139,7 @@ export class PersistentComputerSession extends ComputerSession {
         session.log(`creating persistent computer${options.fromSnapshot ? ` from snapshot ${options.fromSnapshot}` : ''} ${session.viewerUrl}`);
         attempted = true;
         const response = await call(client, 'POST', BASE, {
-          body: { computer_session_id: found.id, os: 'macos', persistent: true, ...lifetime, ...(options.fromSnapshot ? { from_snapshot: options.fromSnapshot } : {}) },
+          body: { computer_session_id: found.id, os: 'macos', persistent: true, ...lifetime, ...(options.fromSnapshot ? { from_snapshot: options.fromSnapshot } : {}), ...(options.inference ? { inference: true } : {}) },
           signal,
           retry: true,
           notFound: `There is no snapshot named or with the ID ${options.fromSnapshot}. listSnapshots() shows your organization's snapshots.`,
@@ -134,12 +149,13 @@ export class PersistentComputerSession extends ComputerSession {
         first = session.parseReport(response);
       } else {
         if (options.fromSnapshot) session.log(`already exists, so fromSnapshot ${options.fromSnapshot} was not used`);
+        if (options.inference) session.log('already exists, so inference was not changed; a computer keeps the inference it was created with');
         let status = found.status;
         let waiting = false;
         while (status.state === 'stopping' || status.state === 'stopped') {
           if (status.state === 'stopped') {
             attempted = true;
-            const response = await call(client, 'POST', `${BASE}/${found.id}/start`, { body: lifetime, signal, retry: true, accept: ['run_conflict'] });
+            const response = await call(client, 'POST', `${BASE}/${found.id}/start`, { body: startBody, signal, retry: true, accept: ['run_conflict'], invalid: options.withoutInference ? 'This Revyl backend refused withoutInference, which it does not offer yet. Leave it out to start the computer as it was created.' : undefined });
             if (response.status < 300) {
               session.log(`starting from its saved disk ${session.viewerUrl}`);
               break;
@@ -191,6 +207,8 @@ export class PersistentComputerSession extends ComputerSession {
 export async function openPersistent(name: string, options: PersistentOpenOptions = {}): Promise<PersistentComputerSession> {
   checkComputerReference(name, 'openPersistent()');
   if (options.fromSnapshot !== undefined) checkSnapshotReference(options.fromSnapshot, 'fromSnapshot');
+  if (options.inference !== undefined && typeof options.inference !== 'boolean') throw new VerifyError('INVALID_ARGUMENT', 'inference must be true or false.');
+  if (options.withoutInference !== undefined && typeof options.withoutInference !== 'boolean') throw new VerifyError('INVALID_ARGUMENT', 'withoutInference must be true or false.');
   if (options.timeoutMs !== undefined && (!Number.isInteger(options.timeoutMs) || options.timeoutMs % 1_000 !== 0 || options.timeoutMs < 60_000 || options.timeoutMs > 86_400_000)) throw new VerifyError('INVALID_ARGUMENT', 'timeoutMs must be whole seconds from 60000 to 86400000.');
   const startTimeout = options.startTimeout ?? 900_000;
   if (!Number.isInteger(startTimeout) || startTimeout < 10_000 || startTimeout > 1_800_000) throw new VerifyError('INVALID_ARGUMENT', 'startTimeout must be an integer from 10000 to 1800000 ms.');
@@ -343,6 +361,7 @@ interface CallOptions {
   retry?: boolean;
   notFound?: string;
   accept?: string[];
+  invalid?: string;
 }
 
 async function call(client: RevylClient, method: 'GET' | 'POST' | 'DELETE', path: string, options: CallOptions): Promise<RawResponse> {
@@ -359,6 +378,7 @@ async function call(client: RevylClient, method: 'GET' | 'POST' | 'DELETE', path
   if (known) throw new VerifyError(known[0], known[1], { ...refusal, reason: known[2] });
   if (response.status === 401 || response.status === 403) throw new VerifyError('AUTH_REJECTED', `Revyl rejected the request (HTTP ${response.status}${detail ? `, ${detail}` : ''}). Check that REVYL_API_KEY is a current key and that its owner has the Member role or above.`, refusal);
   if (response.status === 404) throw new VerifyError('NOT_FOUND', options.notFound ?? `Revyl could not find ${path} (inaccessible).`, refusal);
+  if ((response.status === 422 || detail === 'invalid_request') && options.invalid) throw new VerifyError('INVALID_ARGUMENT', options.invalid, refusal);
   if (response.status === 422 || detail === 'invalid_request') throw new VerifyError('INVALID_ARGUMENT', `Revyl refused the request as invalid (${detail ?? `HTTP ${response.status}`}). Check the call's arguments against its doc comment; if they match, update Verify.`, refusal);
   throw new VerifyError('API_ERROR', `Revyl request ${method} ${path} failed (HTTP ${response.status}${detail ? `, ${detail}` : ''}). It is safe to try again; if it keeps failing, send this message to support@revyl.ai.`, refusal);
 }
@@ -375,6 +395,8 @@ const REFUSALS: Record<string, [VerifyErrorCode, string, RefusalReason?]> = {
   saved_disk_expired: ['SESSION_START_FAILED', "This computer's saved disk has reached its end and can't start again (saved_disk_expired). Delete it with deletePersistent(); openPersistent() with its name then creates a new one."],
   snapshot_expired: ['SESSION_START_FAILED', "This snapshot's saved disk has reached its end and can't start a computer (snapshot_expired). Save a new snapshot of a recently stopped computer."],
   computer_not_persistent: ['INVALID_ARGUMENT', "This ID names a computer that isn't persistent (computer_not_persistent). Pass a name, or an ID from listPersistent()."],
+  inference_not_enabled: ['NOT_AVAILABLE_ON_PLATFORM', "Local inference isn't enabled for this API key's organization (inference_not_enabled). Ask support@revyl.ai to turn it on, or leave out inference.", 'inference_not_enabled'],
+  inference_unavailable: ['NOT_AVAILABLE_ON_PLATFORM', "No Mac with its own vision model is up to take this computer right now (inference_unavailable), so nothing was started. Try again later; to start an existing computer without the model this once, pass withoutInference: true.", 'inference_unavailable'],
   run_conflict: ['SESSION_BUSY', "The computer's last run hasn't finished stopping (run_conflict). Its disk is kept; try again in a few minutes."],
 };
 
@@ -394,14 +416,16 @@ function toComputer(raw: unknown): PersistentComputer {
   const record = raw as Record<string, unknown> | null;
   if (!record || typeof record !== 'object' || typeof record.computer_id !== 'string' || !UUID.test(record.computer_id) || typeof record.state !== 'string' || !STATES.has(record.state) || typeof record.durable !== 'boolean') throw invalidResponse();
   const savedAt = record.saved_at == null ? undefined : date(record.saved_at);
-  return { id: record.computer_id.toLowerCase(), state: record.state as PersistentComputerState, ...(savedAt ? { savedAt } : {}), savedOffHost: record.durable, createdAt: date(record.created_at) };
+  const savedDiskExpiresAt = record.saved_disk_expires_at == null ? undefined : date(record.saved_disk_expires_at);
+  return { id: record.computer_id.toLowerCase(), state: record.state as PersistentComputerState, ...(savedAt ? { savedAt } : {}), savedOffHost: record.durable, createdAt: date(record.created_at), ...(savedDiskExpiresAt ? { savedDiskExpiresAt } : {}) };
 }
 
 function toSnapshot(raw: unknown): ComputerSnapshot {
   const record = raw as Record<string, unknown> | null;
   if (!record || typeof record !== 'object' || typeof record.id !== 'string' || !UUID.test(record.id) || typeof record.name !== 'string' || typeof record.computer_id !== 'string' || !UUID.test(record.computer_id)) throw invalidResponse();
   const expiresAt = record.expires_at == null ? undefined : date(record.expires_at);
-  return { id: record.id.toLowerCase(), name: record.name, computerId: record.computer_id.toLowerCase(), savedAt: date(record.saved_at), ...(expiresAt ? { expiresAt } : {}) };
+  const savedDiskExpiresAt = record.saved_disk_expires_at == null ? undefined : date(record.saved_disk_expires_at);
+  return { id: record.id.toLowerCase(), name: record.name, computerId: record.computer_id.toLowerCase(), savedAt: date(record.saved_at), ...(expiresAt ? { expiresAt } : {}), ...(savedDiskExpiresAt ? { savedDiskExpiresAt } : {}) };
 }
 
 function date(value: unknown): Date {

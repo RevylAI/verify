@@ -12,6 +12,12 @@ node verify/example.mts
 
 Installed tools, paths, resources, and desktop dimensions are not fixed SDK guarantees.
 
+Three guides cover what this page only summarizes:
+
+- [Check a Mac's screen with its own model](guides/mac-model-checks.md): `validation()` and `extract()` on a Mac opened with `inference: true`.
+- [Test an iOS or Web app inside an inference Mac](guides/apps-inside-an-inference-mac.md): app sessions whose steps run on the Mac's model first.
+- [Keep a Mac between runs](guides/persistent-computers.md): persistent computers and snapshots, with use cases, what is kept, lifetimes and cleanup.
+
 ## Commands and files
 
 ```ts
@@ -44,7 +50,7 @@ try {
 
 `exec` takes structured argv, not a shell line. For shell syntax, explicitly invoke a shell, such as `['/bin/sh', '-c', 'printf hello']`. Never interpolate untrusted input into shell text. `stdin` accepts a string or `Uint8Array`. At most 64 arguments and 16,384 UTF-8 argv plus stdin bytes are allowed. Revyl keeps only the first 1 MiB of combined stdout/stderr; the command still runs to completion. Commands are synchronous at the library boundary; there is no interactive terminal or background-process creation API.
 
-Paths are relative to the computer's workspace: no leading slash, empty components, `.` or `..`, backslashes, colons, or control characters. A path is at most 1,024 UTF-8 bytes. To make a directory, run a command such as `['mkdir', '-p', 'output']` before writing into it. There is no recursive sync or snapshot API.
+Paths are relative to the computer's workspace: no leading slash, empty components, `.` or `..`, backslashes, colons, or control characters. A path is at most 1,024 UTF-8 bytes. To make a directory, run a command such as `['mkdir', '-p', 'output']` before writing into it. There is no recursive sync API. To keep the whole disk between runs, use a [persistent computer](#persistent-computers-and-snapshots).
 
 Operation `timeout` is milliseconds, defaults to 30,000, and must be an integer from 1 to 300,000. It is also bounded by the run's remaining lifetime. A computer has a hard lifetime **from create**, not from readiness or last activity: 2 hours by default, or up to 24 hours with `timeoutMs` on the target (whole seconds, 60000 to 86400000). `extend(timeoutMs)` keeps a running computer going at least that long from now, up to 24 hours after create, and updates `expiresAt`; it never shortens the lifetime, so retrying is safe. Lifetimes over 2 hours can be refused with `COMPUTER_LIMIT` (`computer_long_limit`: at most 2 such computers per organization at once) or `NOT_AVAILABLE_ON_PLATFORM` (no host can run that long, or the host can't extend). `expiresAt` is authoritative; `idleTimeoutSeconds` and the agent `stepTimeout` do not configure computer lifetime or commands. `expiresAt` is a `Date` when the API returns `expires_at`, and otherwise undefined (including on devices and older APIs). Verify refuses new operations after that deadline and bounds operation/screenshot observation by it; expiry does not prevent explicit close or recording retrieval. Revyl allows at most 256 operations per run.
 
@@ -117,6 +123,30 @@ A script that controls the screen keeps control for 120 seconds after its last a
 
 When long text fails part way, the error says how many characters were certainly typed and whether the piece that failed may have been typed, counting characters as Unicode code points, so an emoji is one. Every other refusal names its reason and what to do next, such as starting a new computer after `run_closed`.
 
+## Checks on the Mac's own model
+
+**New in TypeScript 0.8.0, Python 0.6.0 and Go v0.7.0.** Open a Mac with `inference: true` and it runs on a Revyl Mac that has its own vision model. Then `validation(text, { soft? })` checks a statement against its screen and `extract(text)` reads a value off it, returning a `StepResult` with the value in `value`. The Mac's model answers both, usually in 2 to 3 seconds, and `engine` on the result is `'local'`:
+
+```ts
+const mac = await open({ platform: 'mac', inference: true });
+try {
+  await mac.validation('The Dock is visible at the bottom of the screen');
+  const date = await mac.extract('the date at the right end of the menu bar');
+  console.log(date.value);
+} finally {
+  await mac.close();
+}
+```
+
+- **Cost.** Steps on a computer have no per-step fee, and these run only on the Mac's own model, so they carry no inference charge. You pay the Mac's minutes, as for any computer.
+- **Availability.** Local inference is enabled per organization, on top of Mac computers. Opening a Mac with `inference` throws `NOT_AVAILABLE_ON_PLATFORM` with reason `inference_not_enabled` when your organization doesn't have it (ask support@revyl.ai), and `inference_unavailable` when no Mac with a model is free right now; nothing is started either way. Linux computers don't take `inference`.
+- **`computer.inference`** is `'ready'`, `'unavailable'` or `'unknown'`: whether the Mac's model answered when Verify last read the computer's report, at open and on each `report()`. It is `undefined` on a computer opened without inference.
+- **Results.** A false statement throws `VALIDATION_FAILED` unless `soft: true`. An answer the model can't confirm is never a pass: it throws `STEP_FAILED` with the model's reason, as does an `extract()` that finds nothing (`local_model_found_no_value`).
+- **Refusals.** On a Mac opened without inference, or when its model stopped answering, both throw `NOT_AVAILABLE_ON_PLATFORM` (`step_engine_unavailable`) without running. The model answers one step at a time for the Mac and the app sessions inside it: when it stayed busy too long the step throws `SESSION_BUSY`, naming `step_engine_busy`, so run one step at a time per computer. While someone controls the screen in the viewer they throw `SESSION_BUSY` (`screen_control_held`).
+- **`instruction()`** stays unavailable on computers. To click one thing by its description, use `tap({ target: 'the Save button' })`; to type into a field, use `type({ target: 'the search field' }, text)`.
+
+The [Mac model guide](guides/mac-model-checks.md) has the Python and Go versions and more on writing steps the model can answer.
+
 ## Recording
 
 To get a computer's screen recording, close it and then call `recording()` on the same object, in the same process:
@@ -136,15 +166,45 @@ Mac computers are available to organizations on a current paid Revyl plan. A `50
 
 The default `startTimeout` remains 600000 ms; override it explicitly if needed. An unclaimed start can transition to `failed` with `failure_reason: 'no_host'` after 120 seconds from create. Verify stops readiness polling and throws `SESSION_START_FAILED` with that context, then attempts bounded cleanup. This is not a 120-second timeout for every start: claimed guests may take longer. `device_limit` also yields `SESSION_START_FAILED`, with queued-work/concurrency context. A start timeout or unconfirmed close does not prove resources were released. Inspect the session and contact support rather than blindly repeating a start or stop.
 
-`instruction()` and `validation()` throw `NOT_AVAILABLE_ON_PLATFORM` on computers without sending agent requests. Screenshots are supported, but screenshot readiness is separate from command readiness. For the screen, use the calls in [Screen](#screen). On web, iOS, and Android, shell/file/process methods throw `NOT_AVAILABLE_ON_PLATFORM`.
+`instruction()` throws `NOT_AVAILABLE_ON_PLATFORM` on computers without sending anything. `validation()` and `extract()` run on a Mac opened with `inference: true` and throw `NOT_AVAILABLE_ON_PLATFORM` (`step_engine_unavailable`) on other Macs; see [Checks on the Mac's own model](#checks-on-the-macs-own-model). Screenshots are supported, but screenshot readiness is separate from command readiness. For the screen, use the calls in [Screen](#screen). On web, iOS, and Android, shell/file/process methods throw `NOT_AVAILABLE_ON_PLATFORM`.
 
 For the first 30 seconds after a computer becomes active, `screenshot()` retries exact structured `screen_unavailable` responses (HTTP 409 or 503) and `screen_starting` (HTTP 409). Backoff starts at 500 ms and doubles up to 2 seconds; the fixed window does not restart on each call. Cancellation, close, expiry, and the observation deadline still bound the wait. Exhausting that window yields `SESSION_BUSY` with a desktop-not-ready message, rather than requiring a caller sleep. Authentication failures, unrelated errors, malformed responses, and transport failures are not replayed. Commands and other mutations are never retried by this screenshot behavior.
 
 Missing files and access denials throw `NOT_FOUND` and `ACCESS_DENIED`. An operation timeout with confirmed termination throws `TIMEOUT`; unconfirmed termination or execution throws `ACTION_UNCERTAIN`. Neither implies rollback. Execution outcome, evidence recording, and physical release are independent: an observed successful command can return its result while logging pending/failed report evidence. Do not repeat a mutation merely because its response was lost. Check the computer in Revyl before deciding what to do next. See [errors.md](errors.md).
 
+## Persistent computers and snapshots
+
+A computer from `open()` is deleted when it closes. Organizations with persistent computers enabled can keep one instead: `openPersistent(name, options?)` opens the Mac with that name, creating it if needed, and `close()` stops it and keeps its whole disk, so the next `openPersistent(name)` boots from it. Memory and running processes don't survive a stop. `saveSnapshot(computer, name)` saves a stopped computer's disk as a snapshot, `openPersistent(other, { fromSnapshot })` creates a new computer from it, and `listPersistent()`, `listSnapshots()`, `deletePersistent()` and `deleteSnapshot()` manage them. Without the feature, `openPersistent()` and `saveSnapshot()` throw `NOT_AVAILABLE_ON_PLATFORM` with reason `persistent_computers_not_enabled`; ask [support@revyl.ai](mailto:support@revyl.ai).
+
+```ts
+import { openPersistent } from '@revyl/verify';
+
+const mac = await openPersistent('ios-dev');
+try {
+  if ((await mac.exec(['test', '-f', '.setup-done'], { check: false })).exitCode !== 0) {
+    await mac.exec(['/bin/zsh', '-lc', 'brew install swiftlint'], { timeout: 300_000 });
+    await mac.writeFile('.setup-done', 'v1\n');
+  }
+} finally {
+  await mac.close();   // stops it and keeps the disk
+}
+```
+
+| Option of `openPersistent()` | Meaning |
+| --- | --- |
+| `fromSnapshot` | Only when this call creates the computer: start its disk as this snapshot's. `created` on the session says whether it did |
+| `inference` | Only when this call creates the computer: run it on Macs with their own model, on every later start too. Copies from a snapshot don't inherit it |
+| `withoutInference` | Start a stopped inference computer once without the model, when none is up. Needs a Revyl backend that offers it, otherwise `INVALID_ARGUMENT` |
+| `timeoutMs` | This run's lifetime, as on `open()`: 2 hours by default, up to 24 hours |
+| `startTimeout` | How long to wait until it is ready: 15 minutes by default, since a start from a snapshot restores the disk first |
+
+Each run bills like any Mac. A few saves have an end, which `savedDiskExpiresAt` on list entries shows when Revyl reports one. An organization keeps at most 10 persistent computers and 100 snapshots unless Revyl raised its limits. The [persistence guide](guides/persistent-computers.md) covers what is kept and what isn't, use cases (a dev environment set up once, parallel copies from a snapshot, a browser that stays signed in, a long-running agent workspace), lifetimes, cleanup and every error.
+
 ## Lifecycle and transport
 
 Use `attach(computerId)` to take cleanup ownership of an existing active computer without creating one. `computer.open(target)` starts Web and iOS children on a Mac. A child requires an existing app/build pair and inherits the parent's client and expiry. Parent close attempts child cleanup for at most five seconds before requesting computer release; the server also stops remaining children. See [the hosted API](api.md#computeropentarget) for arguments, localhost navigation, and cleanup semantics. These are app sessions, not natural-language control of the computer desktop itself.
+
+Inside a Mac opened with `inference: true`, iOS and Web sessions run their validations, and instructions that are a single tap, on the Mac's own model first, with Revyl's hosted model as the fallback for every other step and for answers the Mac's model can't give. This is the default; pass `inference: false` to `computer.open()` to run a session on the hosted model only. `engine` on each step says which answered. Steps the Mac's model answers carry no inference charge, and app sessions inside a computer add no device minutes of their own. When the Mac's model isn't answering, the session's start throws `NOT_AVAILABLE_ON_PLATFORM` (`computer_local_inference_unavailable`). See [the guide](guides/apps-inside-an-inference-mac.md).
 
 For a computer owned by another caller, such as a CI runner, use `attach(computerId, { stopOnClose: false })`. It is not registered for automatic cleanup. Explicit close still cancels pending child starts and closes hosted children within the five-second cleanup phase, but never sends a stop for the computer. The computer's owner is responsible for releasing it; a child-cleanup failure does not authorize stopping the parent.
 

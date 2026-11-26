@@ -7,9 +7,10 @@ import threading
 import time
 import uuid
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import NoReturn
+from typing import Literal, NoReturn, cast
 from urllib.parse import quote, urlsplit
 
 from ._agent import (
@@ -24,6 +25,7 @@ from ._agent import (
 )
 from ._cleanup import track, untrack
 from ._models import (
+    ComputerInferenceReadiness,
     ComputerProcess,
     ComputerRecording,
     ExecResult,
@@ -31,6 +33,7 @@ from ._models import (
     Platform,
     Point,
     ScreenSize,
+    StepResult,
     Target,
     text_length,
 )
@@ -56,6 +59,7 @@ from ._transport import (
     mac_upgrade_message,
     obj,
     refusal_reason,
+    seconds,
     timestamp,
 )
 
@@ -93,6 +97,10 @@ _ERRORS = {
     "screen_text_unsupported",
     "screen_target_not_found",
     "screen_target_unavailable",
+    "step_engine_unavailable",
+    "step_engine_busy",
+    "inference_unavailable",
+    "inference_not_enabled",
 }
 _AVAILABILITY = (
     "Mac computers need a current paid Revyl plan, and Linux computers are not generally "
@@ -118,6 +126,11 @@ _SCREEN_CALLS = (
     'For the screen, use screenshot(), tap(Point(x, y)) or tap("description"), '
     'type("description", text), type_focused(text, clear=False) and press_key(); for '
     "commands, use exec()."
+)
+_NO_MODEL = (
+    "validation() and extract() on a computer run on the vision model of the Mac it runs on, so "
+    'open it with open(Target(platform="mac", inference=True)). A persistent computer gets the '
+    "model only when it is created: open_persistent(new_name, inference=True)."
 )
 _REFUSAL_NEXT_STEPS: dict[str, str] = {
     "AUTH_REJECTED": "Check that REVYL_API_KEY is a current key and that its owner has the "
@@ -301,6 +314,18 @@ class ComputerSession(Session):
         self._child_condition = threading.Condition(self._lock)
         self._stop_on_close: bool = True
         self._start_timeout: float = 600
+        self._inference_requested: bool = False
+        self._inference_readiness: ComputerInferenceReadiness | None = None
+
+    @property
+    def inference(self) -> ComputerInferenceReadiness | None:
+        """Only on a Mac opened with inference=True: whether its own vision model answered when
+        Verify last read the computer's report (at open, and on each report() call). "ready"
+        answers now, "unavailable" doesn't, "unknown" can't be told yet. None on a computer opened
+        without inference."""
+        if not self._inference_requested:
+            return None
+        return self._inference_readiness or "unknown"
 
     @classmethod
     def attach(
@@ -346,6 +371,8 @@ class ComputerSession(Session):
         if not isinstance(target, Target):
             raise VerifyError("INVALID_ARGUMENT", "open() requires a Target value.")
         target.validate(hosted=True)
+        if target.inference is None and self._inference_requested and target.platform != "android":
+            target = replace(target, inference=True)
         with self._child_condition:
             self._assert_computer_open()
             if self.expires_at is None:
@@ -374,6 +401,7 @@ class ComputerSession(Session):
                 cancellation,
                 computer_session_id=self.id,
                 expires_at=self.expires_at,
+                computer_inference=self._inference_requested,
             )
             with self._child_condition:
                 closing = self._closed
@@ -405,11 +433,13 @@ class ComputerSession(Session):
         computer_session_id: str | None = None,
         expires_at: datetime | None = None,
         profile: SessionProfilePlan | None = None,
+        computer_inference: bool = False,
     ) -> ComputerSession:
         if (
             target.platform not in {"mac", "linux"}
             or computer_session_id is not None
             or expires_at is not None
+            or computer_inference
         ):
             raise VerifyError("INVALID_ARGUMENT", "A computer target must be mac or linux.")
         session_id = str(uuid.uuid4())
@@ -427,6 +457,7 @@ class ComputerSession(Session):
         session._log_callback = log
         session._profile = profile
         session._start_timeout = target.start_timeout
+        session._inference_requested = target.inference is True
         acknowledged = False
         try:
             track(session)
@@ -437,6 +468,8 @@ class ComputerSession(Session):
             }
             if target.timeout is not None:
                 body["timeout_seconds"] = target.timeout
+            if target.inference:
+                body["inference"] = True
             if profile is not None:
                 body.update(profile.fields)
             for attempt in range(len(REPOSITORY_RETRY_DELAYS) + 1):
@@ -660,6 +693,57 @@ class ComputerSession(Session):
                 reason="lifetime_unsupported",
                 http_status=response.status,
             )
+        if suffix == "" and method == "POST" and detail == "inference_not_enabled":
+            raise VerifyError(
+                "NOT_AVAILABLE_ON_PLATFORM",
+                "Local inference isn't enabled for this API key's organization "
+                "(inference_not_enabled). Ask support@revyl.ai to turn it on, or open the Mac "
+                'without inference: open(Target(platform="mac")).',
+                reason="inference_not_enabled",
+                http_status=response.status,
+            )
+        if suffix == "" and method == "POST" and detail == "inference_unavailable":
+            raise VerifyError(
+                "NOT_AVAILABLE_ON_PLATFORM",
+                "No Mac with its own vision model is up to take this computer right now "
+                "(inference_unavailable), so nothing was started. Try again later, or open the Mac "
+                'without inference: open(Target(platform="mac")).',
+                reason="inference_unavailable",
+                http_status=response.status,
+            )
+        if suffix == "/steps":
+            if detail == "step_engine_unavailable":
+                raise VerifyError(
+                    "NOT_AVAILABLE_ON_PLATFORM",
+                    "This Mac's own vision model isn't answering right now "
+                    "(step_engine_unavailable), so the step didn't run. computer.inference shows "
+                    f"whether it is ready; try again shortly. See {self.viewer_url}"
+                    if self._inference_requested
+                    else "This computer has no vision model of its own (step_engine_unavailable), "
+                    f"so the step didn't run. {_NO_MODEL} To click or type by description on any "
+                    'Mac, use tap("description") and type("description", text). '
+                    f"See {self.viewer_url}",
+                    reason="step_engine_unavailable",
+                    http_status=response.status,
+                )
+            if detail == "step_engine_busy":
+                raise VerifyError(
+                    "SESSION_BUSY",
+                    "This Mac's vision model is busy with another step (step_engine_busy), so the "
+                    "step didn't run. Run one step at a time on a computer, and try again in a few "
+                    f"seconds. See {self.viewer_url}",
+                    reason=reason,
+                    http_status=response.status,
+                )
+            if detail == "screen_control_held":
+                raise VerifyError(
+                    "SESSION_BUSY",
+                    "The step didn't run: someone else is controlling this computer's screen in "
+                    "the viewer (screen_control_held). Try again after they release it; control "
+                    f"frees itself after 2 minutes without input. See {self.viewer_url}",
+                    reason=reason,
+                    http_status=response.status,
+                )
         if response.status == 409 and detail == "extend_unsupported":
             raise VerifyError(
                 "NOT_AVAILABLE_ON_PLATFORM",
@@ -771,6 +855,11 @@ class ComputerSession(Session):
                 )
                 for child in self._children:
                     child._expires_at = self._expires_at
+        inference = raw.get("inference")
+        if inference in ("ready", "unavailable", "unknown"):
+            with self._lock:
+                self._inference_requested = True
+                self._inference_readiness = cast(ComputerInferenceReadiness, inference)
         return raw
 
     def report(self) -> dict[str, Json]:
@@ -1168,7 +1257,13 @@ class ComputerSession(Session):
         model: ModelOption | None = None,
         agent: LocalAgent | None = None,
     ) -> NoReturn:
-        self._unavailable("instruction")
+        raise VerifyError(
+            "NOT_AVAILABLE_ON_PLATFORM",
+            "instruction() is not available on computers. To click one thing by its description, "
+            'use tap("the Save button"); to type into a field, use type("the search field", '
+            "text). validation() and extract() do work on a Mac opened with "
+            f'Target(platform="mac", inference=True). See {self.viewer_url}',
+        )
 
     def validation(
         self,
@@ -1178,8 +1273,134 @@ class ComputerSession(Session):
         soft: bool = False,
         model: ModelOption | None = None,
         agent: LocalAgent | None = None,
-    ) -> NoReturn:
-        self._unavailable("validation")
+    ) -> StepResult:
+        """Asks the Mac's own vision model whether something holds on screen, such as "the
+        Settings window is open". Raises VALIDATION_FAILED when it does not, unless soft is set,
+        and STEP_FAILED when the model could not reach a verdict. Needs a Mac opened with
+        inference=True; otherwise raises NOT_AVAILABLE_ON_PLATFORM."""
+        if not isinstance(soft, bool):
+            raise VerifyError("INVALID_ARGUMENT", "soft must be a boolean.")
+        result = self._computer_step("validation", text, timeout, model, agent)
+        if not result.passed and not soft:
+            reason = re.sub(r"[.\s]*$", "", result.reason) + ". " if result.reason else ""
+            raise VerifyError(
+                "VALIDATION_FAILED",
+                f'Validation failed: "{result.text}". {reason}See {self.viewer_url}',
+                result=result,
+            )
+        return result
+
+    def extract(self, text: str, *, timeout: float | None = None) -> StepResult:
+        """Reads a value off the screen with the Mac's own vision model, such as "the build number
+        in the About window", and returns the step with it in value. Raises STEP_FAILED when
+        nothing could be read. Needs a Mac opened with inference=True; otherwise raises
+        NOT_AVAILABLE_ON_PLATFORM."""
+        return self._computer_step("extract", text, timeout, None, None)
+
+    def _computer_step(
+        self,
+        kind: Literal["validation", "extract"],
+        text: str,
+        timeout: float | None,
+        model: ModelOption | None,
+        agent: LocalAgent | None,
+    ) -> StepResult:
+        self._assert_computer_open()
+        if not isinstance(text, str) or not text.strip() or text_length(text) > 2_000:
+            raise VerifyError(
+                "INVALID_ARGUMENT",
+                f"{kind}() on a computer takes a description of 1 to 2000 characters.",
+            )
+        if model is not None or agent is not None:
+            raise VerifyError(
+                "NOT_AVAILABLE_ON_PLATFORM",
+                "Your own model runs steps on browsers and devices, not on computers. Leave out "
+                f"model and agent; {kind}() on a Mac runs on the Mac's own vision model.",
+            )
+        duration = seconds(
+            self._step_timeout if timeout is None else timeout, 1, 3600, "Step timeout"
+        )
+        if self.platform != "mac":
+            raise VerifyError(
+                "NOT_AVAILABLE_ON_PLATFORM",
+                f"{kind}() is not available on Linux computers: {_NO_MODEL} {_SCREEN_CALLS}",
+                reason="step_engine_unavailable",
+            )
+        description = text.strip()
+        started = time.monotonic()
+        deadline = self._observation_deadline(duration)
+        try:
+            response = self._request(
+                "POST",
+                "/steps",
+                {"step_type": kind, "description": description},
+                deadline,
+                duration,
+            )
+        except VerifyError as error:
+            self._log(f'✗ {kind} "{description}": {error.code}')
+            if deadline.expired() and not self._cancellation.event.is_set():
+                raise VerifyError(
+                    "TIMEOUT",
+                    f'The {kind} did not finish within {duration:g} seconds: "{description}". '
+                    f"Pass a larger timeout. See {self.viewer_url}",
+                ) from error
+            raise
+        raw = obj(response.json())
+        status, engine = raw.get("status"), raw.get("engine")
+        if (
+            raw.get("step_type") != kind
+            or status not in ("passed", "failed", "uncertain")
+            or engine not in ("local", "hosted")
+        ):
+            raise _invalid()
+        status_reason = raw.get("status_reason")
+        reason = status_reason if isinstance(status_reason, str) and status_reason else None
+        extracted = raw.get("extracted_data")
+        value = extracted.get("information") if isinstance(extracted, dict) else None
+        verdict = raw.get("validation_result")
+        if (
+            status == "uncertain"
+            or (kind == "validation" and not isinstance(verdict, bool))
+            or (kind == "extract" and (status != "passed" or not isinstance(value, str)))
+        ):
+            self._log(
+                f'✗ {kind} "{description}": no {"verdict" if kind == "validation" else "value"}'
+            )
+            because = re.sub(r"[.\s]*$", "", reason) + ". " if reason else ""
+            raise VerifyError(
+                "STEP_FAILED",
+                f'Validation did not reach a verdict: "{description}". {because}The Mac'
+                "'s model wasn't sure; describe one thing that is visible on the screen now. "
+                f"See {self.viewer_url}"
+                if kind == "validation"
+                else f'Extract read nothing: "{description}". {because}Describe one value that '
+                'is on the screen now, such as "the version number in the About window". '
+                f"See {self.viewer_url}",
+            )
+        passed = verdict is True if kind == "validation" else True
+        result = StepResult(
+            kind,
+            description,
+            passed,
+            reason,
+            time.monotonic() - started,
+            value=value if kind == "extract" and isinstance(value, str) else None,
+            engine="local" if engine == "local" else "hosted",
+        )
+        self.steps.append(result)
+        self._log(
+            f'{"✓" if passed else "✗"} {kind} "{description}" '
+            f"({result.duration_seconds:.1f}s, {result.engine} model)"
+            + (
+                f": {value}"
+                if kind == "extract"
+                else f": {reason}"
+                if not passed and reason
+                else ""
+            )
+        )
+        return result
 
     def tap(self, at: Location, *, settle: bool = True) -> Point:
         """Clicks a point in screenshot pixels, or an element Revyl finds from a description.

@@ -3,20 +3,20 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { RevylClient, edgeBlockedError, macUpgradeMessage, responseDetail, responseErrorCode, responseRefusalReason, sessionViewerUrl, type RawResponse } from './api/client.js';
-import type { ComputerCommand, ComputerCommandResponse, ComputerPlatform, ComputerRecordingResponse, ComputerReport, ComputerResult, ComputerScreenshot } from './api/types.js';
+import type { ComputerCommand, ComputerCommandResponse, ComputerInferenceReadiness, ComputerPlatform, ComputerRecordingResponse, ComputerReport, ComputerResult, ComputerScreenshot, ComputerStepResponse } from './api/types.js';
 import { trackSession, untrackSession } from './cleanup.js';
 import { validateHostedTarget, type HostedTargetConfig, type ResolvedComputerTarget } from './config.js';
 import { VerifyError, isVerifyError, type VerifyErrorCode } from './errors.js';
 import { missingBranchNotice, profileFailedError, profileNotReportedError, profileRefusalError, reportedSessionProfile, withRepositoryRetry } from './session-profile.js';
 import { WEB_KEYS, checkKey, type Key, type KeyModifier, type Location, type Point } from './agent/loop.js';
-import { CDP_WEB_ONLY, DeviceSession, checkLocation, checkSettle, pngSize, type ActionOptions, type CDPEndpoint, type ComputerProcess, type ComputerRecording, type ExecOptions, type ExecResult, type FileStat, type OpenedSession, type OperationOptions, type Session, type SessionOptions, type StepResult } from './session.js';
+import { CDP_WEB_ONLY, DeviceSession, checkLocation, checkSettle, pngSize, type ActionOptions, type CDPEndpoint, type ComputerProcess, type ComputerRecording, type ExecOptions, type ExecResult, type ExtractOptions, type FileStat, type OpenedSession, type OperationOptions, type Session, type SessionOptions, type StepResult, type ValidationOptions } from './session.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATES = new Set(['starting', 'active', 'closing', 'stopped', 'failed', 'owner_lost']);
 const MAX_OUTPUT_BYTES = 1_048_576;
 const COMPUTER_AVAILABILITY = 'Mac computers need a current paid Revyl plan, and Linux computers are not generally available. Ask support@revyl.ai about access.';
 const COMPUTER_CAPACITY = 'Computer admission was refused because of queued work (including iOS) or the concurrency limit. Verify will not retry the start.';
-const ERROR_CODES = new Set(['computer_not_enabled', 'run_closed', 'inaccessible', 'invalid_handle', 'operation_not_found', 'owner_unavailable', 'invalid_request', 'unauthenticated', 'forbidden', 'runtime_unavailable', 'start_failed', 'computer_limit', 'request_conflict', 'run_conflict', 'evidence_conflict', 'evidence_unavailable', 'authentication_unavailable', 'operation_limit', 'screen_starting', 'screen_unavailable', 'screen_control_held', 'screen_control_lost', 'screen_input_unavailable', 'screen_input_uncertain', 'screen_key_unsupported', 'screen_text_unsupported', 'screen_target_not_found', 'screen_target_unavailable']);
+const ERROR_CODES = new Set(['computer_not_enabled', 'run_closed', 'inaccessible', 'invalid_handle', 'operation_not_found', 'owner_unavailable', 'invalid_request', 'unauthenticated', 'forbidden', 'runtime_unavailable', 'start_failed', 'computer_limit', 'request_conflict', 'run_conflict', 'evidence_conflict', 'evidence_unavailable', 'authentication_unavailable', 'operation_limit', 'screen_starting', 'screen_unavailable', 'screen_control_held', 'screen_control_lost', 'screen_input_unavailable', 'screen_input_uncertain', 'screen_key_unsupported', 'screen_text_unsupported', 'screen_target_not_found', 'screen_target_unavailable', 'step_engine_unavailable', 'step_engine_busy', 'inference_unavailable', 'inference_not_enabled']);
 const COMPUTER_KEYS: Record<Key, string> = { enter: 'Return', backspace: 'BackSpace', tab: 'Tab', escape: 'Escape', delete: 'Delete', space: 'space', arrowup: 'Up', arrowdown: 'Down', arrowleft: 'Left', arrowright: 'Right', home: 'Home', end: 'End', pageup: 'Page_Up', pagedown: 'Page_Down' };
 const REFUSAL_NEXT_STEPS = {
   AUTH_REJECTED: "Check that REVYL_API_KEY is a current key and that its owner has the Member role or above in this computer's organization.",
@@ -32,6 +32,7 @@ const RECORDING_WAIT_MS = 900_000;
 const RECORDING_POLL_MS = 5_000;
 const COMPUTER_CONTROL_CHARACTER = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
 const SCREEN_CALLS = 'For the screen, use screenshot(), tap({ x, y }) or tap({ target }), type({ target }, text), typeFocused(text, { clear: false }) and pressKey(); for commands, use exec().';
+const NO_MODEL = "validation() and extract() on a computer run on the vision model of the Mac it runs on, so open it with open({ platform: 'mac', inference: true }). A persistent computer gets the model only when it is created: openPersistent(newName, { inference: true }).";
 
 export class ComputerSession implements Session {
   readonly platform: ComputerPlatform;
@@ -46,11 +47,14 @@ export class ComputerSession implements Session {
   private readonly children = new Set<Session>();
   private readonly childStarts = new Set<Promise<Session>>();
   private closing = false;
+  private inferenceRequested: boolean;
+  private inferenceReadiness: ComputerInferenceReadiness | undefined;
 
   protected constructor(protected readonly client: RevylClient, target: ResolvedComputerTarget, protected readonly options: SessionOptions, id: string = randomUUID(), private readonly stopOnClose = true) {
     this.id = id;
     this.target = target.name;
     this.platform = target.platform;
+    this.inferenceRequested = target.inference === true;
     this.viewerUrl = sessionViewerUrl(this.id, 'computer', options.appUrl);
     this.startTimeoutMs = target.startTimeout;
   }
@@ -64,7 +68,7 @@ export class ComputerSession implements Session {
     trackSession(session);
     try {
       session.log(`starting computer ${session.viewerUrl}`);
-      const body = { computer_session_id: session.id, os: target.platform === 'mac' ? 'macos' : 'linux', ...(target.timeoutMs !== undefined ? { timeout_seconds: target.timeoutMs / 1_000 } : {}), ...options.profile?.fields };
+      const body = { computer_session_id: session.id, os: target.platform === 'mac' ? 'macos' : 'linux', ...(target.timeoutMs !== undefined ? { timeout_seconds: target.timeoutMs / 1_000 } : {}), ...(target.inference ? { inference: true } : {}), ...options.profile?.fields };
       const response = await withRepositoryRetry(() => session.request('POST', '', body, signal));
       createAcknowledged = true;
       const plan = options.profile?.name ? options.profile : undefined;
@@ -114,6 +118,15 @@ export class ComputerSession implements Session {
     return this.closePromise !== undefined;
   }
 
+  /**
+   * Only on a Mac opened with { inference: true }: whether its own vision model answered when Verify last read the
+   * computer's report (at open, and on each report() call). 'ready' answers now, 'unavailable' doesn't, 'unknown'
+   * can't be told yet. Undefined on a computer opened without inference.
+   */
+  get inference(): ComputerInferenceReadiness | undefined {
+    return this.inferenceRequested ? (this.inferenceReadiness ?? 'unknown') : undefined;
+  }
+
   static async attach(client: RevylClient, computerId: string, options: SessionOptions & { stopOnClose?: boolean }): Promise<ComputerSession> {
     if (typeof computerId !== 'string' || !UUID.test(computerId)) throw new VerifyError('INVALID_ARGUMENT', 'attach() requires a computer session UUID.');
     const probe = new ComputerSession(client, { name: 'computer', platform: 'mac', startTimeout: 600_000 }, options, computerId);
@@ -131,10 +144,12 @@ export class ComputerSession implements Session {
     this.assertOpen();
     if (this.expiresAtMs === undefined) throw new VerifyError('API_ERROR', 'The computer report must include expiry before opening a hosted child.');
     const resolved = validateHostedTarget(target);
+    if (resolved.inference === undefined && this.inferenceRequested && resolved.platform !== 'android') resolved.inference = true;
     if ((this.platform === 'mac' && resolved.platform === 'android') || (this.platform === 'linux' && resolved.platform === 'ios')) throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'This computer cannot host the requested platform.', { reason: 'computer_cannot_host_platform' });
     const expiresAt = () => this.expiresAt;
     const pending = DeviceSession.start(this.client, resolved, { ...this.options, profile: undefined }, {
       id: this.id,
+      inference: this.inferenceRequested,
       signal: this.lifetime.signal,
       get expiresAt() { return expiresAt(); },
       register: (session) => { this.children.add(session); },
@@ -343,11 +358,62 @@ export class ComputerSession implements Session {
   }
 
   instruction(): Promise<never> {
-    return this.unavailable('instruction');
+    return Promise.reject(new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `instruction() is not available on computers. To click one thing by its description, use tap({ target: 'the Save button' }); to type into a field, use type({ target: 'the search field' }, text). validation() and extract() do work on a Mac opened with { inference: true }. See ${this.viewerUrl}`));
   }
 
-  validation(): Promise<never> {
-    return this.unavailable('validation');
+  /**
+   * Asks the Mac's own vision model whether something holds on screen, such as "the Settings window is open". Throws
+   * VALIDATION_FAILED when it does not, unless soft is set, and STEP_FAILED when the model could not reach a verdict.
+   * Needs a Mac opened with { inference: true }; otherwise throws NOT_AVAILABLE_ON_PLATFORM.
+   */
+  async validation(text: string, options: ValidationOptions = {}): Promise<StepResult> {
+    const result = await this.runComputerStep('validation', text, options);
+    if (!result.passed && !options.soft) throw new VerifyError('VALIDATION_FAILED', `Validation failed: "${result.text}". ${result.reason ? `${result.reason.replace(/[.\s]*$/, '')}. ` : ''}See ${this.viewerUrl}`, { result });
+    return result;
+  }
+
+  /**
+   * Reads a value off the screen with the Mac's own vision model, such as "the build number in the About window", and
+   * returns the step with it in value. Throws STEP_FAILED when nothing could be read. Needs a Mac opened with
+   * { inference: true }; otherwise throws NOT_AVAILABLE_ON_PLATFORM.
+   */
+  extract(text: string, options: ExtractOptions = {}): Promise<StepResult> {
+    return this.runComputerStep('extract', text, options);
+  }
+
+  private async runComputerStep(type: 'validation' | 'extract', text: string, options: { timeout?: number; model?: unknown; agent?: unknown }): Promise<StepResult> {
+    this.assertOpen();
+    if (typeof text !== 'string' || text.trim() === '' || text.length > 2_000) throw new VerifyError('INVALID_ARGUMENT', `${type}() on a computer takes a description of 1 to 2000 characters.`);
+    if (options.model !== undefined || options.agent !== undefined) throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `Your own model runs steps on browsers and devices, not on computers. Leave out model and agent; ${type}() on a Mac runs on the Mac's own vision model.`);
+    const timeoutMs = options.timeout ?? this.options.stepTimeout;
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1_000) throw new VerifyError('INVALID_ARGUMENT', `${type}() takes a timeout of at least 1000 ms.`);
+    if (this.platform !== 'mac') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `${type}() is not available on Linux computers: ${NO_MODEL} ${SCREEN_CALLS}`, { reason: 'step_engine_unavailable' });
+    const description = text.trim();
+    const startedAt = Date.now();
+    const signal = this.observationSignal(timeoutMs);
+    let response: RawResponse;
+    try {
+      response = await this.request('POST', '/steps', { step_type: type, description }, signal, timeoutMs);
+    } catch (error) {
+      this.log(`✗ ${type} "${description}": ${isVerifyError(error) ? error.code : 'API_ERROR'}`);
+      if (signal.aborted && !this.lifetime.signal.aborted) throw new VerifyError('TIMEOUT', `The ${type} did not finish within ${timeoutMs} ms: "${description}". Pass a larger timeout. See ${this.viewerUrl}`, { cause: error });
+      throw error;
+    }
+    const raw = parseComputerJson<ComputerStepResponse>(response);
+    if (!raw || raw.step_type !== type || !['passed', 'failed', 'uncertain'].includes(raw.status) || (raw.engine !== 'local' && raw.engine !== 'hosted')) throw invalidResponse();
+    const reason = typeof raw.status_reason === 'string' && raw.status_reason ? raw.status_reason : undefined;
+    const value = raw.extracted_data?.information;
+    if (raw.status === 'uncertain' || (type === 'validation' && typeof raw.validation_result !== 'boolean') || (type === 'extract' && (raw.status !== 'passed' || typeof value !== 'string'))) {
+      this.log(`✗ ${type} "${description}": no ${type === 'validation' ? 'verdict' : 'value'}`);
+      throw new VerifyError('STEP_FAILED', type === 'validation'
+        ? `Validation did not reach a verdict: "${description}". ${reason ? `${reason.replace(/[.\s]*$/, '')}. ` : ''}The Mac's model wasn't sure; describe one thing that is visible on the screen now. See ${this.viewerUrl}`
+        : `Extract read nothing: "${description}". ${reason ? `${reason.replace(/[.\s]*$/, '')}. ` : ''}Describe one value that is on the screen now, such as "the version number in the About window". See ${this.viewerUrl}`);
+    }
+    const passed = type === 'validation' ? raw.validation_result === true : true;
+    const result: StepResult = { type, text: description, passed, ...(type === 'extract' ? { value: value as string } : {}), ...(reason ? { reason } : {}), durationMs: Date.now() - startedAt, engine: raw.engine };
+    this.steps.push(result);
+    this.log(`${passed ? '✓' : '✗'} ${type} "${description}" (${(result.durationMs / 1_000).toFixed(1)} s, ${raw.engine} model)${type === 'extract' ? `: ${value}` : !passed && reason ? `: ${reason}` : ''}`);
+    return result;
   }
 
   async screenshot(options: { path?: string } = {}): Promise<Uint8Array> {
@@ -586,6 +652,15 @@ export class ComputerSession implements Session {
       const fix = typeof max === 'number' && Number.isInteger(max) && max > 0 ? `timeoutMs of at most ${max * 1_000}` : 'a shorter timeoutMs';
       throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `No host can keep this computer running that long (lifetime_unsupported); pass ${fix}.`, { reason: 'lifetime_unsupported', httpStatus: response.status });
     }
+    if (suffix === '' && method === 'POST' && detail === 'inference_not_enabled') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `Local inference isn't enabled for this API key's organization (inference_not_enabled). Ask support@revyl.ai to turn it on, or open the Mac without inference: open({ platform: 'mac' }).`, { reason: 'inference_not_enabled', httpStatus: response.status });
+    if (suffix === '' && method === 'POST' && detail === 'inference_unavailable') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `No Mac with its own vision model is up to take this computer right now (inference_unavailable), so nothing was started. Try again later, or open the Mac without inference: open({ platform: 'mac' }).`, { reason: 'inference_unavailable', httpStatus: response.status });
+    if (suffix === '/steps') {
+      if (detail === 'step_engine_unavailable') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', this.inferenceRequested
+        ? `This Mac's own vision model isn't answering right now (step_engine_unavailable), so the step didn't run. computer.inference shows whether it is ready; try again shortly. See ${this.viewerUrl}`
+        : `This computer has no vision model of its own (step_engine_unavailable), so the step didn't run. ${NO_MODEL} To click or type by description on any Mac, use tap({ target }) and type({ target }, text). See ${this.viewerUrl}`, { reason: 'step_engine_unavailable', httpStatus: response.status });
+      if (detail === 'step_engine_busy') throw new VerifyError('SESSION_BUSY', `This Mac's vision model is busy with another step (step_engine_busy), so the step didn't run. Run one step at a time on a computer, and try again in a few seconds. See ${this.viewerUrl}`, refusal);
+      if (detail === 'screen_control_held') throw new VerifyError('SESSION_BUSY', `The step didn't run: someone else is controlling this computer's screen in the viewer (screen_control_held). Try again after they release it; control frees itself after 2 minutes without input. See ${this.viewerUrl}`, refusal);
+    }
     if (response.status === 409 && detail === 'extend_unsupported') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `This computer's host can't extend its lifetime (extend_unsupported); its expiry is unchanged. See ${this.viewerUrl}`, refusal);
     if (suffix === '/screen/actions') {
       if (response.status === 422 && detail === 'screen_point_outside') return response;
@@ -643,6 +718,10 @@ export class ComputerSession implements Session {
     const report = parseComputerJson<ComputerReport>(response);
     if (!report || report.computer_session_id !== this.id || !STATES.has(report.state)) throw invalidResponse();
     if (report.expires_at != null) this.expiresAtMs = Math.max(parseTimestamp(report.expires_at).getTime(), this.expiresAtMs ?? -Infinity);
+    if (report.inference === 'ready' || report.inference === 'unavailable' || report.inference === 'unknown') {
+      this.inferenceRequested = true;
+      this.inferenceReadiness = report.inference;
+    }
     return report;
   }
 

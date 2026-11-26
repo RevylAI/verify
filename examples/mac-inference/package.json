@@ -1,0 +1,16 @@
+{
+  "name": "verify-example-mac-inference",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Verify example: validation and extract on a Mac's own model, and an iOS app inside it",
+  "type": "module",
+  "scripts": {
+    "checks": "node verify/checks.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@revyl/verify": "0.8.0",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.9.0"
+  }
+}

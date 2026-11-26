@@ -33,6 +33,7 @@ from ._model import (
 )
 from ._models import (
     CDPEndpoint,
+    ComputerInferenceReadiness,
     ComputerProcess,
     ComputerRecording,
     ExecResult,
@@ -69,10 +70,11 @@ from ._transport import (
     seconds,
 )
 
-__version__ = "0.5.1"
+__version__ = "0.6.0"
 __all__ = [
     "AsyncSession",
     "CDPEndpoint",
+    "ComputerInferenceReadiness",
     "ComputerProcess",
     "ComputerRecording",
     "ComputerSession",

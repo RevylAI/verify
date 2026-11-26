@@ -114,7 +114,8 @@ On Android, `back()` presses the system back button. On both platforms, `goHome(
 | `openUrl(url)` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No |
 | `launchApp(bundleId)` | No, use `openUrl` or `navigate` | Yes | Yes | No |
 | `navigate(url)` | Yes | No, use `openUrl` | No, use `openUrl` | No |
-| `instruction`, `validation`, your own model | Yes | Yes | Yes | No, use `exec()` and the screen calls above |
+| `instruction`, your own model | Yes | Yes | Yes | No, use `tap({ target })`, `type({ target }, text)` and `exec()` |
+| `validation`, `extract` | Yes | Yes | Yes | Yes, on a Mac opened with `inference: true`; see [computers.md](computers.md#checks-on-the-macs-own-model) |
 | `screenshot()` | Yes | Yes | Yes | Yes |
 | `exec`, files, processes | No, open a Mac computer | No, open a Mac computer | No, open a Mac computer | Yes |
 

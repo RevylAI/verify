@@ -160,12 +160,13 @@ describe('computer lifecycle', () => {
     await expect((await start(fake)).close()).rejects.toMatchObject({ code: 'API_ERROR' });
   });
 
-  it('does not send unsupported agent steps', async () => {
-    const fake = fakeMac();
+  it('does not send instructions, and explains a validation on a Mac without a model', async () => {
+    const fake = fakeMac().on('POST', /\/steps$/, () => json({ detail: 'step_engine_unavailable' }, 409));
     const session = await start(fake);
-    await expect(session.instruction('hi')).rejects.toMatchObject({ code: 'NOT_AVAILABLE_ON_PLATFORM' });
-    await expect(session.validation('ready', { soft: true })).rejects.toMatchObject({ code: 'NOT_AVAILABLE_ON_PLATFORM' });
+    await expect(session.instruction('hi')).rejects.toMatchObject({ code: 'NOT_AVAILABLE_ON_PLATFORM', message: expect.stringContaining('tap({ target:') });
     expect(fake.requests).toHaveLength(1);
+    await expect(session.validation('ready', { soft: true })).rejects.toMatchObject({ code: 'NOT_AVAILABLE_ON_PLATFORM', reason: 'step_engine_unavailable', message: expect.stringContaining("open({ platform: 'mac', inference: true })") });
+    expect(fake.calls('POST', /\/steps$/)[0]?.body).toEqual({ step_type: 'validation', description: 'ready' });
   });
 
   it.each([

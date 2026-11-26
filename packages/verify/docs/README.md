@@ -20,5 +20,8 @@ These files ship inside the npm package at `node_modules/@revyl/verify/docs/`, s
 | [guides/session-profiles.md](guides/session-profiles.md) | Start every session signed in with a session profile |
 | [guides/playwright-cdp.md](guides/playwright-cdp.md) | Drive a Revyl browser with Playwright over CDP and check it with `validation()` |
 | [guides/mac-computer.md](guides/mac-computer.md) | Build, edit files and click macOS apps on a cloud Mac, and get the recording |
+| [guides/mac-model-checks.md](guides/mac-model-checks.md) | Check a Mac's screen with `validation()` and `extract()` on its own model |
+| [guides/apps-inside-an-inference-mac.md](guides/apps-inside-an-inference-mac.md) | Run an iOS or Web app inside a Mac whose model answers its steps |
+| [guides/persistent-computers.md](guides/persistent-computers.md) | Keep a Mac's disk between runs and copy it with snapshots, with use cases |
 
 [llms.txt](llms.txt) lists the same files in the llms.txt format.

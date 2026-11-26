@@ -21,6 +21,7 @@ const mac = await open({ platform: 'mac' });                        // computer,
 - `options.log`: where progress lines go. By default Verify writes the session link and each step's outcome to stderr, prefixed with `[verify]`. Pass a function to receive the lines yourself, or `false` to turn them off.
 - `options.model`: runs every instruction and validation on your own model instead of Revyl's agent; see [Your own model](#your-own-model). Browsers and devices only; computers throw `NOT_AVAILABLE_ON_PLATFORM`.
 - `options.agent`: the same with a custom agent; see [Custom agents](#custom-agents). Pass `model` or `agent`, not both.
+- `options.backendUrl`, `options.appUrl`: the Revyl API and web origins. They default to Revyl's production origins; change them only to test another Revyl environment. `openPersistent()` and the other persistent-computer calls take them too.
 - `options.profile`: a session profile from your project's `.revyl/config.yaml`, such as `'signed-in'`, that Revyl runs before `open()` returns, or `'none'` for no profile. Left out, the project's `session.default_profile` runs when it sets one. Web, iOS, Android and Mac computers. See [Session profiles](#session-profiles).
 
 `open` needs credentials: `REVYL_API_KEY` or a Revyl CLI login. It throws `AUTH_MISSING` without them, `CONFIG_NOT_FOUND` or `CONFIG_INVALID` for config problems, and `SESSION_START_FAILED` or `TIMEOUT` when the browser or device does not start.
@@ -146,6 +147,8 @@ try {
 }
 ```
 
+Inside a Mac opened with `inference: true`, an iOS or Web child runs its validations, and instructions that are a single tap, on the Mac's own model first, with Revyl's hosted model as the fallback for other steps and for answers the Mac's model can't give. That is the default; `inference: false` in the target turns it off for that child, and `inference: true` on Android is refused. If the Mac's model isn't answering, the child's start throws `NOT_AVAILABLE_ON_PLATFORM` with reason `computer_local_inference_unavailable`. See [apps inside an inference Mac](guides/apps-inside-an-inference-mac.md).
+
 The initial Web build uses HTTPS. After start, `navigate()` can also reach `http://localhost:<port>` on the computer, but only when a service is already listening there, such as one an earlier step of a `revyl-macos` job started. Verify has no call that starts one, and a process started through `exec()` ends when the command returns. Leave out `stopOnClose: false` only for a computer your script owns: then `close()` stops it.
 
 ## session.navigate(url)
@@ -192,7 +195,7 @@ On iOS, Android and Mac computers `cdp()` throws `NOT_AVAILABLE_ON_PLATFORM` bef
 
 ## Exact actions
 
-**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. On a Mac computer's screen, `tap` (by point or by description), `screenSize`, `typeFocused` and `pressKey` are new in TypeScript 0.6.0, Python 0.4.0 and Go v0.5.0, and `type` in TypeScript 0.7.1, Python 0.5.1 and Go v0.6.1. The [Python](https://github.com/RevylAI/verify/blob/v0.7.1/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.7.1/go/README.md#exact-actions) READMEs show them with each language's names. Web, iOS and Android sessions, and a Mac computer's screen, take device actions that need no agent.
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. On a Mac computer's screen, `tap` (by point or by description), `screenSize`, `typeFocused` and `pressKey` are new in TypeScript 0.6.0, Python 0.4.0 and Go v0.5.0, and `type` in TypeScript 0.7.1, Python 0.5.1 and Go v0.6.1. The [Python](https://github.com/RevylAI/verify/blob/v0.8.0/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.8.0/go/README.md#exact-actions) READMEs show them with each language's names. Web, iOS and Android sessions, and a Mac computer's screen, take device actions that need no agent.
 
 **Typing: one rule on every platform.** To type, call `type({ target: 'Email field' }, text)`: it taps the field you describe and types into it, replacing its text unless you pass `{ clear: false }`. It works the same on Web, iOS, Android and a Mac computer. `typeFocused(text)` types wherever focus already is, without tapping, and only on Web and computers; on Web, when no field has focus it throws `ACTION_FAILED` with reason `no_focused_input` and types nothing.
 
@@ -210,7 +213,8 @@ On iOS, Android and Mac computers `cdp()` throws `NOT_AVAILABLE_ON_PLATFORM` bef
 | `launchApp(bundleId)` | No, use `openUrl` or `navigate` | Yes | Yes | No |
 | `navigate(url)` | Yes | No, use `openUrl` | No, use `openUrl` | No |
 | `cdp()`, for Playwright and Puppeteer | Yes, see [CDP](#cdp-playwright-puppeteer) | No | No | No |
-| `instruction`, `validation`, your own model | Yes | Yes | Yes | No, use `exec()` and the screen calls above |
+| `instruction`, your own model | Yes | Yes | Yes | No, use `tap({ target })`, `type({ target }, text)` and `exec()` |
+| `validation`, `extract` | Yes | Yes | Yes | Yes, on a Mac opened with `inference: true`; see [computers.md](computers.md#checks-on-the-macs-own-model) |
 | `screenshot()` | Yes | Yes | Yes | Yes |
 | `exec`, files, processes | No, open a Mac computer | No, open a Mac computer | No, open a Mac computer | Yes |
 
@@ -265,7 +269,7 @@ Returns authenticated JSON metadata: `/execution/device-sessions/{id}` for norma
 
 ## session.instruction(text, options?)
 
-Available on web/iOS/Android only. Computers throw `NOT_AVAILABLE_ON_PLATFORM` without sending an agent request.
+Available on web/iOS/Android only. Computers throw `NOT_AVAILABLE_ON_PLATFORM` without sending anything; the message names `tap({ target: 'the Save button' })` and `type({ target: 'the search field' }, text)`, which click and type by description there. In a session opened inside a Mac with `inference: true`, an instruction that is a single tap on one thing runs on the Mac's own model first; see [computer.open(target)](#computeropentarget).
 
 Asks Revyl's agent to do something in the app, described the way you would tell a person: `'Sign in as the demo user and open Settings'`. The agent looks at the screen and acts until it is done or decides it cannot.
 
@@ -275,7 +279,7 @@ Asks Revyl's agent to do something in the app, described the way you would tell 
 
 ## session.validation(text, options?)
 
-Available on web/iOS/Android only, not computers.
+Available on web, iOS and Android, and since 0.8.0 on a Mac opened with `inference: true`, where the Mac's own vision model answers it; other Macs throw `NOT_AVAILABLE_ON_PLATFORM` (`step_engine_unavailable`). See [checks on the Mac's own model](computers.md#checks-on-the-macs-own-model).
 
 Asks Revyl's agent whether something holds on screen right now: `'The cart shows 2 items and a total of $40'`.
 
@@ -285,18 +289,38 @@ Asks Revyl's agent whether something holds on screen right now: `'The cart shows
 - `options.soft: true` returns a failed result instead of throwing `VALIDATION_FAILED`, for scripts that want to collect several outcomes. It does not turn `STEP_FAILED` into a result.
 - `options.timeout`: as for `instruction`.
 
+## session.extract(text, options?)
+
+**Since 0.8.0.** Web, iOS, Android, and a Mac opened with `inference: true`.
+
+Reads one value off the screen, described the way you would ask a person: `'the order number'`, `'the total in the cart'`.
+
+```ts
+const order = await session.extract('the order number on the confirmation screen');
+console.log(order.value);   // e.g. 'A-10293'
+```
+
+- Resolves with a `StepResult` whose `value` is the text it read.
+- Throws `STEP_FAILED`, with the reason, when nothing could be read or the step was cancelled. Describe one value that is on the screen now.
+- On web, iOS and Android it runs on Revyl's agent, including inside an inference Mac. A session opened with `model` or `agent` throws `INVALID_ARGUMENT`: read the value from `screenshot()` with your model instead. On a Mac it runs on the Mac's own model and needs `inference: true`, like `validation()`.
+- `options.timeout`: as for `instruction`.
+
 ## StepResult
 
 ```ts
 interface StepResult {
-  type: 'instruction' | 'validation';
+  type: 'instruction' | 'validation' | 'extract';
   text: string;          // the step as sent, trimmed
   passed: boolean;
+  value?: string;        // extract only: what it read
   reason?: string;       // Revyl's explanation, or your model's on a local agent
   durationMs: number;
+  engine?: 'local' | 'hosted';  // who answered, when Revyl says: the Mac's own model or Revyl's hosted model
   model?: ModelRun;      // set when the step ran on your model
 }
 ```
+
+`engine` is set on steps that run on a Mac opened with `inference: true` and in sessions inside one, and left out elsewhere.
 
 `session.steps` lists every step run on the session, in order.
 
@@ -304,7 +328,7 @@ When inspecting `revyl device report --session-id <id>`, read validation verdict
 
 ## Your own model
 
-**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0; the [Python](https://github.com/RevylAI/verify/blob/v0.7.1/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.7.1/go/README.md#your-own-model) READMEs show them with each language's names. Runs instructions and validations on a model you choose, in your process, instead of Revyl's agent. Revyl still provides the browser or device. Leave `model` out and Revyl's agent runs the step, as before.
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0; the [Python](https://github.com/RevylAI/verify/blob/v0.8.0/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.8.0/go/README.md#your-own-model) READMEs show them with each language's names. Runs instructions and validations on a model you choose, in your process, instead of Revyl's agent. Revyl still provides the browser or device. Leave `model` out and Revyl's agent runs the step, as before.
 
 ```ts
 const session = await open('ios', { model: 'anthropic/claude-sonnet-5-5' });  // every step on your model
@@ -355,7 +379,7 @@ For owning computers, cleanup must be confirmed; a terminal state alone does not
 
 ## Computer commands, files, and processes
 
-Mac sessions provide `exec(argv: string[], options?)`, `readFile(path, options?)` returning `Buffer`, `writeFile(path, string | Uint8Array, options?)`, `stat(path, options?)` returning `{ kind, size }`, `processes(options?)` returning `{ id, state, exitCode? }[]`, and `terminate(id, options?)`. They throw `NOT_AVAILABLE_ON_PLATFORM` on web/iOS/Android. See [computers.md](computers.md) for complete signatures, limits, timeouts, and examples. Both support `screenshot()`, and computers take `tap({ x, y })`, `tap({ target })`, `type({ target }, text)`, `screenSize()`, `typeFocused(text, { clear: false })` and `pressKey` on the screen (see [computers.md](computers.md#screen)); instruction/validation do not run on computers.
+Mac sessions provide `exec(argv: string[], options?)`, `readFile(path, options?)` returning `Buffer`, `writeFile(path, string | Uint8Array, options?)`, `stat(path, options?)` returning `{ kind, size }`, `processes(options?)` returning `{ id, state, exitCode? }[]`, and `terminate(id, options?)`. They throw `NOT_AVAILABLE_ON_PLATFORM` on web/iOS/Android. See [computers.md](computers.md) for complete signatures, limits, timeouts, and examples. Both support `screenshot()`, and computers take `tap({ x, y })`, `tap({ target })`, `type({ target }, text)`, `screenSize()`, `typeFocused(text, { clear: false })` and `pressKey` on the screen (see [computers.md](computers.md#screen)). `instruction()` doesn't run on computers; `validation()` and `extract()` run on a Mac opened with `inference: true`.
 
 ### `session.extend(timeoutMs: number): Promise<void>`
 
@@ -385,6 +409,26 @@ It reads the report and requires terminal state plus confirmed release; on a com
 | `expiresAt` | **Since 0.2.0.** Validated API expiry as a `Date`, or undefined for devices and older APIs. Computers have a hard lifetime from create (2 hours by default, up to 24 hours with `timeoutMs`); this value is the authoritative deadline, and `extend()` updates it. Operations/screenshot observation are bounded by expiry; close and recording remain possible. |
 | `target` | The target name, or the platform for a target object |
 | `closed` | Whether `close()` was called |
+| `inference` | **Since 0.8.0.** On a Mac opened with `inference: true`: `'ready'`, `'unavailable'` or `'unknown'`, whether its own model answered when Verify last read the report (at open and on each `report()`). `undefined` on every other session |
+
+## Persistent computers
+
+**Since 0.7.0**, for organizations with persistent computers enabled; others get `NOT_AVAILABLE_ON_PLATFORM` with reason `persistent_computers_not_enabled`. See [the persistence guide](guides/persistent-computers.md) for what is kept and for use cases.
+
+```ts
+import { openPersistent, saveSnapshot, listPersistent, listSnapshots, deletePersistent, deleteSnapshot } from '@revyl/verify';
+```
+
+| Call | Result |
+| --- | --- |
+| `openPersistent(name, { fromSnapshot?, inference?, withoutInference?, timeoutMs?, startTimeout?, log? }?)` | A running Mac with every computer method, plus `name` and `created`. Creates the computer the first time, boots a stopped one from its disk, and connects to a running one. `close()` stops it and keeps its disk |
+| `saveSnapshot(computer, name, { waitTimeout? }?)` | A `ComputerSnapshot` of a stopped computer's disk, once the save is copied off its Mac |
+| `listPersistent()` | `{ id, state, savedAt?, savedOffHost, createdAt, savedDiskExpiresAt? }[]` |
+| `listSnapshots()` | `{ id, name, computerId, savedAt, expiresAt?, savedDiskExpiresAt? }[]` |
+| `deletePersistent(computer)` | Deletes the computer and its disk for good; its snapshots stay |
+| `deleteSnapshot(snapshot)` | Deletes the snapshot; computers made from it keep their disks |
+
+`computer` and `snapshot` take a name or an ID. Every call also takes `log`, `backendUrl` and `appUrl`, as `open()` does. `savedDiskExpiresAt` (since 0.8.0) is when a save stops being able to start a computer, when Revyl reports one. `inference` (since 0.8.0) is used only when the call creates the computer; `withoutInference` (since 0.8.0) starts a stopped inference computer once without its model.
 
 ## Rules worth knowing
 
