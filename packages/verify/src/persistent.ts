@@ -174,7 +174,7 @@ export class PersistentComputerSession extends ComputerSession {
  * the same name opens the same computer from TypeScript, Python and Go. Pass an ID from listPersistent() to open
  * an existing computer without creating one. If it is already running, openPersistent() connects to it.
  *
- * Persistent computers are turned on per organization. Without them, openPersistent() and saveSnapshot() throw
+ * Persistent computers come with paid Revyl plans. Without one, openPersistent() and saveSnapshot() throw
  * NOT_AVAILABLE_ON_PLATFORM with reason 'persistent_computers_not_enabled'. Credentials work as for open().
  *
  * Every persistent-computer call throws a VerifyError whose code says what happened and whose message says what to
@@ -364,7 +364,7 @@ async function call(client: RevylClient, method: 'GET' | 'POST' | 'DELETE', path
 }
 
 const REFUSALS: Record<string, [VerifyErrorCode, string, RefusalReason?]> = {
-  persistent_computers_not_enabled: ['NOT_AVAILABLE_ON_PLATFORM', "Persistent computers aren't enabled for this API key's organization yet (persistent_computers_not_enabled). Ask support@revyl.ai to turn them on.", 'persistent_computers_not_enabled'],
+  persistent_computers_not_enabled: ['NOT_AVAILABLE_ON_PLATFORM', "Persistent computers need a paid Revyl plan, so this API key's organization can't use them (persistent_computers_not_enabled). Upgrade the organization's plan to use them.", 'persistent_computers_not_enabled'],
   computer_not_enabled: ['NOT_AVAILABLE_ON_PLATFORM', "Mac computers aren't enabled for this API key's organization (computer_not_enabled). Ask support@revyl.ai about access."],
   runtime_unavailable: ['NOT_AVAILABLE_ON_PLATFORM', 'Revyl has no Mac computers available in this environment (runtime_unavailable).'],
   persistent_computer_limit: ['COMPUTER_LIMIT', 'Your organization already keeps as many persistent computers as it may (persistent_computer_limit). listPersistent() shows them; delete one you no longer need with deletePersistent(), then try again.'],

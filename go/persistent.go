@@ -27,7 +27,7 @@ var persistentRefusals = map[string]struct {
 	code    Code
 	message string
 }{
-	"persistent_computers_not_enabled": {ErrNotAvailableOnPlatform, "Persistent computers aren't enabled for this API key's organization yet (persistent_computers_not_enabled). Ask support@revyl.ai to turn them on."},
+	"persistent_computers_not_enabled": {ErrNotAvailableOnPlatform, "Persistent computers need a paid Revyl plan, so this API key's organization can't use them (persistent_computers_not_enabled). Upgrade the organization's plan to use them."},
 	"computer_not_enabled":             {ErrNotAvailableOnPlatform, "Mac computers aren't enabled for this API key's organization (computer_not_enabled). Ask support@revyl.ai about access."},
 	"runtime_unavailable":              {ErrNotAvailableOnPlatform, "Revyl has no Mac computers available in this environment (runtime_unavailable)."},
 	"persistent_computer_limit":        {ErrComputerLimit, "Your organization already keeps as many persistent computers as it may (persistent_computer_limit). ListPersistent shows them; delete one you no longer need with DeletePersistent, then try again."},
@@ -127,12 +127,12 @@ type ComputerSnapshot struct {
 // digit; the same name opens the same computer from Go, TypeScript and Python. Pass an ID from ListPersistent to
 // open an existing computer without creating one. If it is already running, OpenPersistent connects to it.
 //
-// Persistent computers are turned on per organization. Without them, OpenPersistent and SaveSnapshot return
+// Persistent computers come with paid Revyl plans. Without one, OpenPersistent and SaveSnapshot return
 // ErrNotAvailableOnPlatform with Reason ReasonPersistentComputersNotEnabled:
 //
 //	var verr *verify.Error
 //	if errors.As(err, &verr) && verr.Reason == verify.ReasonPersistentComputersNotEnabled {
-//		// ask support@revyl.ai to turn persistent computers on for this organization
+//		// upgrade this organization's plan to use persistent computers
 //	}
 //
 // Every persistent-computer function returns a *Error; test it with errors.Is(err, verify.ErrNotFound) and read its

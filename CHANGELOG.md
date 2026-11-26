@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Computers: the `persistent_computers_not_enabled` refusal from `openPersistent()` and `saveSnapshot()` now says persistent computers need a paid Revyl plan and to upgrade the organization's plan, instead of asking support@revyl.ai to turn them on: `Persistent computers need a paid Revyl plan, so this API key's organization can't use them (persistent_computers_not_enabled). Upgrade the organization's plan to use them.` The code (`NOT_AVAILABLE_ON_PLATFORM`) and reason are unchanged. Go's `OpenPersistent` and `SaveSnapshot` and Python's `open_persistent()` and `save_snapshot()` carry the same message.
+
 ## 0.7.1 (2026-11-25)
 
 - Web: `typeFocused()` with no text field focused throws `ACTION_FAILED` with the new reason `no_focused_input` and the message `Nothing was typed: no text field has focus (no_focused_input). Use type({ target: 'the email field' }, text), which taps the field and types into it, or tap the field first.` Revyl answers this with HTTP 409, which 0.7.0 reported as `SESSION_BUSY`, so a script or agent gave up on a call it could fix. Your own model's loop now feeds the message back to the model instead of ending the step, because `ACTION_FAILED` doesn't abort it. A session that really is busy, such as a second step while one runs, still throws `SESSION_BUSY`.

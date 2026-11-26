@@ -176,8 +176,8 @@ def open_persistent(
     start_timeout: seconds to wait until it is ready, 10-1800, default 900. Covers waiting for an
     earlier stop to finish saving, and a start from a snapshot, which takes up to about 3 minutes.
 
-    Credentials and backend_url/app_url work as for open(). Persistent computers are turned on per
-    organization: without them, open_persistent() and save_snapshot() raise VerifyError
+    Credentials and backend_url/app_url work as for open(). Persistent computers come with paid
+    Revyl plans: without one, open_persistent() and save_snapshot() raise VerifyError
     NOT_AVAILABLE_ON_PLATFORM with reason "persistent_computers_not_enabled".
 
     Every persistent-computer call raises VerifyError, with .code saying what happened and the
@@ -653,8 +653,8 @@ def _call(
 _REFUSALS: dict[str, tuple[str, str]] = {
     "persistent_computers_not_enabled": (
         "NOT_AVAILABLE_ON_PLATFORM",
-        "Persistent computers aren't enabled for this API key's organization yet "
-        "(persistent_computers_not_enabled). Ask support@revyl.ai to turn them on.",
+        "Persistent computers need a paid Revyl plan, so this API key's organization can't use "
+        "them (persistent_computers_not_enabled). Upgrade the organization's plan to use them.",
     ),
     "computer_not_enabled": (
         "NOT_AVAILABLE_ON_PLATFORM",
