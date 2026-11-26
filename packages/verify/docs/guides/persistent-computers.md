@@ -85,22 +85,26 @@ if ready.ExitCode != 0 {
 Set a Mac up once, save it as a snapshot, then start a copy per shard. Each copy is its own persistent computer, so the runs don't touch each other:
 
 ```ts
-import { openPersistent, saveSnapshot, deletePersistent } from '@revyl/verify';
+import { openPersistent, saveSnapshot, deletePersistent, isVerifyError } from '@revyl/verify';
 
 // Once: after the setup run above has closed 'ios-dev'.
 await saveSnapshot('ios-dev', 'ios-dev-base');        // waits until the save is copied off its Mac, about 5 minutes after close()
 
 // Every run: one copy per shard.
 const shards = ['shard-1', 'shard-2'];
-const macs = await Promise.all(shards.map((name) => openPersistent(name, { fromSnapshot: 'ios-dev-base' })));
+const opened = await Promise.allSettled(shards.map((name) => openPersistent(name, { fromSnapshot: 'ios-dev-base' })));
 try {
+  const macs = opened.map((result) => { if (result.status === 'rejected') throw result.reason; return result.value; });
   await Promise.all(macs.map((mac, i) => mac.exec(['/bin/zsh', '-lc', `cd app && ./run-tests.sh --shard ${i + 1}`], { timeout: 300_000 })));
 } finally {
-  for (const mac of macs) await mac.close();
-  for (const name of shards) await deletePersistent(name);   // copies count toward your 10 until deleted
+  for (const result of opened) if (result.status === 'fulfilled') await result.value.close();
+  for (const name of shards) {
+    await deletePersistent(name).catch((error) => { if (!isVerifyError(error) || error.code !== 'NOT_FOUND') throw error; });   // copies count toward your 10 until deleted
+  }
 }
 ```
 
+- `Promise.allSettled` waits for every open, so when one copy fails, for example with `COMPUTER_LIMIT`, the copies that did open are still closed and deleted.
 - `saveSnapshot()` needs a stopped computer: close it first, or it throws `SESSION_BUSY`. It waits until the save is copied off its Mac, up to `waitTimeout` (15 minutes by default), then throws `TIMEOUT`; calling it again keeps waiting. Snapshot names are unique in your organization.
 - `fromSnapshot` is used only when the call creates the computer. If a computer with that name already exists, it opens as it is; check `created`.
 - A copy usually starts on a different Mac than the one that saved the disk, so it restores the disk first and can take several minutes. `openPersistent()` waits up to `startTimeout`, 15 minutes by default.
