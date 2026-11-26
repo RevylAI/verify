@@ -8,7 +8,15 @@ import type { Platform } from './api/types.js';
 import { VerifyError, isVerifyError, type RefusalReason } from './errors.js';
 
 /** How a session profile run ended, as Revyl reports it. */
-export type SessionProfileOutcome = 'succeeded' | 'script_failed' | 'script_timed_out' | 'script_unavailable' | 'output_invalid' | 'runner_failed';
+export type SessionProfileOutcome =
+  | 'succeeded'
+  | 'script_failed'
+  | 'script_timed_out'
+  | 'script_unavailable'
+  | 'output_invalid'
+  | 'runner_failed'
+  | 'script_execution_unknown'
+  | 'cancelled_before_script_execution';
 
 /** The session_profile fields a start or create request carries. */
 export interface SessionProfileFields {
@@ -536,6 +544,8 @@ const OUTCOME_FIXES: Record<string, string> = {
   script_unavailable: 'Revyl could not find its script: commit it, or check session.profiles in .revyl/config.yaml. A script name with no .revyl/scripts file must be a Library Script in your Revyl organization.',
   output_invalid: 'An output file the script wrote broke a rule, as the reason says. Fix what the script writes there.',
   runner_failed: 'It failed on Revyl\'s side. Open the session again.',
+  script_execution_unknown: 'The runner or session stopped after the script may have started, so the script may have run. Check the session before retrying.',
+  cancelled_before_script_execution: 'The session stopped before the script started. Retry the profile when the session can remain active long enough to run it.',
 };
 
 /** SESSION_PROFILE_FAILED for a profile Revyl reported as failed. Revyl stops the session itself. */

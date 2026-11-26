@@ -110,6 +110,8 @@ Neither errors nor logs contain the script's content or output. A refusal keeps 
 | `script_unavailable` | The script isn't in this checkout or in Git, or the Library Script is missing | Commit the script or add it to `.revyl/scripts`, or create the Library Script |
 | `output_invalid` | A file the script wrote broke a rule; `failureReason` names the file and the line | Fix what the script writes there |
 | `runner_failed` | Something failed on Revyl's side | Open the session again |
+| `script_execution_unknown` | The run ended after Revyl let the script start because its runner was lost or the session stopped, timed out, or was cancelled, so the script may have run | Check the session before retrying |
+| `cancelled_before_script_execution` | The session stopped, timed out, or was cancelled before the script started | Retry the profile when the session can remain active long enough to run it |
 
 ## Inside a revyl-macos GitHub Actions job
 

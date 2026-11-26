@@ -392,6 +392,14 @@ _OUTCOME_FIXES = {
     "output_invalid": "An output file the script wrote broke a rule, as the reason says. Fix "
     "what the script writes there.",
     "runner_failed": "It failed on Revyl's side. Open the session again.",
+    "script_execution_unknown": (
+        "The runner or session stopped after the script may have started, so the script may have "
+        "run. Check the session before retrying."
+    ),
+    "cancelled_before_script_execution": (
+        "The session stopped before the script started. Retry the profile when the session can "
+        "remain active long enough to run it."
+    ),
 }
 
 

@@ -261,7 +261,7 @@ func readProfileConfig(configPath string) (project, session map[string]any, err 
 func checkoutFiles(name, script string, requiresCheckout bool, projectRoot, configPath string) (*profileFiles, error) {
 	files := &profileFiles{Script: script, RequiresRepositoryCheckout: requiresCheckout}
 	unavailable := func(reason string) error {
-		return &Error{Code: ErrSessionProfileFailed, Message: fmt.Sprintf("session profile %q: %s. Fix session.profiles.%s.script in %s, or pass %s.", name, reason, name, configPath, profileNoneHint), Outcome: "script_unavailable", FailureReason: reason}
+		return &Error{Code: ErrSessionProfileFailed, Message: fmt.Sprintf("session profile %q: %s. Fix session.profiles.%s.script in %s, or pass %s.", name, reason, name, configPath, profileNoneHint), Outcome: SessionProfileScriptUnavailable, FailureReason: reason}
 	}
 	var filePath, relativePath string
 	if strings.Contains(script, "/") {
@@ -721,11 +721,13 @@ func missingBranchNotice(profile *reportedProfile, plan *sessionProfilePlan) str
 }
 
 var profileOutcomeFixes = map[string]string{
-	"script_failed":      "Its script exited with an error. Run the script yourself from the project root to see its output; Revyl doesn't show the output because setup scripts often print secrets.",
-	"script_timed_out":   "Its script didn't finish within Revyl's 300-second limit. Make it finish sooner.",
-	"script_unavailable": "Revyl could not find its script: commit it, or check session.profiles in .revyl/config.yaml. A script name with no .revyl/scripts file must be a Library Script in your Revyl organization.",
-	"output_invalid":     "An output file the script wrote broke a rule, as the reason says. Fix what the script writes there.",
-	"runner_failed":      "It failed on Revyl's side. Open the session again.",
+	"script_failed":                     "Its script exited with an error. Run the script yourself from the project root to see its output; Revyl doesn't show the output because setup scripts often print secrets.",
+	"script_timed_out":                  "Its script didn't finish within Revyl's 300-second limit. Make it finish sooner.",
+	"script_unavailable":                "Revyl could not find its script: commit it, or check session.profiles in .revyl/config.yaml. A script name with no .revyl/scripts file must be a Library Script in your Revyl organization.",
+	"output_invalid":                    "An output file the script wrote broke a rule, as the reason says. Fix what the script writes there.",
+	"runner_failed":                     "It failed on Revyl's side. Open the session again.",
+	"script_execution_unknown":          "The runner or session stopped after the script may have started, so the script may have run. Check the session before retrying.",
+	"cancelled_before_script_execution": "The session stopped before the script started. Retry the profile when the session can remain active long enough to run it.",
 }
 
 // profileFailedError is SESSION_PROFILE_FAILED for a profile Revyl reported as failed. Revyl stops the session itself.
@@ -746,7 +748,7 @@ func profileFailedError(profile *reportedProfile, plan *sessionProfilePlan, view
 	if !known {
 		fix = "Check the session link for what happened."
 	}
-	return &Error{Code: ErrSessionProfileFailed, Message: fmt.Sprintf("Session profile %q failed (%s)%s %s Revyl stops the session. See %s", name, outcome, reason, fix, viewer), Outcome: profile.outcome, FailureReason: profile.failureReason}
+	return &Error{Code: ErrSessionProfileFailed, Message: fmt.Sprintf("Session profile %q failed (%s)%s %s Revyl stops the session. See %s", name, outcome, reason, fix, viewer), Outcome: SessionProfileOutcome(profile.outcome), FailureReason: profile.failureReason}
 }
 
 // profileNotReportedError is NOT_AVAILABLE_ON_PLATFORM for a session that became active without reporting the profile Verify sent.
@@ -824,7 +826,7 @@ func profileRefusalError(r response, plan *sessionProfilePlan, platform Platform
 		}
 		failed := &Error{Code: refusal.code, Reason: RefusalReason(code), HTTPStatus: r.status, Message: fmt.Sprintf("Revyl refused %s (%s)%s %s", subject, code, detail, refusal.fix(plan))}
 		if code == "session_profile_script_unavailable" {
-			failed.Outcome, failed.FailureReason = "script_unavailable", said
+			failed.Outcome, failed.FailureReason = SessionProfileScriptUnavailable, said
 		}
 		return failed
 	}
