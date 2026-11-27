@@ -22,11 +22,11 @@
 | Computer HTTP 409: no host can keep it running for the requested `timeoutMs` | `NOT_AVAILABLE_ON_PLATFORM` | `lifetime_unsupported` |
 | Computer HTTP 403 `computer_not_enabled` that Pro would lift (`unlocks_with_card: true`) | `NOT_AVAILABLE_ON_PLATFORM` | `upgrade_required` |
 | Web HTTP 409 on `typeFocused`: no text field has focus, and nothing was typed | `ACTION_FAILED` | `no_focused_input` |
-| Mac create with `inference: true`: your organization doesn't have local inference (HTTP 403) | `NOT_AVAILABLE_ON_PLATFORM` | `inference_not_enabled` |
+| Mac create with `inference: true`: your organization isn't on a paid Revyl plan (HTTP 403) | `NOT_AVAILABLE_ON_PLATFORM` | `inference_not_enabled` |
 | Mac create or persistent start with `inference`: no Mac with its own model is up now (HTTP 409); nothing was started | `NOT_AVAILABLE_ON_PLATFORM` | `inference_unavailable` |
 | `validation()` or `extract()` on a Mac without a model answering (HTTP 409); the step didn't run | `NOT_AVAILABLE_ON_PLATFORM` | `step_engine_unavailable` |
 | iOS or Web start inside a Mac whose model isn't answering, with local inference on (HTTP 409); nothing was started | `NOT_AVAILABLE_ON_PLATFORM` | `computer_local_inference_unavailable` |
-| `openPersistent()` or `saveSnapshot()` in an organization without persistent computers (HTTP 403) | `NOT_AVAILABLE_ON_PLATFORM` | `persistent_computers_not_enabled` |
+| `openPersistent()` or `saveSnapshot()` in an organization that isn't on a paid Revyl plan (HTTP 403) | `NOT_AVAILABLE_ON_PLATFORM` | `persistent_computers_not_enabled` |
 
 `web_runtime_unavailable` does not distinguish full capacity from an unavailable runtime. `computer_limit` does not distinguish queued work from concurrency exhaustion. Inspect these fields to classify refusal without parsing prose; do not infer a specific cause or automatically start a replacement session.
 

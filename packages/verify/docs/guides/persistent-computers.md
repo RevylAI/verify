@@ -4,7 +4,7 @@ A Mac from `open({ platform: 'mac' })` is deleted when it closes. A **persistent
 
 Use cases below: a [dev environment](#dev-environment) you set up once, [parallel copies](#parallel-copies) from one snapshot, a [signed-in browser](#signed-in-browser), and a long-running [agent workspace](#agent-workspace).
 
-The calls are in TypeScript since 0.7.0, Python (`open_persistent` and the rest) since 0.5.0 and Go (`OpenPersistent` and the rest) since v0.6.0. Persistent computers and snapshots are enabled per organization. Without them, `openPersistent()` and `saveSnapshot()` throw `NOT_AVAILABLE_ON_PLATFORM` with reason `persistent_computers_not_enabled`; ask [support@revyl.ai](mailto:support@revyl.ai) to turn them on.
+The calls are in TypeScript since 0.7.0, Python (`open_persistent` and the rest) since 0.5.0 and Go (`OpenPersistent` and the rest) since v0.6.0. Persistent computers and snapshots come with paid Revyl plans. Without one, `openPersistent()` and `saveSnapshot()` throw `NOT_AVAILABLE_ON_PLATFORM` with reason `persistent_computers_not_enabled`; upgrade the organization's plan to use them.
 
 ## What is kept, and what isn't
 
@@ -171,7 +171,7 @@ Deleting a computer keeps its snapshots, and deleting a snapshot keeps the compu
 
 | What happened | Error and code | What to do |
 | --- | --- | --- |
-| Persistent computers aren't enabled for your organization | `NOT_AVAILABLE_ON_PLATFORM`, reason `persistent_computers_not_enabled` | Ask support@revyl.ai |
+| Your organization isn't on a paid Revyl plan | `NOT_AVAILABLE_ON_PLATFORM`, reason `persistent_computers_not_enabled` | Upgrade the organization's plan |
 | The computer's last run hasn't finished saving | `SESSION_BUSY` (`run_conflict`) | Try again in a few minutes; the disk is kept |
 | `saveSnapshot()` on a running computer | `SESSION_BUSY` | `close()` it first |
 | The save isn't copied off its Mac within `waitTimeout` | `TIMEOUT` | Call `saveSnapshot()` again |

@@ -190,7 +190,7 @@ export class PersistentComputerSession extends ComputerSession {
  * the same name opens the same computer from TypeScript, Python and Go. Pass an ID from listPersistent() to open
  * an existing computer without creating one. If it is already running, openPersistent() connects to it.
  *
- * Persistent computers are turned on per organization. Without them, openPersistent() and saveSnapshot() throw
+ * Persistent computers come with paid Revyl plans. Without one, openPersistent() and saveSnapshot() throw
  * NOT_AVAILABLE_ON_PLATFORM with reason 'persistent_computers_not_enabled'. Credentials work as for open().
  *
  * Every persistent-computer call throws a VerifyError whose code says what happened and whose message says what to
@@ -384,7 +384,7 @@ async function call(client: RevylClient, method: 'GET' | 'POST' | 'DELETE', path
 }
 
 const REFUSALS: Record<string, [VerifyErrorCode, string, RefusalReason?]> = {
-  persistent_computers_not_enabled: ['NOT_AVAILABLE_ON_PLATFORM', "Persistent computers aren't enabled for this API key's organization yet (persistent_computers_not_enabled). Ask support@revyl.ai to turn them on.", 'persistent_computers_not_enabled'],
+  persistent_computers_not_enabled: ['NOT_AVAILABLE_ON_PLATFORM', "Persistent computers need a paid Revyl plan, so this API key's organization can't use them (persistent_computers_not_enabled). Upgrade the organization's plan to use them.", 'persistent_computers_not_enabled'],
   computer_not_enabled: ['NOT_AVAILABLE_ON_PLATFORM', "Mac computers aren't enabled for this API key's organization (computer_not_enabled). Ask support@revyl.ai about access."],
   runtime_unavailable: ['NOT_AVAILABLE_ON_PLATFORM', 'Revyl has no Mac computers available in this environment (runtime_unavailable).'],
   persistent_computer_limit: ['COMPUTER_LIMIT', 'Your organization already keeps as many persistent computers as it may (persistent_computer_limit). listPersistent() shows them; delete one you no longer need with deletePersistent(), then try again.'],
@@ -395,7 +395,7 @@ const REFUSALS: Record<string, [VerifyErrorCode, string, RefusalReason?]> = {
   saved_disk_expired: ['SESSION_START_FAILED', "This computer's saved disk has reached its end and can't start again (saved_disk_expired). Delete it with deletePersistent(); openPersistent() with its name then creates a new one."],
   snapshot_expired: ['SESSION_START_FAILED', "This snapshot's saved disk has reached its end and can't start a computer (snapshot_expired). Save a new snapshot of a recently stopped computer."],
   computer_not_persistent: ['INVALID_ARGUMENT', "This ID names a computer that isn't persistent (computer_not_persistent). Pass a name, or an ID from listPersistent()."],
-  inference_not_enabled: ['NOT_AVAILABLE_ON_PLATFORM', "Local inference isn't enabled for this API key's organization (inference_not_enabled). Ask support@revyl.ai to turn it on, or leave out inference.", 'inference_not_enabled'],
+  inference_not_enabled: ['NOT_AVAILABLE_ON_PLATFORM', "Local inference needs a paid Revyl plan, so this API key's organization can't use it (inference_not_enabled). Upgrade the organization's plan, or leave out inference.", 'inference_not_enabled'],
   inference_unavailable: ['NOT_AVAILABLE_ON_PLATFORM', "No Mac with its own vision model is up to take this computer right now (inference_unavailable), so nothing was started. Try again later; to start an existing computer without the model this once, pass withoutInference: true.", 'inference_unavailable'],
   run_conflict: ['SESSION_BUSY', "The computer's last run hasn't finished stopping (run_conflict). Its disk is kept; try again in a few minutes."],
 };

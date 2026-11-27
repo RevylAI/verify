@@ -696,8 +696,8 @@ class ComputerSession(Session):
         if suffix == "" and method == "POST" and detail == "inference_not_enabled":
             raise VerifyError(
                 "NOT_AVAILABLE_ON_PLATFORM",
-                "Local inference isn't enabled for this API key's organization "
-                "(inference_not_enabled). Ask support@revyl.ai to turn it on, or open the Mac "
+                "Local inference needs a paid Revyl plan, so this API key's organization can't use "
+                "it (inference_not_enabled). Upgrade the organization's plan, or open the Mac "
                 'without inference: open(Target(platform="mac")).',
                 reason="inference_not_enabled",
                 http_status=response.status,

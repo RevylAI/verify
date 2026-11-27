@@ -53,7 +53,7 @@ export interface ComputerTargetConfig {
   timeoutMs?: number;
   /**
    * Mac only: run the computer on a Mac whose own vision model is loaded, so validation() and extract() work on it and
-   * iOS and Web sessions opened inside it use that model too. Enabled per organization; see docs/computers.md.
+   * iOS and Web sessions opened inside it use that model too. Comes with paid Revyl plans; see docs/computers.md.
    */
   inference?: boolean;
 }

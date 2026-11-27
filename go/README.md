@@ -703,7 +703,7 @@ On a computer, as everywhere, type with `Type(ctx, verify.Element("description")
 
 ## Validation and Extract on a Mac
 
-Since `v0.7.0`. On a Mac computer opened with `Inference: new(true)`, `Validation` and `Extract` run on the Mac's own vision model, next to the computer. A typical answer takes 1.3 to 3 seconds. Local inference is enabled per organization: ask support@revyl.ai. Inside a function returning `error`, with `verify`, `context`, `log` and `time` imported:
+Since `v0.7.0`. On a Mac computer opened with `Inference: new(true)`, `Validation` and `Extract` run on the Mac's own vision model, next to the computer. A typical answer takes 1.3 to 3 seconds. Local inference comes with paid Revyl plans. Inside a function returning `error`, with `verify`, `context`, `log` and `time` imported:
 
 ```go
 mac, err := verify.Open(ctx, verify.Target{Platform: verify.Mac, Inference: new(true)})
@@ -735,7 +735,7 @@ log.Println(date.Value, date.Engine) // Engine is "local": the Mac's model answe
 
 | Error | When | What to do |
 | --- | --- | --- |
-| `ErrNotAvailableOnPlatform`, `Reason` `ReasonInferenceNotEnabled` | `Open` with `Inference: new(true)`, and the organization doesn't have local inference (HTTP 403) | Ask support@revyl.ai to turn it on, or open the Mac without `Inference` |
+| `ErrNotAvailableOnPlatform`, `Reason` `ReasonInferenceNotEnabled` | `Open` with `Inference: new(true)`, and the organization isn't on a paid Revyl plan (HTTP 403) | Upgrade the organization's plan, or open the Mac without `Inference` |
 | `ErrNotAvailableOnPlatform`, `Reason` `ReasonInferenceUnavailable` | No Mac with a model is up right now (HTTP 409). Nothing was started | Try again later, or open the Mac without `Inference` |
 | `ErrNotAvailableOnPlatform`, `Reason` `ReasonStepEngineUnavailable` | A step on a Mac opened without inference, or on a Linux computer (returned before anything is sent), or the Mac's model isn't answering | Open a Mac with `Inference: new(true)` (a persistent computer gets it only when it is created; see [Persistent computers and snapshots](#persistent-computers-and-snapshots)). If it was opened with inference, check `Inference()` and try again shortly |
 | `ErrInvalidArgument` | `Inference: new(true)` on a Linux target | Open a Mac instead |
@@ -774,11 +774,11 @@ The [apps inside an inference Mac guide](https://github.com/RevylAI/verify/blob/
 - Steps on a computer have no per-step fee. `Validation` and `Extract` on a Mac computer run only on the Mac's own model, so they carry no inference charge; you pay the Mac's minutes, as for any computer.
 - App sessions inside a computer add no device minutes of their own.
 - Inside an inference Mac, steps the Mac's model answers carry no inference charge; steps that fall back to Revyl's hosted model are billed as usual.
-- Local inference is enabled per organization: ask support@revyl.ai.
+- Local inference comes with paid Revyl plans.
 
 ## Persistent computers and snapshots
 
-Since `v0.6.0`. A persistent computer is a Mac whose disk outlives every stop, so tools you install and files you write are there the next time you open it. macOS only. Persistent computers are enabled per organization: without them, `OpenPersistent` and `SaveSnapshot` return `ErrNotAvailableOnPlatform` with `Reason` `ReasonPersistentComputersNotEnabled`; ask support@revyl.ai to turn them on. The [persistent computers guide](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/guides/persistent-computers.md) walks through a full workflow.
+Since `v0.6.0`. A persistent computer is a Mac whose disk outlives every stop, so tools you install and files you write are there the next time you open it. macOS only. Persistent computers come with paid Revyl plans: without one, `OpenPersistent` and `SaveSnapshot` return `ErrNotAvailableOnPlatform` with `Reason` `ReasonPersistentComputersNotEnabled`; upgrade the organization's plan to use them. The [persistent computers guide](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/guides/persistent-computers.md) walks through a full workflow.
 
 ```go
 package main

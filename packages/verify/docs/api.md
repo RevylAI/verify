@@ -413,7 +413,7 @@ It reads the report and requires terminal state plus confirmed release; on a com
 
 ## Persistent computers
 
-**Since 0.7.0**, for organizations with persistent computers enabled; others get `NOT_AVAILABLE_ON_PLATFORM` with reason `persistent_computers_not_enabled`. See [the persistence guide](guides/persistent-computers.md) for what is kept and for use cases.
+**Since 0.7.0**. Persistent computers come with paid Revyl plans; organizations without one get `NOT_AVAILABLE_ON_PLATFORM` with reason `persistent_computers_not_enabled`. See [the persistence guide](guides/persistent-computers.md) for what is kept and for use cases.
 
 ```ts
 import { openPersistent, saveSnapshot, listPersistent, listSnapshots, deletePersistent, deleteSnapshot } from '@revyl/verify';

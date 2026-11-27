@@ -2,7 +2,7 @@
 
 **New in TypeScript 0.8.0, Python 0.6.0 and Go v0.7.0.** A Mac computer opened with `inference` runs on a Revyl Mac that has its own vision model. `validation()` checks a statement against the Mac's screen and `extract()` reads a value off it, and that model answers both, next to the computer, in about 2 to 3 seconds.
 
-Local inference is enabled per organization, on top of Mac computers. If yours doesn't have it, opening the Mac throws `NOT_AVAILABLE_ON_PLATFORM` with reason `inference_not_enabled`; ask [support@revyl.ai](mailto:support@revyl.ai) to turn it on.
+Local inference comes with paid Revyl plans. If your organization isn't on one, opening the Mac throws `NOT_AVAILABLE_ON_PLATFORM` with reason `inference_not_enabled`; upgrade the organization's plan to use it.
 
 ## What it costs
 
@@ -88,7 +88,7 @@ To check without throwing, pass `{ soft: true }` (Python `soft=True`, Go `verify
 
 | What happened | Error and code | What to do |
 | --- | --- | --- |
-| Your organization doesn't have local inference | `NOT_AVAILABLE_ON_PLATFORM`, `inference_not_enabled`, when opening | Ask support@revyl.ai, or open the Mac without `inference` |
+| Your organization isn't on a paid Revyl plan | `NOT_AVAILABLE_ON_PLATFORM`, `inference_not_enabled`, when opening | Upgrade the organization's plan, or open the Mac without `inference` |
 | No Mac with a model is free right now | `NOT_AVAILABLE_ON_PLATFORM`, `inference_unavailable`, when opening; nothing was started | Try again later, or open the Mac without `inference` |
 | `validation()` or `extract()` on a Mac opened without `inference`, or its model stopped answering | `NOT_AVAILABLE_ON_PLATFORM`, `step_engine_unavailable`; the step didn't run | Open the Mac with `inference`; if it was, check `inference` and try again shortly |
 | The model was busy with another step for too long | `SESSION_BUSY`, `step_engine_busy` | Run one step at a time, and try again in a few seconds |

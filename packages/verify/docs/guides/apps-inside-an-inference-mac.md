@@ -2,7 +2,7 @@
 
 **New in TypeScript 0.8.0, Python 0.6.0 and Go v0.7.0.** A Mac computer can host iOS and Web app sessions with `computer.open(target)`. When the Mac was opened with `inference`, those sessions run their steps on the Mac's own vision model first, with Revyl's hosted model as the fallback. That is the default; you don't pass anything for it.
 
-Local inference is enabled per organization, on top of Mac computers. Without it, opening the Mac with `inference` throws `NOT_AVAILABLE_ON_PLATFORM` with reason `inference_not_enabled`; ask [support@revyl.ai](mailto:support@revyl.ai).
+Local inference comes with paid Revyl plans. Without one, opening the Mac with `inference` throws `NOT_AVAILABLE_ON_PLATFORM` with reason `inference_not_enabled`; upgrade the organization's plan to use it.
 
 ## What it costs
 

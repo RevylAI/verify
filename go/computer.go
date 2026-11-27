@@ -705,7 +705,7 @@ func (s *Session) computerRequestTimeout(ctx context.Context, method, suffix str
 		return r, &Error{Code: ErrNotAvailableOnPlatform, Reason: ReasonLifetimeUnsupported, HTTPStatus: r.status, Message: "No host can keep this computer running that long (lifetime_unsupported); pass " + fix + "."}
 	}
 	if suffix == "" && method == "POST" && detail == "inference_not_enabled" {
-		return r, &Error{Code: ErrNotAvailableOnPlatform, Reason: ReasonInferenceNotEnabled, HTTPStatus: r.status, Message: "Local inference isn't enabled for this API key's organization (inference_not_enabled). Ask support@revyl.ai to turn it on, or open the Mac without inference: verify.Open(ctx, verify.Target{Platform: verify.Mac})."}
+		return r, &Error{Code: ErrNotAvailableOnPlatform, Reason: ReasonInferenceNotEnabled, HTTPStatus: r.status, Message: "Local inference needs a paid Revyl plan, so this API key's organization can't use it (inference_not_enabled). Upgrade the organization's plan, or open the Mac without inference: verify.Open(ctx, verify.Target{Platform: verify.Mac})."}
 	}
 	if suffix == "" && method == "POST" && detail == "inference_unavailable" {
 		return r, &Error{Code: ErrNotAvailableOnPlatform, Reason: ReasonInferenceUnavailable, HTTPStatus: r.status, Message: "No Mac with its own vision model is up to take this computer right now (inference_unavailable), so nothing was started. Try again later, or open the Mac without inference: verify.Open(ctx, verify.Target{Platform: verify.Mac})."}

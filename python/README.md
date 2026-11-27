@@ -169,7 +169,7 @@ On a computer, as everywhere, type with `type("description", text)`: it clicks t
 
 ### validation() and extract() on a Mac
 
-**Since 0.6.0.** On a Mac opened with `inference=True`, `validation()` and `extract()` run on the Mac's own vision model, next to the computer, and their `StepResult` has `engine="local"`. A typical answer takes 1 to 3 seconds. Local inference is enabled per organization: ask support@revyl.ai.
+**Since 0.6.0.** On a Mac opened with `inference=True`, `validation()` and `extract()` run on the Mac's own vision model, next to the computer, and their `StepResult` has `engine="local"`. A typical answer takes 1 to 3 seconds. Local inference comes with paid Revyl plans.
 
 ```python
 from revyl_verify import Target, open
@@ -192,7 +192,7 @@ with open(Target(platform="mac", inference=True)) as mac:
 
 | Error | When | What to do |
 | --- | --- | --- |
-| `NOT_AVAILABLE_ON_PLATFORM`, `reason="inference_not_enabled"` | `open()` with `inference=True`, and your organization doesn't have local inference | Ask support@revyl.ai to turn it on, or open the Mac without `inference` |
+| `NOT_AVAILABLE_ON_PLATFORM`, `reason="inference_not_enabled"` | `open()` with `inference=True`, and your organization isn't on a paid Revyl plan | Upgrade the organization's plan, or open the Mac without `inference` |
 | `NOT_AVAILABLE_ON_PLATFORM`, `reason="inference_unavailable"` | No Mac with a model is up right now; nothing was started | Try again later, or open the Mac without `inference` |
 | `NOT_AVAILABLE_ON_PLATFORM`, `reason="step_engine_unavailable"` | `validation()` or `extract()` on a Mac opened without inference; on a Linux computer, before anything is sent; or on a Mac opened with inference whose model isn't answering | Open the Mac with `Target(platform="mac", inference=True)`. If it already was, check `mac.inference` and try again shortly |
 | `INVALID_ARGUMENT` | `inference=True` on a Linux target | Use `Target(platform="mac", inference=True)` |
@@ -259,7 +259,7 @@ In a small live comparison on one iOS app, 20 validations (10 true, 10 false), t
 - Steps on a computer have no per-step fee. `validation()` and `extract()` on a Mac computer run only on the Mac's own model, so they carry no inference charge; you pay the Mac's minutes, as for any computer.
 - App sessions inside a computer add no device minutes of their own.
 - Inside an inference Mac, steps the Mac's model answers carry no inference charge; steps that fall back to Revyl's hosted model are billed as usual.
-- Local inference is enabled per organization: ask support@revyl.ai.
+- Local inference comes with paid Revyl plans.
 
 ### open() options
 
@@ -275,7 +275,7 @@ In a small live comparison on one iOS app, 20 validations (10 true, 10 false), t
 
 ## Persistent computers and snapshots
 
-**Since 0.5.0, enabled per organization.** A persistent computer is a Mac whose disk outlives every stop: open it by name, close it, and the next open boots from the same disk. Without persistent computers enabled, `open_persistent()` and `save_snapshot()` raise `NOT_AVAILABLE_ON_PLATFORM` with `reason="persistent_computers_not_enabled"`; ask support@revyl.ai to turn them on. macOS only.
+**Since 0.5.0, with paid Revyl plans.** A persistent computer is a Mac whose disk outlives every stop: open it by name, close it, and the next open boots from the same disk. Without a paid plan, `open_persistent()` and `save_snapshot()` raise `NOT_AVAILABLE_ON_PLATFORM` with `reason="persistent_computers_not_enabled"`; upgrade the organization's plan to use them. macOS only.
 
 ```python
 from revyl_verify import delete_persistent, delete_snapshot, open_persistent, save_snapshot
@@ -315,8 +315,8 @@ Where the table shows no `reason`, the message names Revyl's code, shown here in
 
 | Error | When | What to do |
 | --- | --- | --- |
-| `NOT_AVAILABLE_ON_PLATFORM`, `reason="persistent_computers_not_enabled"` | Your organization doesn't have persistent computers | Ask support@revyl.ai to turn them on |
-| `NOT_AVAILABLE_ON_PLATFORM`, `reason="inference_not_enabled"` | `inference=True`, and your organization doesn't have local inference | Ask support@revyl.ai, or leave out `inference` |
+| `NOT_AVAILABLE_ON_PLATFORM`, `reason="persistent_computers_not_enabled"` | Your organization isn't on a paid Revyl plan | Upgrade the organization's plan |
+| `NOT_AVAILABLE_ON_PLATFORM`, `reason="inference_not_enabled"` | `inference=True`, and your organization isn't on a paid Revyl plan | Upgrade the organization's plan, or leave out `inference` |
 | `NOT_AVAILABLE_ON_PLATFORM`, `reason="inference_unavailable"` | No Mac with a model is up right now; nothing was started | Try again later, or pass `without_inference=True` to start an existing computer without the model this once |
 | `SESSION_BUSY` (`run_conflict`) | The computer's last run is still stopping | Try again in a few minutes; the disk is kept |
 | `SESSION_START_FAILED` (`saved_disk_unavailable`) | The Mac holding the save is offline and the save isn't copied off it yet, or no Mac can start it now | Try again later; the disk is kept |

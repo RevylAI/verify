@@ -48,7 +48,7 @@ type Target struct {
 	Viewport           *Viewport
 	SignIn             *SignIn
 	// Inference, on a Mac computer, runs it on a Mac whose own vision model is loaded, so Validation and Extract work on
-	// it and iOS and Web sessions it opens use that model too; it is enabled per organization. On an iOS or Web target
+	// it and iOS and Web sessions it opens use that model too; it comes with paid Revyl plans. On an iOS or Web target
 	// passed to a computer's Open, it runs that session's steps on the hosting Mac's model first, with Revyl's hosted
 	// model as the fallback: nil means true inside a computer opened with Inference and false otherwise, and a pointer
 	// to false opts out.

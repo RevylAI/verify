@@ -2,8 +2,8 @@
 
     cd python && uv run python examples/mac_inference.py
 
-Needs REVYL_API_KEY (or a saved Revyl login from 'revyl auth login') and an organization with
-Mac computers and local inference (ask support@revyl.ai to turn them on). It starts a real,
+Needs REVYL_API_KEY (or a saved Revyl login from 'revyl auth login') and an organization on a
+paid Revyl plan, which comes with Mac computers and local inference. It starts a real,
 billable Mac computer. Set IOS_APP_ID and IOS_BUILD_ID to also open that iOS build inside the
 Mac, where its steps run on the Mac's model first by default.
 """

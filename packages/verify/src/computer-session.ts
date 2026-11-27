@@ -652,7 +652,7 @@ export class ComputerSession implements Session {
       const fix = typeof max === 'number' && Number.isInteger(max) && max > 0 ? `timeoutMs of at most ${max * 1_000}` : 'a shorter timeoutMs';
       throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `No host can keep this computer running that long (lifetime_unsupported); pass ${fix}.`, { reason: 'lifetime_unsupported', httpStatus: response.status });
     }
-    if (suffix === '' && method === 'POST' && detail === 'inference_not_enabled') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `Local inference isn't enabled for this API key's organization (inference_not_enabled). Ask support@revyl.ai to turn it on, or open the Mac without inference: open({ platform: 'mac' }).`, { reason: 'inference_not_enabled', httpStatus: response.status });
+    if (suffix === '' && method === 'POST' && detail === 'inference_not_enabled') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `Local inference needs a paid Revyl plan, so this API key's organization can't use it (inference_not_enabled). Upgrade the organization's plan, or open the Mac without inference: open({ platform: 'mac' }).`, { reason: 'inference_not_enabled', httpStatus: response.status });
     if (suffix === '' && method === 'POST' && detail === 'inference_unavailable') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `No Mac with its own vision model is up to take this computer right now (inference_unavailable), so nothing was started. Try again later, or open the Mac without inference: open({ platform: 'mac' }).`, { reason: 'inference_unavailable', httpStatus: response.status });
     if (suffix === '/steps') {
       if (detail === 'step_engine_unavailable') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', this.inferenceRequested

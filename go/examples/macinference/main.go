@@ -4,8 +4,8 @@
 //
 //	cd go && go run ./examples/macinference
 //
-// It needs REVYL_API_KEY (or a saved Revyl login) and an organization with Mac computers and local inference (ask
-// support@revyl.ai). It starts a real, billable Mac computer.
+// It needs REVYL_API_KEY (or a saved Revyl login) and an organization on a paid Revyl plan, which comes with Mac
+// computers and local inference. It starts a real, billable Mac computer.
 package main
 
 import (

@@ -49,8 +49,8 @@ class Target:
     timeout: int | None = None
     inference: bool | None = None
     """Mac: run the computer on a Mac whose own vision model is loaded, so validation() and
-    extract() work on it and iOS and Web sessions opened inside it use that model too. Enabled per
-    organization. Inside a computer (computer.open()), iOS and Web: run this session's steps on
+    extract() work on it and iOS and Web sessions opened inside it use that model too. Comes with
+    paid Revyl plans. Inside a computer (computer.open()), iOS and Web: run this session's steps on
     the hosting Mac's own vision model first, with Revyl's hosted model as the fallback; defaults
     to True inside a computer opened with inference=True, and False turns it off."""
 
