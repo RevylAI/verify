@@ -13,7 +13,16 @@ import yaml
 
 from ._git_branch import detect_git_branch
 from ._models import UUID_PATTERN, Platform
-from ._transport import Json, RefusalReason, Response, SessionProfileOutcome, VerifyError
+from ._transport import (
+    Cancellation,
+    Client,
+    Deadline,
+    Json,
+    RefusalReason,
+    Response,
+    SessionProfileOutcome,
+    VerifyError,
+)
 
 _NONE = "none"
 _PROFILE_NAME = re.compile(r"[a-z0-9-]{1,64}")
@@ -30,6 +39,7 @@ class SessionProfilePlan:
     config_path: str | None
     fields: dict[str, Json]
     implicit: bool = False
+    uses_default_instruction: bool = False
 
 
 @dataclass(frozen=True)
@@ -39,6 +49,19 @@ class ReportedSessionProfile:
     outcome: str | None = None
     failure_reason: str | None = None
     missing_git_branch_name: str | None = None
+
+
+def supports_session_profile_defaults(client: Client, cancellation: Cancellation | None) -> bool:
+    try:
+        response = client.json(
+            "GET",
+            "/api/v1/backend-capabilities?contract=session_profile_starts",
+            deadline=Deadline(30, cancellation),
+        )
+    except VerifyError:
+        return False
+    capabilities = response.get("capabilities")
+    return isinstance(capabilities, list) and "device_session_session_profile_picks" in capabilities
 
 
 class _ConfigLoader(yaml.SafeLoader):
@@ -74,8 +97,22 @@ _ConfigLoader.add_implicit_resolver(
 
 
 def plan_session_profile(
-    profile: object, platform: Platform, cwd: str
+    profile: object, platform: Platform, cwd: str, session_profile_project_id: str | None = None
 ) -> SessionProfilePlan | None:
+    if session_profile_project_id is not None:
+        if not isinstance(session_profile_project_id, str) or not UUID_PATTERN.fullmatch(
+            session_profile_project_id
+        ):
+            raise VerifyError(
+                "INVALID_ARGUMENT",
+                "open(): session_profile_project_id must be a Revyl project UUID.",
+            )
+        if not isinstance(profile, str) or profile == _NONE or not _PROFILE_NAME.fullmatch(profile):
+            raise VerifyError(
+                "INVALID_ARGUMENT",
+                "open(): session_profile_project_id requires profile to name a session profile "
+                "(1-64 lowercase letters, digits or hyphens), not 'none'.",
+            )
     if profile is not None and (
         not isinstance(profile, str) or (profile != _NONE and not _PROFILE_NAME.fullmatch(profile))
     ):
@@ -93,6 +130,15 @@ def plan_session_profile(
             "NOT_AVAILABLE_ON_PLATFORM",
             "open(): session profiles run on web, iOS, Android and Mac sessions, "
             f"not {platform}. Leave out profile.",
+        )
+    if session_profile_project_id is not None:
+        return SessionProfilePlan(
+            name=cast(str, profile),
+            config_path=None,
+            fields={
+                "session_profile": {"instruction": "named", "name": cast(str, profile)},
+                "session_profile_source": {"project_id": session_profile_project_id},
+            },
         )
     config_path = _find_config(cwd)
     if config_path is None:
@@ -346,6 +392,14 @@ _OUTCOME_FIXES = {
     "output_invalid": "An output file the script wrote broke a rule, as the reason says. Fix "
     "what the script writes there.",
     "runner_failed": "It failed on Revyl's side. Open the session again.",
+    "script_execution_unknown": (
+        "The runner or session stopped after the script may have started, so the script may have "
+        "run. Check the session before retrying."
+    ),
+    "cancelled_before_script_execution": (
+        "The session stopped before the script started. Retry the profile when the session can "
+        "remain active long enough to run it."
+    ),
 }
 
 
@@ -383,6 +437,9 @@ _REFUSALS: dict[str, tuple[str, Callable[[SessionProfilePlan], str]]] = {
         lambda plan: (
             f"Check that session.profiles in {_config_name(plan)} defines it and that "
             "project.id names the project that holds it."
+            if plan.config_path
+            else "Check that the project's .revyl/config.yaml in Git defines the session profile "
+            "and that session_profile_project_id names that project."
         ),
     ),
     "session_profile_source_required": (
@@ -417,6 +474,9 @@ _REFUSALS: dict[str, tuple[str, Callable[[SessionProfilePlan], str]]] = {
         lambda plan: (
             f"project.id in {_config_name(plan)} isn't a project in this API key's "
             "organization. Use a key from that organization, or fix project.id."
+            if plan.config_path
+            else "session_profile_project_id isn't a project in this API key's organization. "
+            "Use a key from that organization, or fix session_profile_project_id."
         ),
     ),
     "repository_unavailable": (

@@ -1167,7 +1167,10 @@ export class DeviceSession implements Session {
     if (!plan?.name) return true;
     if (profile?.status === 'failed') throw profileFailedError(profile, plan, this.viewerUrl);
     if (!active) return false;
-    if (!profile) throw profileNotReportedError(this.platform, this.viewerUrl);
+    if (!profile) {
+      if (plan.fields.session_profile.instruction === 'default') return true;
+      throw profileNotReportedError(this.platform, this.viewerUrl);
+    }
     return profile.status === 'succeeded';
   }
 

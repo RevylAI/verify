@@ -80,6 +80,9 @@ func CurrentComputer(ctx context.Context, options ...OpenOptions) (*Session, err
 
 func rejectProfile(options []OpenOptions) error {
 	for _, option := range options {
+		if option.SessionProfileProjectID != "" {
+			return failure(ErrInvalidArgument, "SessionProfileProjectID runs only when Open starts a new web, iOS, Android or Mac session; Attach and CurrentComputer can't run one. Leave SessionProfileProjectID empty.")
+		}
 		if option.Profile != "" {
 			return failure(ErrInvalidArgument, "Profile runs only when Open starts a new web, iOS, Android or Mac session; Attach and CurrentComputer can't run one. Leave Profile empty.")
 		}

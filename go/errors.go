@@ -12,6 +12,20 @@ type Code string
 
 type RefusalReason string
 
+// SessionProfileOutcome describes how a session profile run ended.
+type SessionProfileOutcome string
+
+const (
+	SessionProfileSucceeded                      SessionProfileOutcome = "succeeded"
+	SessionProfileScriptFailed                   SessionProfileOutcome = "script_failed"
+	SessionProfileScriptTimedOut                 SessionProfileOutcome = "script_timed_out"
+	SessionProfileScriptUnavailable              SessionProfileOutcome = "script_unavailable"
+	SessionProfileOutputInvalid                  SessionProfileOutcome = "output_invalid"
+	SessionProfileRunnerFailed                   SessionProfileOutcome = "runner_failed"
+	SessionProfileScriptExecutionUnknown         SessionProfileOutcome = "script_execution_unknown"
+	SessionProfileCancelledBeforeScriptExecution SessionProfileOutcome = "cancelled_before_script_execution"
+)
+
 const (
 	ReasonWebRuntimeUnavailable         RefusalReason = "web_runtime_unavailable"
 	ReasonWebRuntimeNotConfigured       RefusalReason = "web_runtime_not_configured"
@@ -92,8 +106,8 @@ type Error struct {
 	Message    string
 	Cause      error
 	ExecResult *ExecResult
-	// Outcome is set on ErrSessionProfileFailed: how the profile's run ended, such as "script_failed".
-	Outcome string
+	// Outcome is set on ErrSessionProfileFailed: how the profile's run ended.
+	Outcome SessionProfileOutcome
 	// FailureReason is set on ErrSessionProfileFailed: Revyl's reason, which never holds a secret or the script's output.
 	FailureReason string
 

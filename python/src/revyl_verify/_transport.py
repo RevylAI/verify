@@ -75,6 +75,8 @@ SessionProfileOutcome = Literal[
     "script_unavailable",
     "output_invalid",
     "runner_failed",
+    "script_execution_unknown",
+    "cancelled_before_script_execution",
 ]
 
 Json: TypeAlias = "None | bool | int | float | str | list[Json] | dict[str, Json]"

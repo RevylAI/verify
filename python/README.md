@@ -272,6 +272,7 @@ In a small live comparison on one iOS app, 20 validations (10 true, 10 false), t
 - `model`: runs every instruction and validation on your own model instead of Revyl's agent; see [Your own model](#your-own-model). Browsers and devices only; computers raise `NOT_AVAILABLE_ON_PLATFORM`.
 - `agent`: the same with a custom agent from `local_agent()`. Pass `model` or `agent`, not both.
 - `profile`: a session profile from your project's `.revyl/config.yaml`, such as `"signed-in"`, that Revyl runs before `open()` returns, or `"none"` for no profile. Left out, the project's `session.default_profile` runs when it sets one. Web, iOS, Android and Mac computers. See [Session profiles](#session-profiles).
+- `session_profile_project_id`: a Revyl project UUID to read the named session profile from Git instead of your checkout. Requires `profile` to name a session profile, not `"none"`. Verify reads no local `.revyl/config.yaml` and sends no local script or Git branch.
 
 ## Persistent computers and snapshots
 
@@ -349,14 +350,31 @@ with open(web, profile="none") as session:
 | `profile` | What Verify sends |
 | --- | --- |
 | `"signed-in"` | That profile, with the project and the script from this checkout. |
-| left out | The project's `session.default_profile`, the same way, when `.revyl/config.yaml` sets one. Otherwise nothing, so the start request is the same as before profiles existed. |
+| left out | The checkout's `session.default_profile` when set. On web, iOS and Android, a capable backend skips it if the project doesn't target the launched app. Otherwise nothing is sent. |
 | `"none"` | No profile, not even the default: Verify sends no profile fields, so the start request is the same as before profiles existed. Needs no `.revyl/config.yaml`. |
 
-Profiles work on web, iOS, Android and Mac computers. On a Linux computer, a profile name raises `NOT_AVAILABLE_ON_PLATFORM` before anything is sent, and no default runs; `"none"` is accepted. Hosted sessions (`computer.open()`), `attach()` and `current_computer()` never run a profile: they take no `profile` argument, so passing one raises `TypeError`. `async_open()` takes `profile` the same way.
+Profiles work on web, iOS, Android and Mac computers. On a Linux computer, a profile name raises `NOT_AVAILABLE_ON_PLATFORM` before anything is sent, and no default runs; `"none"` is accepted without a project option. Hosted sessions (`computer.open()`), `attach()` and `current_computer()` never run a profile: they take no `profile` or `session_profile_project_id` argument, so passing either raises `TypeError`. `async_open()` takes both options the same way as `open()`.
+
+For an implicit checkout default on web, iOS or Android, Verify reads `GET /api/v1/backend-capabilities?contract=session_profile_starts`. If `capabilities` includes `device_session_session_profile_picks`, it sends `instruction="default"` with the default's name and the same checkout files and source. Revyl runs it when the project targets the launched app, or when no registered app launches; otherwise the session starts without a profile. A missing capability or a failed read keeps today's `instruction="named"` request. Explicit profiles and Mac computer defaults always use `named` and make no capability request.
+
+### Without a checkout
+
+Pass `session_profile_project_id` with a named `profile` to use the project's session profile from Git, without any local `.revyl/config.yaml`:
+
+```python
+with open(
+    Target(platform="mac"),
+    profile="signed-in",
+    session_profile_project_id="0b9e6f3a-1c2d-4e5f-8a9b-0c1d2e3f4a5b",
+) as session:
+    session.exec("pwd")
+```
+
+Verify sends `session_profile` with `instruction="named"` and the profile name, and `session_profile_source` with only `project_id`. It sends no `session_profile_files` or `git_branch_name`; Revyl reads the project's default branch in Git. A local config, even if present, is ignored. An invalid project UUID or a missing, empty or `"none"` profile raises `INVALID_ARGUMENT` before any request. Refusals, repository retries and waiting for the profile follow the same rules as checkout starts; an explicit profile is never silently skipped on an older backend.
 
 ### Where Verify reads the profile
 
-Verify reads `.revyl/config.yaml` in the current folder (`os.getcwd()`) or the nearest folder above it that has one: the file `revyl init` writes in your app's checkout. It needs `project.id` and the profile under `session.profiles`, and reads nothing else from the file:
+Without `session_profile_project_id`, Verify reads `.revyl/config.yaml` in the current folder (`os.getcwd()`) or the nearest folder above it that has one: the file `revyl init` writes in your app's checkout. It needs `project.id` and the profile under `session.profiles`, and reads nothing else from the file:
 
 ```yaml
 project:
@@ -402,6 +420,8 @@ Neither errors nor logs contain the script's content or output. A refusal keeps 
 | `script_unavailable` | The script isn't in this checkout or in Git, or the Library Script is missing | Commit the script or add it to `.revyl/scripts`, or create the Library Script |
 | `output_invalid` | A file the script wrote broke a rule; `failure_reason` names the file and the line | Fix what the script writes there |
 | `runner_failed` | Something failed on Revyl's side | Open the session again |
+| `script_execution_unknown` | The run ended after Revyl let the script start because its runner was lost or the session stopped, timed out, or was cancelled, so the script may have run | Check the session before retrying |
+| `cancelled_before_script_execution` | The session stopped, timed out, or was cancelled before the script started | Retry the profile when the session can remain active long enough to run it |
 
 ## Exact actions
 

@@ -67,20 +67,37 @@ type profileFiles struct {
 // sessionProfilePlan is what Open sends for a session profile, and the name it waits on. implicit marks the project's default,
 // which the caller didn't ask for.
 type sessionProfilePlan struct {
-	name       string
-	implicit   bool
-	configPath string
-	source     *profileSource
-	files      *profileFiles
+	name                   string
+	implicit               bool
+	configPath             string
+	usesDefaultInstruction bool
+	source                 *profileSource
+	files                  *profileFiles
 }
 
 func (p *sessionProfilePlan) addTo(request map[string]any) {
 	if p == nil {
 		return
 	}
-	request["session_profile"] = profileInstruction{Instruction: "named", Name: p.name}
+	instruction := "named"
+	if p.usesDefaultInstruction {
+		instruction = "default"
+	}
+	request["session_profile"] = profileInstruction{Instruction: instruction, Name: p.name}
 	request["session_profile_source"] = p.source
-	request["session_profile_files"] = p.files
+	if p.files != nil {
+		request["session_profile_files"] = p.files
+	}
+}
+
+func supportsSessionProfileDefaults(ctx context.Context, c *client) bool {
+	var response struct {
+		Capabilities []string `json:"capabilities"`
+	}
+	if err := c.json(ctx, "GET", "/api/v1/backend-capabilities?contract=session_profile_starts", nil, false, 30*time.Second, &response); err != nil {
+		return false
+	}
+	return slices.Contains(response.Capabilities, "device_session_session_profile_picks")
 }
 
 // reportedProfile is the session_profile object a start response or session report carries.
@@ -93,8 +110,16 @@ type reportedProfile struct {
 }
 
 // planSessionProfile plans the session profile Open sends: an explicit name, or the project's session.default_profile when
-// profile is empty. Nil when nothing is sent, which is always the case for profile "none". Reads .revyl/config.yaml at or above cwd.
-func planSessionProfile(profile string, platform Platform, cwd string) (*sessionProfilePlan, error) {
+// profile is empty. A project ID requires an explicit name and bypasses local config. Otherwise reads .revyl/config.yaml at or above cwd.
+func planSessionProfile(profile string, platform Platform, cwd string, sessionProfileProjectID string) (*sessionProfilePlan, error) {
+	if sessionProfileProjectID != "" {
+		if !uuidPattern.MatchString(sessionProfileProjectID) {
+			return nil, failure(ErrInvalidArgument, "open(): SessionProfileProjectID must be a Revyl project UUID.")
+		}
+		if profile == profileNone || !profileNamePattern.MatchString(profile) {
+			return nil, failure(ErrInvalidArgument, "open(): SessionProfileProjectID requires Profile to name a session profile (1-64 lowercase letters, digits or hyphens), not 'none'.")
+		}
+	}
 	if profile != "" && profile != profileNone && !profileNamePattern.MatchString(profile) {
 		return nil, failure(ErrInvalidArgument, "open(): profile must be a session profile name from session.profiles in .revyl/config.yaml (1-64 lowercase letters, digits or hyphens), or 'none'.")
 	}
@@ -106,6 +131,9 @@ func planSessionProfile(profile string, platform Platform, cwd string) (*session
 			return nil, nil
 		}
 		return nil, failure(ErrNotAvailableOnPlatform, fmt.Sprintf("open(): session profiles run on web, iOS, Android and Mac sessions, not %s. Leave out profile.", platform))
+	}
+	if sessionProfileProjectID != "" {
+		return &sessionProfilePlan{name: profile, source: &profileSource{ProjectID: sessionProfileProjectID}}, nil
 	}
 	if absolute, err := filepath.Abs(cwd); err == nil {
 		cwd = absolute
@@ -233,7 +261,7 @@ func readProfileConfig(configPath string) (project, session map[string]any, err 
 func checkoutFiles(name, script string, requiresCheckout bool, projectRoot, configPath string) (*profileFiles, error) {
 	files := &profileFiles{Script: script, RequiresRepositoryCheckout: requiresCheckout}
 	unavailable := func(reason string) error {
-		return &Error{Code: ErrSessionProfileFailed, Message: fmt.Sprintf("session profile %q: %s. Fix session.profiles.%s.script in %s, or pass %s.", name, reason, name, configPath, profileNoneHint), Outcome: "script_unavailable", FailureReason: reason}
+		return &Error{Code: ErrSessionProfileFailed, Message: fmt.Sprintf("session profile %q: %s. Fix session.profiles.%s.script in %s, or pass %s.", name, reason, name, configPath, profileNoneHint), Outcome: SessionProfileScriptUnavailable, FailureReason: reason}
 	}
 	var filePath, relativePath string
 	if strings.Contains(script, "/") {
@@ -693,11 +721,13 @@ func missingBranchNotice(profile *reportedProfile, plan *sessionProfilePlan) str
 }
 
 var profileOutcomeFixes = map[string]string{
-	"script_failed":      "Its script exited with an error. Run the script yourself from the project root to see its output; Revyl doesn't show the output because setup scripts often print secrets.",
-	"script_timed_out":   "Its script didn't finish within Revyl's 300-second limit. Make it finish sooner.",
-	"script_unavailable": "Revyl could not find its script: commit it, or check session.profiles in .revyl/config.yaml. A script name with no .revyl/scripts file must be a Library Script in your Revyl organization.",
-	"output_invalid":     "An output file the script wrote broke a rule, as the reason says. Fix what the script writes there.",
-	"runner_failed":      "It failed on Revyl's side. Open the session again.",
+	"script_failed":                     "Its script exited with an error. Run the script yourself from the project root to see its output; Revyl doesn't show the output because setup scripts often print secrets.",
+	"script_timed_out":                  "Its script didn't finish within Revyl's 300-second limit. Make it finish sooner.",
+	"script_unavailable":                "Revyl could not find its script: commit it, or check session.profiles in .revyl/config.yaml. A script name with no .revyl/scripts file must be a Library Script in your Revyl organization.",
+	"output_invalid":                    "An output file the script wrote broke a rule, as the reason says. Fix what the script writes there.",
+	"runner_failed":                     "It failed on Revyl's side. Open the session again.",
+	"script_execution_unknown":          "The runner or session stopped after the script may have started, so the script may have run. Check the session before retrying.",
+	"cancelled_before_script_execution": "The session stopped before the script started. Retry the profile when the session can remain active long enough to run it.",
 }
 
 // profileFailedError is SESSION_PROFILE_FAILED for a profile Revyl reported as failed. Revyl stops the session itself.
@@ -718,7 +748,7 @@ func profileFailedError(profile *reportedProfile, plan *sessionProfilePlan, view
 	if !known {
 		fix = "Check the session link for what happened."
 	}
-	return &Error{Code: ErrSessionProfileFailed, Message: fmt.Sprintf("Session profile %q failed (%s)%s %s Revyl stops the session. See %s", name, outcome, reason, fix, viewer), Outcome: profile.outcome, FailureReason: profile.failureReason}
+	return &Error{Code: ErrSessionProfileFailed, Message: fmt.Sprintf("Session profile %q failed (%s)%s %s Revyl stops the session. See %s", name, outcome, reason, fix, viewer), Outcome: SessionProfileOutcome(profile.outcome), FailureReason: profile.failureReason}
 }
 
 // profileNotReportedError is NOT_AVAILABLE_ON_PLATFORM for a session that became active without reporting the profile Verify sent.
@@ -738,6 +768,9 @@ var profileRefusals = map[string]struct {
 	fix  func(*sessionProfilePlan) string
 }{
 	"session_profile_undefined": {ErrConfigInvalid, func(plan *sessionProfilePlan) string {
+		if plan.configPath == "" {
+			return "Check that the project's .revyl/config.yaml in Git defines the session profile and that SessionProfileProjectID names that project."
+		}
 		return "Check that session.profiles in " + profileConfigPath(plan) + " defines it and that project.id names the project that holds it."
 	}},
 	"session_profile_source_required": {ErrInvalidArgument, func(*sessionProfilePlan) string {
@@ -753,6 +786,9 @@ var profileRefusals = map[string]struct {
 		return "Connect the repository's GitHub or GitLab app to the project in Revyl, then open the session again."
 	}},
 	"project_not_found": {ErrConfigInvalid, func(plan *sessionProfilePlan) string {
+		if plan.configPath == "" {
+			return "SessionProfileProjectID isn't a project in this API key's organization. Use a key from that organization, or fix SessionProfileProjectID."
+		}
 		return "project.id in " + profileConfigPath(plan) + " isn't a project in this API key's organization. Use a key from that organization, or fix project.id."
 	}},
 	"repository_unavailable": {ErrAPI, func(*sessionProfilePlan) string {
@@ -790,7 +826,7 @@ func profileRefusalError(r response, plan *sessionProfilePlan, platform Platform
 		}
 		failed := &Error{Code: refusal.code, Reason: RefusalReason(code), HTTPStatus: r.status, Message: fmt.Sprintf("Revyl refused %s (%s)%s %s", subject, code, detail, refusal.fix(plan))}
 		if code == "session_profile_script_unavailable" {
-			failed.Outcome, failed.FailureReason = "script_unavailable", said
+			failed.Outcome, failed.FailureReason = SessionProfileScriptUnavailable, said
 		}
 		return failed
 	}

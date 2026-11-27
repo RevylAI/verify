@@ -7,7 +7,7 @@
 Mac computers are available to organizations on a current paid Revyl plan. See computers.md#availability-and-errors.
 
 - [Getting started](getting-started.md): install, authenticate, init, run a script
-- [API](api.md): open() and session profiles (Revyl runs a profile from .revyl/config.yaml before open() returns), attach(), hosted children, navigate(), cdp() for Playwright and Puppeteer on web, report(), agent steps, extract(), screenshot(), exec(), file/process methods, close(), persistent computers
+- [API](api.md): open() and session profiles (Revyl runs a profile from .revyl/config.yaml before open() returns; profile plus sessionProfileProjectId reads it from the project's default branch in Git without a local config, script or branch; the project ID must be a UUID and profile must be a name, not empty or 'none'), attach(), hosted children, navigate(), cdp() for Playwright and Puppeteer on web, report(), agent steps, extract(), screenshot(), exec(), file/process methods, close(), persistent computers
 - [Configuration](configuration.md): verify.config.ts targets, environment variables, the init and whoami commands
 - [Web](web.md): Revyl web sessions, URLs and builds, sign-in, steps, and exact actions
 - [Mobile](mobile.md): iOS and Android devices, installing apps, and exact actions
@@ -28,6 +28,10 @@ Mac computers are available to organizations on a current paid Revyl plan. See c
 - [Checks on a Mac's own model](guides/mac-model-checks.md): open({ platform: 'mac', inference: true }), then validation() and extract() answered by the Mac's vision model, with no inference charge; readiness and refusals
 - [Apps inside an inference Mac](guides/apps-inside-an-inference-mac.md): iOS and Web sessions from computer.open() run validations and single-tap instructions on the Mac's model first by default; engine, opt-out with inference: false, billing
 - [Persistent computers and snapshots](guides/persistent-computers.md): openPersistent(), saveSnapshot(), fromSnapshot copies, what is kept, lifetimes, limits, cleanup, and use cases
+
+## Session profiles
+
+For an implicit checkout session.default_profile on web, iOS or Android, Verify checks GET /api/v1/backend-capabilities?contract=session_profile_starts. The device_session_session_profile_picks capability switches the request from named to default with the same name, checkout files and source, so Revyl can skip defaults for untargeted apps. A missing capability or failed read preserves named. Explicit profiles and Mac computer defaults always send named without this read.
 
 ## Exact actions and coordinates
 
