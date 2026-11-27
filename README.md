@@ -125,6 +125,8 @@ Web is available to every organization. Mac computers are available to organizat
 
 The [documentation](packages/verify/docs/) covers the [API](packages/verify/docs/api.md), [configuration](packages/verify/docs/configuration.md), [web](packages/verify/docs/web.md), [mobile](packages/verify/docs/mobile.md), [computers](packages/verify/docs/computers.md), [CI](packages/verify/docs/ci.md), [your own model](packages/verify/docs/own-model.md), [errors and troubleshooting](packages/verify/docs/errors.md), [coding agents](packages/verify/docs/agents.md), and [live end-to-end results](packages/verify/docs/end-to-end.md). The npm package ships these pages in `node_modules/@revyl/verify/docs/`, with an [llms.txt](packages/verify/docs/llms.txt) index, so a coding agent can read the docs for the version you installed. The Revyl docs site has an overview at [docs.revyl.com/verify](https://docs.revyl.com/verify).
 
+Step-by-step guides build one runnable script each, in TypeScript with Python and Go: [check an iOS change from your coding agent](packages/verify/docs/guides/check-an-ios-change.md), [one script on iOS, Android and the web](packages/verify/docs/guides/every-platform.md), [start signed in with a session profile](packages/verify/docs/guides/session-profiles.md), [Playwright over CDP with Verify's validations](packages/verify/docs/guides/playwright-cdp.md) and [a cloud Mac your agent can drive](packages/verify/docs/guides/mac-computer.md).
+
 ## Status
 
 Verify is at 0.x, so APIs can still change between minor releases; the [changelog](CHANGELOG.md) records each release. See [Contributing](CONTRIBUTING.md) and [Releasing](RELEASING.md) to work on Verify.
