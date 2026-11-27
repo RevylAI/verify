@@ -191,7 +191,7 @@ try {
 await saveSnapshot('ci-cache', 'ci-cache-base', { waitTimeout: 10 * 60_000 });
 ```
 
-A wait that runs out throws `TIMEOUT` and loses nothing: the start or the save goes on in Revyl, and calling the same function again keeps waiting. Python takes seconds (`open_persistent(name, start_timeout=600, timeout=1800)`, `save_snapshot(computer, name, wait_timeout=600)`); Go takes durations (`OpenPersistentOptions{StartTimeout: 10 * time.Minute, Timeout: 30 * time.Minute}`, `SaveSnapshotOptions{WaitTimeout: 10 * time.Minute}`).
+A wait that runs out throws `TIMEOUT`, and the two differ. `openPersistent()` stops a computer it started but couldn't get ready in time, keeping its disk, so calling it again starts the computer again: raise `startTimeout` for a slow start rather than retrying with the same value. `saveSnapshot()` saves nothing until the stopped computer's disk is copied off its Mac, and that copy goes on in Revyl, so calling it again keeps waiting; `close()` likewise leaves a disk save it couldn't confirm running. Python takes seconds (`open_persistent(name, start_timeout=600, timeout=1800)`, `save_snapshot(computer, name, wait_timeout=600)`); Go takes durations (`OpenPersistentOptions{StartTimeout: 10 * time.Minute, Timeout: 30 * time.Minute}`, `SaveSnapshotOptions{WaitTimeout: 10 * time.Minute}`).
 
 ## Clean up
 
