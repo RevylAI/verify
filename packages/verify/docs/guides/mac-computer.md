@@ -172,4 +172,6 @@ A Mac runs at most its lifetime from create: 2 hours by default, up to 24 hours 
 ## Next
 
 - [computers.md](../computers.md) for processes, `stat()`, `extend()` and the screen rules.
+- [Check a Mac's screen with its own model](mac-model-checks.md): `validation()` and `extract()` on a Mac opened with `inference`, new in 0.8.0.
+- [Keep a Mac between runs](persistent-computers.md): persistent computers and snapshots.
 - [Check an iOS change from your coding agent](check-an-ios-change.md) for apps on a simulator.

@@ -95,4 +95,4 @@ To check without throwing, pass `{ soft: true }` (Python `soft=True`, Go `verify
 | Someone controls the screen in the Revyl viewer | `SESSION_BUSY`, `screen_control_held` | Try again after they release it |
 | A Linux computer | `NOT_AVAILABLE_ON_PLATFORM` before anything is sent | Use a Mac |
 
-See [computers.md](../computers.md) for everything else a computer does, and [apps inside an inference Mac](apps-inside-an-inference-mac.md) to run an iOS or Web app's steps on the same model.
+New to Mac computers? [A cloud Mac your agent can drive](mac-computer.md) covers commands, files and the screen. See [computers.md](../computers.md) for everything else a computer does, and [apps inside an inference Mac](apps-inside-an-inference-mac.md) to run an iOS or Web app's steps on the same model.

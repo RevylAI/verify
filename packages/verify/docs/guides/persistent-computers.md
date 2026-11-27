@@ -181,4 +181,4 @@ Deleting a computer keeps its snapshots, and deleting a snapshot keeps the compu
 | 10 computers or 100 snapshots already | `COMPUTER_LIMIT` | Delete ones you no longer need |
 | No computer or snapshot by that name or ID | `NOT_FOUND` | Check `listPersistent()` or `listSnapshots()` |
 
-See [computers.md](../computers.md) for everything a computer does while it runs.
+See [computers.md](../computers.md) for everything a computer does while it runs, and [a cloud Mac your agent can drive](mac-computer.md) for a first script.
