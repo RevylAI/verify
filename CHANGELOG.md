@@ -1,12 +1,12 @@
 # Changelog
 
-## 0.8.1 (unreleased)
+## 0.8.1 (2026-11-27)
 
 - iOS and Android: `typeFocused(text, { clear })` types into the field that already has focus, for example after `tap({ target })`, instead of throwing `NOT_AVAILABLE_ON_PLATFORM` before anything is sent. It posts `/input` with no point. When nothing has focus it throws `ACTION_FAILED` with reason `no_focused_input`, as on Web, and the message says to use `type({ target }, text)` or tap the field first. A device that can't tell which field has focus, such as a real iPhone, throws `NOT_AVAILABLE_ON_PLATFORM` with the new reason `focused_input_unavailable`, naming `type({ target }, text)`. A Revyl device too old to type without a point answers HTTP 422, and `typeFocused` throws the same `NOT_AVAILABLE_ON_PLATFORM` error and message as 0.8.0. Your own model's tools still offer `type_focused` on Web only.
 - A device action that fails with an unclassified HTTP error now carries `httpStatus` on its `VerifyError`.
 - Docs: the README, API, mobile, web, errors and agents pages and llms.txt say `typeFocused` works on iOS and Android, with both refusals.
 
-## Go 0.7.1 (unreleased)
+## Go 0.7.1 (2026-11-27)
 
 To be published as the `go/v0.7.1` tag.
 
@@ -14,13 +14,13 @@ To be published as the `go/v0.7.1` tag.
 - Docs: the README says `TypeFocused` works on iOS and Android, with both refusals.
 - `verify.Version` and the `User-Agent` report 0.7.1.
 
-## Python 0.6.1 (unreleased)
+## Python 0.6.1 (2026-11-27)
 
 - iOS and Android: `type_focused(text, clear=...)` types into the field that already has focus instead of raising `NOT_AVAILABLE_ON_PLATFORM`, as in TypeScript 0.8.1, also on `AsyncSession`. With nothing focused it raises `ACTION_FAILED` with `reason="no_focused_input"`; a device that can't tell which field has focus, such as a real iPhone, raises `NOT_AVAILABLE_ON_PLATFORM` with the new `reason="focused_input_unavailable"`; a Revyl device too old to type without a point (HTTP 422) raises the same `NOT_AVAILABLE_ON_PLATFORM` error and message as 0.6.0.
 - Docs: the README says `type_focused` works on iOS and Android, with both refusals.
 - `revyl_verify.__version__` and the `User-Agent` report 0.6.1.
 
-## 0.8.0 (unreleased)
+## 0.8.0 (2026-11-27)
 
 - Mac computers: `validation()` and `extract()` run on a Mac opened with `open({ platform: 'mac', inference: true })`, answered by that Mac's own vision model next to the computer, usually in 2 to 3 seconds, with `engine: 'local'` on the result. They post the computer's `/steps`. They carry no inference charge: you pay the Mac's minutes. A false validation throws `VALIDATION_FAILED` unless `soft`, an answer the model can't confirm or an `extract()` that finds nothing throws `STEP_FAILED` with the model's reason, a Mac without its model answering throws `NOT_AVAILABLE_ON_PLATFORM` (`step_engine_unavailable`) naming the fix, a model busy with another step `SESSION_BUSY` (`step_engine_busy`), and a Linux computer `NOT_AVAILABLE_ON_PLATFORM` before anything is sent. `instruction()` on computers still throws `NOT_AVAILABLE_ON_PLATFORM`, now naming `tap({ target })` and `type({ target }, text)`.
 - Mac computers: `inference: true` on a Mac target sends `inference: true` on create, and the computer's `inference` property reads `'ready'`, `'unavailable'` or `'unknown'` from each report (`undefined` without it). A create refused with `inference_not_enabled` (local inference comes with paid Revyl plans; the message says to upgrade the organization's plan) or `inference_unavailable` (no Mac with a model is up) throws `NOT_AVAILABLE_ON_PLATFORM` with that reason. `inference` on a Linux target throws `INVALID_ARGUMENT`. Leaving it out sends the same create as before.
@@ -33,7 +33,7 @@ To be published as the `go/v0.7.1` tag.
 - Running `init` again changes nothing. When `verify.config.ts` or `verify/example.mts` exists, `init` keeps both and needs no `--platform`, where it used to stop and ask for `--force`; `--force` still overwrites them. The new `--no-config` skips them, so `npx @revyl/verify init --no-config` sets up only the coding agent, including in Python and Go projects.
 - The `revyl-verify` skill ships in the npm package and at `skills/revyl-verify/` in this repository, which is also a plugin for Claude Code (`/plugin marketplace add RevylAI/verify`), Cursor and Capy. The Python and Go READMEs say how to install it without init. The skill also covers `extract()`, `validation()` and `extract()` on a Mac opened with `inference: true`, persistent computers, and the paid-plan refusals; the plugin version is 1.1.0.
 
-## Go 0.7.0 (unreleased)
+## Go 0.7.0 (2026-11-27)
 
 To be published as the `go/v0.7.0` tag.
 
@@ -46,7 +46,7 @@ To be published as the `go/v0.7.0` tag.
 - Docs: the README documents `Validation` and `Extract` on a Mac opened with inference, `Extract` with `StepResult.Value` and `Engine` on every session, local inference for iOS and Web sessions inside an inference Mac, billing, and, for the first time, persistent computers and snapshots. It corrects the sentences and the "Which call works where" rows that said `Validation` isn't available on computers, and says that a `Recording` check already under way when the 15 minutes run out can take up to 30 seconds more. It also says how to give a coding agent the `revyl-verify` skill: `npx @revyl/verify init --no-config --no-install`, a copy of the skill file without Node.js, or the Verify plugin.
 - `verify.Version` and the `User-Agent` report 0.7.0. A call that uses none of these sends the same requests as v0.6.1.
 
-## Python 0.6.0 (unreleased)
+## Python 0.6.0 (2026-11-27)
 
 - Mac computers: `validation()` and `extract()` work on a Mac opened with `open(Target(platform="mac", inference=True))`, as in TypeScript 0.8.0. They run on the Mac's own vision model and return a `StepResult` with `engine="local"`; a false statement raises `VALIDATION_FAILED` unless `soft=True`, and an uncertain answer or nothing read raises `STEP_FAILED`. On a Mac opened without inference they raise `NOT_AVAILABLE_ON_PLATFORM` with `reason="step_engine_unavailable"` and a message saying to open it with inference; on a Linux computer they raise it before anything is sent. A busy model or someone holding the screen in the viewer raises `SESSION_BUSY` (`step_engine_busy`, `screen_control_held`). `instruction()` on computers still raises `NOT_AVAILABLE_ON_PLATFORM`, now naming `tap("the Save button")` and `type("the search field", text)`.
 - `Target(..., inference=...)`: on a Mac target, `inference=True` asks for a Mac with its own model. A create refused with `inference_not_enabled` or `inference_unavailable` raises `NOT_AVAILABLE_ON_PLATFORM` with that `reason`, and the message says what to do. `inference=True` on a Linux target raises `INVALID_ARGUMENT`, as does `inference` on a `Target` passed to `open()` for Web, iOS or Android.
