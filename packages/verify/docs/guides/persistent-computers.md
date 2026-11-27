@@ -2,6 +2,8 @@
 
 A Mac from `open({ platform: 'mac' })` is deleted when it closes. A **persistent computer** keeps its whole disk instead: `openPersistent(name)` opens it, `close()` stops it and saves the disk, and the next `openPersistent(name)` boots from that disk, from any machine and from TypeScript, Python or Go. A **snapshot** names a stopped computer's saved disk, so new persistent computers can start from it.
 
+Use cases below: a [dev environment](#dev-environment) you set up once, [parallel copies](#parallel-copies) from one snapshot, a [signed-in browser](#signed-in-browser), and a long-running [agent workspace](#agent-workspace).
+
 The calls are in TypeScript since 0.7.0, Python (`open_persistent` and the rest) since 0.5.0 and Go (`OpenPersistent` and the rest) since v0.6.0. Persistent computers and snapshots are enabled per organization. Without them, `openPersistent()` and `saveSnapshot()` throw `NOT_AVAILABLE_ON_PLATFORM` with reason `persistent_computers_not_enabled`; ask [support@revyl.ai](mailto:support@revyl.ai) to turn them on.
 
 ## What is kept, and what isn't
@@ -21,9 +23,9 @@ A computer started from a snapshot gets the same disk, except what is tied to th
 - **Limits.** An organization keeps at most 10 persistent computers and 100 snapshots unless Revyl raised its limits (`COMPUTER_LIMIT`, reason `persistent_computer_limit` or `snapshot_limit`). Persistent computers are Macs only.
 - **Names.** 1 to 64 letters, digits, `.`, `_` or `-`, starting with a letter or digit. The same name opens the same computer from every language and machine. Revyl stores IDs, not names, so `listPersistent()` shows each computer's `id`; compare it with the `id` of the session `openPersistent()` returned. You can pass that ID instead of the name.
 
-## Use case: a dev environment you set up once
+## Dev environment
 
-Install the tools once, then reuse them in every run. Mark the setup as done on the disk itself, so a setup that failed halfway runs again:
+A dev environment you set up once: install the tools once, then reuse them in every run. Mark the setup as done on the disk itself, so a setup that failed halfway runs again:
 
 ```ts
 import { openPersistent } from '@revyl/verify';
@@ -80,9 +82,9 @@ if ready.ExitCode != 0 {
 }
 ```
 
-## Use case: parallel runs from one prepared Mac
+## Parallel copies
 
-Set a Mac up once, save it as a snapshot, then start a copy per shard. Each copy is its own persistent computer, so the runs don't touch each other:
+Parallel runs from one prepared Mac: set a Mac up once, save it as a snapshot, then start a copy per shard. Each copy is its own persistent computer, so the runs don't touch each other:
 
 ```ts
 import { openPersistent, saveSnapshot, deletePersistent, isVerifyError } from '@revyl/verify';
@@ -112,19 +114,19 @@ try {
 
 Python: `save_snapshot("ios-dev", "ios-dev-base")`, then `open_persistent("shard-1", from_snapshot="ios-dev-base")` and `delete_persistent("shard-1")`. Go: `verify.SaveSnapshot(ctx, "ios-dev", "ios-dev-base")`, then `verify.OpenPersistent(ctx, "shard-1", verify.OpenPersistentOptions{FromSnapshot: "ios-dev-base"})` and `verify.DeletePersistent(ctx, "shard-1")`.
 
-## Use case: a browser that stays signed in
+## Signed-in browser
 
-Sign in to a site once, by hand, and the same computer opens signed in next time:
+A browser that stays signed in: sign in to a site once, by hand, and the same computer opens signed in next time:
 
 1. `const mac = await openPersistent('signed-in-safari')`, then `await mac.exec(['open', '-a', 'Safari', 'https://app.example.com/login'])`.
-2. Open `mac.viewerUrl` in your browser, take control of the screen, and sign in. Signing in by hand keeps the password out of your script and its logs.
+2. Open `mac.viewerUrl` in your browser, take control of the screen, and sign in. Signing in by hand keeps the password out of your script and its logs. With a test account, the script can sign in instead: `await mac.type({ target: 'the email field' }, email)`, the same for the password, then `await mac.tap({ target: 'the Sign in button' })`.
 3. `await mac.close()`. The next `openPersistent('signed-in-safari')` boots with Safari's cookies where you left them.
 
 This holds for that computer only. Copies started from a snapshot of it may open websites signed out, and Safari's saved passwords don't carry over. Sites still end sessions on their own schedule.
 
-## Use case: a long-running workspace for an agent
+## Agent workspace
 
-Give a coding agent one Mac that keeps its checkout, build products and simulators between sessions:
+A long-running workspace for an agent: give a coding agent one Mac that keeps its checkout, build products and simulators between sessions:
 
 ```ts
 const mac = await openPersistent('agent-workspace', { timeoutMs: 8 * 60 * 60 * 1000 });   // 8 hours for this run
