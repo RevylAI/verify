@@ -1,0 +1,16 @@
+{
+  "name": "verify-guide-mac-model-checks",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Verify guide example: validation and extract on a cloud Mac's own model",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env mac-model-checks.ts"
+  },
+  "devDependencies": {
+    "@revyl/verify": "0.8.0"
+  }
+}
