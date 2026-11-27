@@ -1,0 +1,17 @@
+{
+  "name": "revyl-verify",
+  "owner": {
+    "name": "Revyl",
+    "email": "support@revyl.ai"
+  },
+  "metadata": {
+    "description": "Verify by Revyl for Cursor."
+  },
+  "plugins": [
+    {
+      "name": "revyl-verify",
+      "source": "./",
+      "description": "Teaches your coding agent to check web pages, iOS and Android apps, and Macs on real Revyl cloud browsers, simulators, emulators and computers by writing and running a short Verify script."
+    }
+  ]
+}

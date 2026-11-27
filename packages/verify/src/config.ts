@@ -45,18 +45,28 @@ export interface MobileTargetConfig {
   idleTimeoutSeconds?: number;
 }
 
-/** A Revyl computer that runs commands and files instead of agent steps. See docs/computers.md. */
+/** A Revyl computer for commands, files and the screen. See docs/computers.md. */
 export interface ComputerTargetConfig {
   platform: ComputerPlatform;
   startTimeout?: number;
   /** How long the computer runs from create, in milliseconds: whole seconds from 60000 to 86400000. Defaults to Revyl's 2 hours. */
   timeoutMs?: number;
+  /**
+   * Mac only: run the computer on a Mac whose own vision model is loaded, so validation() and extract() work on it and
+   * iOS and Web sessions opened inside it use that model too. Comes with paid Revyl plans; see docs/computers.md.
+   */
+  inference?: boolean;
 }
 
 export type TargetConfig = WebTargetConfig | MobileTargetConfig | ComputerTargetConfig;
 
 export type HostedTargetConfig = (Omit<WebTargetConfig, 'app'> | Omit<MobileTargetConfig, 'app' | 'device'>) & {
   app: { appId: string; buildId: string };
+  /**
+   * iOS and Web: run this session's steps on the hosting Mac's own vision model first, with Revyl's hosted model as the
+   * fallback. Defaults to true inside a computer opened with { inference: true } and false otherwise; pass false to opt out.
+   */
+  inference?: boolean;
 };
 
 export interface VerifyConfig {
@@ -68,7 +78,7 @@ export interface VerifyConfig {
 
 type Resolved<T> = T & { name: string; startTimeout: number };
 
-export type ResolvedDeviceTarget = Resolved<(WebTargetConfig | MobileTargetConfig) & { idleTimeoutSeconds: number }>;
+export type ResolvedDeviceTarget = Resolved<(WebTargetConfig | MobileTargetConfig) & { idleTimeoutSeconds: number; inference?: boolean }>;
 export type ResolvedComputerTarget = Resolved<ComputerTargetConfig & ({ platform: 'mac' } | { platform: 'linux' })>;
 export type ResolvedTarget = ResolvedDeviceTarget | ResolvedComputerTarget;
 
@@ -161,18 +171,21 @@ export function validateHostedTarget(raw: HostedTargetConfig): ResolvedDeviceTar
 type Fail = (path: string, problem: string) => never;
 
 function parseTarget(raw: unknown, name: string, path: string, fail: Fail, hosted = false): ResolvedTarget {
-  const target = asRecord(raw, path, fail);
+  let target = asRecord(raw, path, fail);
   const platform = target.platform;
   if (typeof platform !== 'string' || !(PLATFORMS as readonly string[]).includes(platform)) {
     fail(`${path}.platform`, "must be 'web', 'ios', 'android', 'mac', or 'linux'.");
   }
   const startTimeout = integer(target.startTimeout, `${path}.startTimeout`, 10_000, 1_800_000, 600_000, fail);
   if (platform === 'mac' || platform === 'linux') {
-    rejectUnknownKeys(target, ['platform', 'startTimeout', 'timeoutMs'], path, fail);
-    if (target.timeoutMs === undefined) return { name, startTimeout, platform };
+    rejectUnknownKeys(target, ['platform', 'startTimeout', 'timeoutMs', 'inference'], path, fail);
+    if (target.inference !== undefined && typeof target.inference !== 'boolean') fail(`${path}.inference`, 'must be true or false.');
+    if (target.inference === true && platform === 'linux') fail(`${path}.inference`, "is for Mac computers only; use { platform: 'mac', inference: true }.");
+    const inference = target.inference === true ? { inference: true } : {};
+    if (target.timeoutMs === undefined) return { name, startTimeout, platform, ...inference };
     const timeoutMs = integer(target.timeoutMs, `${path}.timeoutMs`, 60_000, 86_400_000, undefined, fail);
     if (timeoutMs % 1_000 !== 0) fail(`${path}.timeoutMs`, 'must be whole seconds.');
-    return { name, startTimeout, platform, timeoutMs };
+    return { name, startTimeout, platform, timeoutMs, ...inference };
   }
   const common = {
     name,
@@ -180,7 +193,13 @@ function parseTarget(raw: unknown, name: string, path: string, fail: Fail, hoste
     idleTimeoutSeconds: integer(target.idleTimeoutSeconds, `${path}.idleTimeoutSeconds`, 60, 3_600, 600, fail),
   };
   const app = asRecord(target.app, `${path}.app`, fail);
+  let inference: { inference?: boolean } = {};
   if (hosted) {
+    if (target.inference !== undefined && typeof target.inference !== 'boolean') fail(`${path}.inference`, 'must be true or false.');
+    if (target.inference === true && platform === 'android') fail(`${path}.inference`, 'runs only for iOS and Web sessions inside a Mac computer; leave it out for Android.');
+    if (target.inference !== undefined) inference = { inference: target.inference as boolean };
+    const { inference: _ignored, ...rest } = target;
+    target = rest;
     uuid(app.appId, `${path}.app.appId`, true, fail);
     uuid(app.buildId, `${path}.app.buildId`, true, fail);
     rejectUnknownKeys(app, ['appId', 'buildId'], `${path}.app`, fail);
@@ -238,6 +257,7 @@ function parseTarget(raw: unknown, name: string, path: string, fail: Fail, hoste
       },
       ...(viewport ? { viewport } : {}),
       ...(signIn ? { signIn } : {}),
+      ...inference,
     };
   }
 
@@ -274,6 +294,7 @@ function parseTarget(raw: unknown, name: string, path: string, fail: Fail, hoste
       ...(app.bundleId !== undefined ? { bundleId: app.bundleId as string } : {}),
     },
     ...(device ? { device } : {}),
+    ...inference,
   };
 }
 

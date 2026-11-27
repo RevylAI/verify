@@ -110,6 +110,7 @@ func (s *Session) Open(ctx context.Context, target Target) (*Session, error) {
 		return nil, failure(ErrSessionEnded, "The computer was closed or expired.")
 	}
 	s.childOpens.Add(1)
+	parentInference := s.inference
 	s.mu.Unlock()
 	defer s.childOpens.Done()
 	ctx, cancel := context.WithTimeout(ctx, target.StartTimeout)
@@ -145,16 +146,23 @@ func (s *Session) Open(ctx context.Context, target Target) (*Session, error) {
 	} else {
 		request["is_simulation"] = true
 	}
+	inference := parentInference && target.Platform != Android
+	if target.Inference != nil {
+		inference = *target.Inference
+	}
+	if inference {
+		request["inference"] = "local"
+	}
 	r, err := s.client.send(ctx, http.MethodPost, "/api/v1/execution/start_device", request, false, 2*time.Minute, false)
 	reason := refusalReason(r)
 	if err == nil && ((r.status >= 400 && r.status < 500 && r.status != 408) || (r.status == 503 && reason != "" && reason != ReasonRequestTimeout && reason != ReasonProtocolError)) {
-		return nil, hostedStartError(r)
+		return nil, hostedStartError(r, target.Platform, parentInference)
 	}
 	s.mu.Lock()
 	s.children = append(s.children, child)
 	s.mu.Unlock()
 	if err == nil && (r.status < 200 || r.status >= 300) {
-		err = hostedStartError(r)
+		err = hostedStartError(r, target.Platform, parentInference)
 	}
 	if err == nil {
 		var start struct {
@@ -198,9 +206,16 @@ func (s *Session) Open(ctx context.Context, target Target) (*Session, error) {
 	return child, nil
 }
 
-func hostedStartError(r response) error {
+func hostedStartError(r response, platform Platform, parentInference bool) error {
 	code := ErrAPI
 	reason := refusalReason(r)
+	if reason == ReasonComputerLocalInferenceUnavailable {
+		fix := "Open the computer with " + macInferenceOpen + " to use its model, or"
+		if parentInference {
+			fix = "It was opened with Inference set to true but its Mac's model isn't answering now (computer.Inference() shows it); try again shortly, or"
+		}
+		return &Error{Code: ErrNotAvailableOnPlatform, Reason: reason, HTTPStatus: r.status, Message: fmt.Sprintf("Revyl refused the %s session's local inference (computer_local_inference_unavailable): the hosting computer has no vision model answering. %s pass Inference: new(false) in the Target you give computer.Open to run this session's steps on Revyl's hosted model.", platform, fix)}
+	}
 	switch {
 	case r.status == 401 || r.status == 403:
 		code = ErrAuthRejected

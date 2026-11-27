@@ -51,13 +51,17 @@ export function validateInitAnswers(answers: InitAnswers): InitAnswers {
   return answers;
 }
 
+export function existingInitFiles(cwd: string): string[] {
+  return [CONFIG_FILE, EXAMPLE_SCRIPT].filter((path) => existsSync(join(cwd, path)));
+}
+
 export async function initProject(cwd: string, answers: InitAnswers, options: { force?: boolean } = {}): Promise<InitResult> {
   validateInitAnswers(answers);
   const files: Array<[string, string]> = [
     [CONFIG_FILE, configTemplate(answers)],
     [EXAMPLE_SCRIPT, scriptTemplate(answers)],
   ];
-  const existing = files.map(([path]) => path).filter((path) => existsSync(join(cwd, path)));
+  const existing = existingInitFiles(cwd);
   if (existing.length > 0 && !options.force) {
     throw new VerifyError('INVALID_ARGUMENT', `${existing.join(' and ')} already exist. Re-run with --force to overwrite.`);
   }

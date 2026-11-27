@@ -1,0 +1,30 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.1.0/plugin.schema.json",
+  "name": "revyl-verify",
+  "version": "1.1.0",
+  "description": "Teaches your coding agent to check web pages, iOS and Android apps, and Macs on real Revyl cloud browsers, simulators, emulators and computers by writing and running a short Verify script.",
+  "author": {
+    "name": "Revyl",
+    "email": "support@revyl.ai",
+    "url": "https://revyl.com"
+  },
+  "homepage": "https://docs.revyl.com/verify",
+  "repository": "https://github.com/RevylAI/verify",
+  "license": "Apache-2.0",
+  "keywords": [
+    "revyl",
+    "verify",
+    "e2e",
+    "testing",
+    "ios",
+    "android",
+    "web",
+    "macos"
+  ],
+  "extensions": {
+    "ai.capy": {
+      "displayName": "Verify by Revyl",
+      "icon": "docs/images/revyl-icon.svg"
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "verify-guide-playwright-cdp",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Verify guide example: Playwright over CDP with a Verify validation",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env playwright-cdp.ts"
+  },
+  "devDependencies": {
+    "@revyl/verify": "0.7.1",
+    "playwright-core": "^1.65.1"
+  }
+}

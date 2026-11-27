@@ -1,0 +1,16 @@
+{
+  "name": "verify-guide-session-profiles",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Verify guide example: a session profile that signs in before the first step",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env signed-in.ts"
+  },
+  "devDependencies": {
+    "@revyl/verify": "0.7.1"
+  }
+}

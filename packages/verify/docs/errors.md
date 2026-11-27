@@ -22,6 +22,11 @@
 | Computer HTTP 409: no host can keep it running for the requested `timeoutMs` | `NOT_AVAILABLE_ON_PLATFORM` | `lifetime_unsupported` |
 | Computer HTTP 403 `computer_not_enabled` that Pro would lift (`unlocks_with_card: true`) | `NOT_AVAILABLE_ON_PLATFORM` | `upgrade_required` |
 | Web HTTP 409 on `typeFocused`: no text field has focus, and nothing was typed | `ACTION_FAILED` | `no_focused_input` |
+| Mac create with `inference: true`: your organization isn't on a paid Revyl plan (HTTP 403) | `NOT_AVAILABLE_ON_PLATFORM` | `inference_not_enabled` |
+| Mac create or persistent start with `inference`: no Mac with its own model is up now (HTTP 409); nothing was started | `NOT_AVAILABLE_ON_PLATFORM` | `inference_unavailable` |
+| `validation()` or `extract()` on a Mac without a model answering (HTTP 409); the step didn't run | `NOT_AVAILABLE_ON_PLATFORM` | `step_engine_unavailable` |
+| iOS or Web start inside a Mac whose model isn't answering, with local inference on (HTTP 409); nothing was started | `NOT_AVAILABLE_ON_PLATFORM` | `computer_local_inference_unavailable` |
+| `openPersistent()` or `saveSnapshot()` in an organization that isn't on a paid Revyl plan (HTTP 403) | `NOT_AVAILABLE_ON_PLATFORM` | `persistent_computers_not_enabled` |
 
 `web_runtime_unavailable` does not distinguish full capacity from an unavailable runtime. `computer_limit` does not distinguish queued work from concurrency exhaustion. Inspect these fields to classify refusal without parsing prose; do not infer a specific cause or automatically start a replacement session.
 
@@ -56,7 +61,7 @@ try {
 | `SESSION_ENDED` | The session was closed, stopped, or expired, or Revyl answered 404 for the session itself | Close explicitly; computer expiry does not prove release |
 | `SESSION_BUSY` | A step conflict, computer operation limit, someone controlling a computer's screen in the Revyl viewer, or `recording()` on a computer you haven't closed | Inspect the state before another call; a terminal computer alone does not prove release |
 | `COMPUTER_LIMIT` | Computer admission was refused due to queued work (including iOS) or the concurrency limit | Wait for capacity; Verify does not retry or stop a definitely refused start |
-| `NOT_AVAILABLE_ON_PLATFORM` | The call is unavailable: computer agent steps, device shell/file/recording methods, an exact action the platform lacks (such as `back()` on iOS, `goHome()` or `launchApp()` on Web, `typeFocused()` or keys other than Enter and Backspace on iOS and Android), computer access or runtime unavailable, or a backend without web steps | See [web.md](web.md) and [computers.md](computers.md#availability-and-errors) |
+| `NOT_AVAILABLE_ON_PLATFORM` | The call is unavailable: `instruction()` on a computer, `validation()` or `extract()` on a Mac without its own model or on Linux, local inference or persistent computers not enabled for the organization, device shell/file/recording methods, an exact action the platform lacks (such as `back()` on iOS, `goHome()` or `launchApp()` on Web, `typeFocused()` or keys other than Enter and Backspace on iOS and Android), computer access or runtime unavailable, or a backend without web steps | See [web.md](web.md) and [computers.md](computers.md#availability-and-errors) |
 | `COMMAND_FAILED` | A computer command exited nonzero | Read its reason; use `exec(argv, { check: false })` to inspect the exit code and output instead |
 | `NOT_FOUND` | A computer file or resource was not found | Check the workspace-relative path |
 | `ACCESS_DENIED` | The computer refused access | Check permissions; do not assume host/root access |
@@ -98,7 +103,7 @@ Any other refusal of a computer request names its reason and what to do next: `r
 
 ## Troubleshooting
 
-- **`NOT_AVAILABLE_ON_PLATFORM`:** the requested method is not available for that target. Computer targets do not run instruction or validation steps or `locate()`; Web and mobile targets do not expose computer commands or files.
+- **`NOT_AVAILABLE_ON_PLATFORM`:** the requested method is not available for that target. Computers don't run `instruction()` or `locate()`; use `tap({ target })` and `type({ target }, text)`. `validation()` and `extract()` run only on a Mac opened with `inference: true` ([guide](guides/mac-model-checks.md)). Web and mobile targets do not expose computer commands or files. Read `error.reason` for the exact refusal.
 - **`COMPUTER_LIMIT`:** computer admission was refused because of queued work or a concurrency limit. Verify does not retry creation or stop a definitely refused start.
 - **Blank first screen:** mobile startup uses a bounded, best-effort blank-frame observation, not a rendered-readiness guarantee. Begin with an instruction that reaches the screen your workflow needs. See [mobile.md](mobile.md#steps).
 - **A validation report looks successful but the assertion failed:** inspect each step's `effective_status` and `validation_result`, and compare `validations_passed` with `total_validations` rather than transport counters. See [reading the verdict](end-to-end.md#reading-the-verdict).

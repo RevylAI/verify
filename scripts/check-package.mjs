@@ -24,6 +24,7 @@ const required = [
   'docs/llms.txt',
   'docs/computers.md',
   'docs/own-model.md',
+  'skills/revyl-verify/SKILL.md',
 ];
 
 const directory = mkdtempSync(join(tmpdir(), 'verify-package-'));
@@ -81,9 +82,10 @@ try {
   const scopedInit = spawnSync(process.execPath, [scopedCli, 'init', '--platform', 'ios', '--no-install'], { cwd: scopedProject, env, encoding: 'utf8', timeout: 30_000 });
   assert.equal(scopedInit.status, 0);
   assert.match(scopedInit.stdout, /Could not confirm a Revyl sign-in: AUTH_MISSING/);
-  for (const file of ['verify.config.ts', 'verify/example.mts']) {
+  for (const file of ['verify.config.ts', 'verify/example.mts', 'AGENTS.md', '.agents/skills/revyl-verify/SKILL.md', '.claude/skills/revyl-verify/SKILL.md']) {
     assert.equal(readFileSync(join(consumer, file), 'utf8'), readFileSync(join(scopedProject, file), 'utf8'));
   }
+  assert.equal(readFileSync(join(consumer, '.agents/skills/revyl-verify/SKILL.md'), 'utf8'), readFileSync('skills/revyl-verify/SKILL.md', 'utf8'));
   execFileSync(process.execPath, ['--input-type=module', '-e', "import assert from 'node:assert/strict'; import * as alias from 'revyl-verify'; import * as scoped from '@revyl/verify'; assert.deepEqual(Object.keys(alias), Object.keys(scoped)); for (const key of Object.keys(scoped)) assert.equal(alias[key], scoped[key]);"], { cwd: consumer, env, stdio: 'pipe', timeout: 30_000 });
   writeFileSync(join(consumer, 'alias.ts'), "import { open, type TargetConfig } from 'revyl-verify';\nconst target: TargetConfig = { platform: 'mac' };\nvoid open; void target;\n");
   execFileSync(process.execPath, [resolve('node_modules/typescript/bin/tsc'), '--noEmit', '--strict', '--skipLibCheck', '--allowImportingTsExtensions', '--typeRoots', resolve('node_modules/@types'), '--target', 'es2022', '--module', 'nodenext', 'alias.ts', 'verify.config.ts', 'verify/example.mts'], { cwd: consumer, env, stdio: 'inherit', timeout: 30_000 });

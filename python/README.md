@@ -2,13 +2,32 @@
 
 <p align="center"><em>Cloud browsers, mobile devices and computers from Python.</em></p>
 
-Verify is a thin [Revyl](https://revyl.com) SDK, not a test runner. Open a web browser, iOS simulator or Android emulator for natural-language instructions and validations, or an early-access Mac computer for commands, files, processes and screenshots.
+Verify is a thin [Revyl](https://revyl.com) SDK, not a test runner. Open a web browser, iOS simulator or Android emulator for natural-language instructions and validations, or an early-access Mac computer for commands, files, processes, screenshots and, on a Mac opened with inference, validations and extracts.
 
 ## For coding agents
 
 Use Python ≥3.10 and the `revyl_verify` import. The distribution is named `revyl-verify`; it is separate from the `revyl` CLI. Install it from PyPI with `pip install revyl-verify` or `uv add revyl-verify`.
 
 Run only explicitly authorized cloud workloads. Keep API keys, signed recording URLs and session links private. Use context managers so errors still trigger cleanup; there is no runner, automatic step replay or creation retry.
+
+## Set up your coding agent
+
+The `revyl-verify` skill teaches a coding agent (Claude Code, Cursor, Codex, Capy and others) when and how to check a web page, an app or a Mac with Verify, in Python as well as TypeScript. With Node.js 22.18 or later, run this at the repository root. It writes the skill to `.agents/skills/` and `.claude/skills/`, adds a short Verify section to `AGENTS.md` (or to `CLAUDE.md` when the repository has that and no `AGENTS.md`), and changes nothing when run again:
+
+```sh
+npx @revyl/verify init --no-config --no-install
+```
+
+Without Node.js, copy the skill into the two folders agents read:
+
+```sh
+for dir in .agents/skills .claude/skills; do
+  mkdir -p "$dir/revyl-verify"
+  curl -fsSL https://raw.githubusercontent.com/RevylAI/verify/main/skills/revyl-verify/SKILL.md -o "$dir/revyl-verify/SKILL.md"
+done
+```
+
+Or install the Verify plugin in your agent; see [Set up your coding agent](https://github.com/RevylAI/verify#set-up-your-coding-agent).
 
 ## Install
 
@@ -90,6 +109,23 @@ asyncio.run(main())
 
 `async_open` returns an `AsyncSession`. Its async methods adapt the synchronous implementation through worker threads, rather than introducing another HTTP stack. Cancelling a method schedules best-effort session close; cancelling open interrupts startup and attempts cleanup as soon as an identity is known. Cancellation does not forcibly terminate an in-flight thread or undo a remote operation; do not replay an uncertain mutation. Always close explicitly or use `async with await async_open(...)`.
 
+### Read a value with extract()
+
+**Since 0.6.0.** `extract(text)` reads one value off the screen and returns a `StepResult` whose `value` is the string it read:
+
+```python
+from revyl_verify import Target, open
+
+with open(Target(platform="ios", bundle_id="com.apple.Preferences")) as session:
+    session.instruction("Open General, then About")
+    version = session.extract("the iOS version number")
+    print(version.value)
+```
+
+Describe one value that is on the screen now, such as `"the order number on the confirmation"`. When nothing can be read, it raises `STEP_FAILED` with the reason and a hint on how to describe the value. It works on every session: on Web, iOS and Android it runs on Revyl's agent like `instruction()` and `validation()`, and on a Mac computer opened with `inference=True` it reads the Mac's own screen with the Mac's own model (see [validation() and extract() on a Mac](#validation-and-extract-on-a-mac)). A session opened with `model` or `agent` raises `INVALID_ARGUMENT`: read the value from `screenshot()` with your model instead. `AsyncSession.extract()` is the same, awaited.
+
+Every `StepResult` also has `engine`: `"local"` when the vision model of the Mac the step ran on or inside answered, `"hosted"` when Revyl's hosted model did, and `None` when Revyl doesn't say, as on ordinary Web, iOS and Android sessions. `value` is set on extract steps only.
+
 ### Mac computer
 
 Mac computers are available to organizations on a current paid Revyl plan. If yours can't start one, ask support@revyl.ai:
@@ -107,7 +143,7 @@ with open(Target(platform="mac", start_timeout=600)) as session:
 recording = session.recording()  # after close; waits until the video is saved
 ```
 
-`exec(argv, stdin=bytes_or_string, timeout=30, check=True)` preserves argument boundaries and raises on command failure by default. File and process operations are computer-only. File paths are workspace-relative, not arbitrary absolute guest paths. To get the screen recording, call `recording()` after the computer is closed (after its `with` block or `close()`), on the same object and before your script exits: Revyl saves the video a few seconds after release, so it asks every 5 seconds until it is saved and returns `ComputerRecording(url, duration_seconds, started_at)`, or `None` if none was saved within `timeout` seconds (`recording(timeout=900)`, 15 minutes by default; 0 asks once; a check under way at that point can take up to 30 seconds more). Called on a computer that is still running it raises `SESSION_BUSY` saying to close it first. `attach()` can't reopen a closed computer, so a later process can't fetch it. Since 0.5.1; earlier versions returned `None` at once while the video was still uploading. It doesn't download the video. Signed URLs in that metadata are credentials. Recording is locally unavailable on devices.
+`exec(argv, stdin=bytes_or_string, timeout=30, check=True)` preserves argument boundaries and raises on command failure by default. File and process operations are computer-only. File paths are workspace-relative, not arbitrary absolute guest paths. To get the screen recording, call `recording()` after the computer is closed (after its `with` block or `close()`), on the same object and before your script exits: Revyl saves the video a few seconds after release, so it asks every 5 seconds until it is saved and returns `ComputerRecording(url, duration_seconds, started_at)`, or `None` if none was saved within `timeout` seconds (`recording(timeout=900)`, 15 minutes by default; 0 asks once). A check already under way when `timeout` runs out can take up to 30 seconds more. Called on a computer that is still running it raises `SESSION_BUSY` saying to close it first. `attach()` can't reopen a closed computer, so a later process can't fetch it. Since 0.5.1; earlier versions returned `None` at once while the video was still uploading. It doesn't download the video. Signed URLs in that metadata are credentials. Recording is locally unavailable on devices.
 
 Since 0.4.0, a script can click, type and press keys on the computer's screen at points it reads off `screenshot()`:
 
@@ -131,6 +167,38 @@ On a computer, as everywhere, type with `type("description", text)`: it clicks t
 
 **Breaking wire change:** computer-operation arguments use `argv_b64` (one padded URL-safe base64 UTF-8 string per argument) and file paths use `path_b64`, with no raw `argv` or `path`. This SDK is incompatible with the previous backend contract. Deploy the encoded-only backend before publishing or upgrading to this SDK. Public APIs and decoded limits are unchanged; `stdin` and file `data` retain their existing standard base64 encoding, and process commands are unchanged. Encoding is not encryption, and Verify does not fall back to plaintext or replay the request.
 
+### validation() and extract() on a Mac
+
+**Since 0.6.0.** On a Mac opened with `inference=True`, `validation()` and `extract()` run on the Mac's own vision model, next to the computer, and their `StepResult` has `engine="local"`. A typical answer takes 1 to 3 seconds. Local inference comes with paid Revyl plans.
+
+```python
+from revyl_verify import Target, open
+
+with open(Target(platform="mac", inference=True)) as mac:
+    print(mac.inference)  # "ready", "unavailable" or "unknown"
+    mac.validation("The Dock is visible at the bottom of the screen")
+    date = mac.extract("the date at the right end of the menu bar")
+    print(date.value, date.engine)  # the date as shown, then "local"
+```
+
+- `validation(text, soft=False)` returns a `StepResult` with `passed`. A false statement raises `VALIDATION_FAILED`, unless you pass `soft=True`, which returns `passed=False`.
+- `extract(text)` returns a `StepResult` whose `value` is the string read off the screen. Describe one value that is visible now. When the model finds nothing, it raises `STEP_FAILED` with the model's reason, such as `local_model_found_no_value`.
+- An answer the model can't confirm is never a pass: it raises `STEP_FAILED`. Describe one thing that is visible on the screen now.
+- Run one step at a time on a computer. The Mac's model also answers for the app sessions inside it, so a step that waits too long for it raises `SESSION_BUSY`, with `step_engine_busy` in the message; try again in a few seconds. While someone controls the screen in the viewer, a step raises `SESSION_BUSY` (`screen_control_held`); try again after they release it.
+- `instruction()` stays unavailable on computers. It raises `NOT_AVAILABLE_ON_PLATFORM` and names the calls to use instead: `tap("the Save button")` to click one thing, and `type("the search field", text)` to type into a field.
+- Your own `model` or `agent` doesn't run steps on computers; passing one raises `NOT_AVAILABLE_ON_PLATFORM`.
+
+`mac.inference` says whether the Mac's model answered: `"ready"`, `"unavailable"`, or `"unknown"` when Verify can't tell yet. Verify refreshes it whenever it reads the computer's report: at `open()`, `attach()` and `open_persistent()`, and on each `report()`. It is `None` on every other session, including a Mac opened without inference.
+
+| Error | When | What to do |
+| --- | --- | --- |
+| `NOT_AVAILABLE_ON_PLATFORM`, `reason="inference_not_enabled"` | `open()` with `inference=True`, and your organization isn't on a paid Revyl plan | Upgrade the organization's plan, or open the Mac without `inference` |
+| `NOT_AVAILABLE_ON_PLATFORM`, `reason="inference_unavailable"` | No Mac with a model is up right now; nothing was started | Try again later, or open the Mac without `inference` |
+| `NOT_AVAILABLE_ON_PLATFORM`, `reason="step_engine_unavailable"` | `validation()` or `extract()` on a Mac opened without inference; on a Linux computer, before anything is sent; or on a Mac opened with inference whose model isn't answering | Open the Mac with `Target(platform="mac", inference=True)`. If it already was, check `mac.inference` and try again shortly |
+| `INVALID_ARGUMENT` | `inference=True` on a Linux target | Use `Target(platform="mac", inference=True)` |
+
+[`examples/mac_inference.py`](https://github.com/RevylAI/verify/blob/main/python/examples/mac_inference.py) runs these steps, and with `IOS_APP_ID` and `IOS_BUILD_ID` set also an iOS app inside the Mac (`cd python && uv run python examples/mac_inference.py`). It starts a billable Mac computer. The [Mac model checks guide](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/guides/mac-model-checks.md) has more.
+
 ### Attach and open a hosted browser
 
 Attach to an existing active computer with `attach(computer_id)`, or create one with `open(Target(platform="mac"))`. Attaching checks its identity, operating system and unexpired active report without creating or stopping anything on failure. A successful attach takes close ownership by default: exiting its context stops that computer, not merely the local handle.
@@ -152,13 +220,46 @@ with attach("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", stop_on_close=False) as comp
 
 Use real IDs from the same authorized environment; these are placeholders. `stop_on_close=False` leaves a computer you don't own running when the context exits; leave it out only for a computer your script owns. To reach `http://localhost:<port>` on the computer, a service must already be listening there, such as one an earlier step of a `revyl-macos` job started: Verify has no call that starts one, and a process started through `exec()` ends when the command returns. The existing Web build must point to a supported HTTPS source. After startup, `navigate(url)` sends a single deterministic navigation request and accepts HTTP or HTTPS, including localhost, on every Web session. A cold development server may need a warm-up request before navigation succeeds. For hosted browsers localhost means the hosting computer; for ordinary cloud browsers it means that browser's runtime, not your own computer. If navigation times out uncertainly, it may still commit and the session remains usable; re-navigating is your choice. The server runtime owns navigation network policy. The SDK rejects credentials, control characters and backslashes; it never logs the URL. Navigation is unavailable on mobile and computer sessions and returns `None` after a confirmed response.
 
-`computer.open(target)` requires **both** `app_id` and `build_id` UUIDs. Hosted Web accepts `viewport`, `sign_in`, `idle_timeout_seconds` and `start_timeout`, but no `url` or `branch`; the server currently accepts external Web builds, not bundled Web artifacts. Hosted iOS/Android use the selected build and fixed simulator/emulator configuration, so `bundle_id`, `artifact_url`, `device_model`, `os_version`, `url`, `branch`, `viewport` and `sign_in` are unavailable. Mac hosts Web/iOS. All hosting depends on server capability and capacity.
+`computer.open(target)` requires **both** `app_id` and `build_id` UUIDs. Hosted Web accepts `viewport`, `sign_in`, `idle_timeout_seconds` and `start_timeout`, but no `url` or `branch`; the server currently accepts external Web builds, not bundled Web artifacts. Hosted iOS/Android use the selected build and fixed simulator/emulator configuration, so `bundle_id`, `artifact_url`, `device_model`, `os_version`, `url`, `branch`, `viewport` and `sign_in` are unavailable. Mac hosts Web/iOS. Hosted iOS and Web also accept `inference`; see [Local inference for iOS and Web inside a Mac](#local-inference-for-ios-and-web-inside-a-mac). All hosting depends on server capability and capacity.
 
-Children reuse their parent's credentials, API/viewer origins, step timeout and log callback. They return normal sessions with instruction, validation, screenshot, report and close methods. The parent's remaining lifetime bounds child startup and worker requests; report and close remain available after expiry. Closing a parent prevents new children, cancels in-flight starts, and gives pending starts and child closes one shared five-second cleanup budget before attempting the computer stop. Child startup failure never closes the parent. Confirmed physical parent release supersedes an earlier child-close uncertainty, which is logged safely. An ambiguous child start is cleaned up using its preallocated ID, without replaying creation. A definitive refusal does not issue a child stop.
+Children reuse their parent's credentials, API/viewer origins, step timeout and log callback. They return normal sessions with instruction, validation, extract, screenshot, report and close methods. The parent's remaining lifetime bounds child startup and worker requests; report and close remain available after expiry. Closing a parent prevents new children, cancels in-flight starts, and gives pending starts and child closes one shared five-second cleanup budget before attempting the computer stop. Child startup failure never closes the parent. Confirmed physical parent release supersedes an earlier child-close uncertainty, which is logged safely. An ambiguous child start is cleaned up using its preallocated ID, without replaying creation. A definitive refusal does not issue a child stop.
 
 When the computer belongs to another caller, such as a CI runner, use `attach(computer_id, stop_on_close=False)` or `await async_attach(computer_id, stop_on_close=False)`. These attachments are not registered for automatic cleanup. Explicit close or context-manager exit still cancels pending child starts and closes hosted children within the five-second cleanup phase, but never stops the computer; its owner must release it. Child-cleanup failures remain observable. The default is `True`, and ownership is never inferred from the environment.
 
 For async code use `async with await async_attach(computer_id) as computer`, then `async with await computer.open(target) as browser` and `await browser.navigate(url)`. Cancelling a child open cleans up only that child and leaves the parent open; cancelling attach before it succeeds does not stop the existing computer.
+
+### Local inference for iOS and Web inside a Mac
+
+**Since 0.6.0.** An iOS or Web session you open with `computer.open()` inside a Mac opened with `inference=True` runs its steps on the Mac's own vision model first, with Revyl's hosted model as the fallback. This is the default. To run one session's steps on the hosted model only, pass `inference=False` on its `Target`. Macs host iOS and Web sessions only, so leave `inference` out for Android.
+
+```python
+import os
+
+from revyl_verify import Target, open
+
+app = Target(platform="ios", app_id=os.environ["IOS_APP_ID"], build_id=os.environ["IOS_BUILD_ID"])
+
+with open(Target(platform="mac", inference=True)) as mac:
+    with mac.open(app) as session:  # local inference by default
+        step = session.validation("The app's first screen is showing")
+        print(step.engine)  # "local" or "hosted"
+```
+
+- **Runs on the Mac's model:** validations, and instructions that are a single plain tap on one thing.
+- **Goes to the hosted model:** `extract()`, typing, multi-step instructions such as "scroll down and then tap back", and any local answer that is uncertain or takes longer than 25 seconds.
+- `engine` on each `StepResult` says which model answered.
+- **Local verdicts are final.** A validation the Mac's model answers is not checked again by the hosted model.
+- If the Mac's model isn't answering when the session starts, `computer.open()` raises `NOT_AVAILABLE_ON_PLATFORM` with `reason="computer_local_inference_unavailable"`. The message says to try again shortly, or to pass `inference=False` to run on the hosted model.
+- `inference` on a `Target` you pass to `open()` rather than `computer.open()` raises `INVALID_ARGUMENT`, except on a Mac target. `inference=True` on Android raises `INVALID_ARGUMENT`.
+
+In a small live comparison on one iOS app, 20 validations (10 true, 10 false), the Mac's model and the hosted model each answered all 20 correctly and never disagreed. Local answers typically took about 2.7 seconds (one took 20) and hosted ones about 10 seconds. The [apps inside an inference Mac guide](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/guides/apps-inside-an-inference-mac.md) has more.
+
+### What inference costs
+
+- Steps on a computer have no per-step fee. `validation()` and `extract()` on a Mac computer run only on the Mac's own model, so they carry no inference charge; you pay the Mac's minutes, as for any computer.
+- App sessions inside a computer add no device minutes of their own.
+- Inside an inference Mac, steps the Mac's model answers carry no inference charge; steps that fall back to Revyl's hosted model are billed as usual.
+- Local inference comes with paid Revyl plans.
 
 ### open() options
 
@@ -171,6 +272,59 @@ For async code use `async with await async_attach(computer_id) as computer`, the
 - `model`: runs every instruction and validation on your own model instead of Revyl's agent; see [Your own model](#your-own-model). Browsers and devices only; computers raise `NOT_AVAILABLE_ON_PLATFORM`.
 - `agent`: the same with a custom agent from `local_agent()`. Pass `model` or `agent`, not both.
 - `profile`: a session profile from your project's `.revyl/config.yaml`, such as `"signed-in"`, that Revyl runs before `open()` returns, or `"none"` for no profile. Left out, the project's `session.default_profile` runs when it sets one. Web, iOS, Android and Mac computers. See [Session profiles](#session-profiles).
+
+## Persistent computers and snapshots
+
+**Since 0.5.0, with paid Revyl plans.** A persistent computer is a Mac whose disk outlives every stop: open it by name, close it, and the next open boots from the same disk. Without a paid plan, `open_persistent()` and `save_snapshot()` raise `NOT_AVAILABLE_ON_PLATFORM` with `reason="persistent_computers_not_enabled"`; upgrade the organization's plan to use them. macOS only.
+
+```python
+from revyl_verify import delete_persistent, delete_snapshot, open_persistent, save_snapshot
+
+with open_persistent("notes-mac") as mac:  # creates it the first time
+    if mac.created:
+        mac.exec(["sh", "-c", 'echo "kept across stops" > "$HOME/notes.txt"'])
+# leaving the with block stops it and keeps its disk
+
+with open_persistent("notes-mac") as mac:  # boots from the same disk
+    print(mac.created, mac.exec(["sh", "-c", 'cat "$HOME/notes.txt"']).stdout)
+
+save_snapshot("notes-mac", "notes-base")  # waits until the save is copied off its Mac
+with open_persistent("notes-copy", from_snapshot="notes-base") as copy:
+    print(copy.exec(["sh", "-c", 'cat "$HOME/notes.txt"']).stdout)
+
+delete_persistent("notes-copy")
+delete_persistent("notes-mac")
+delete_snapshot("notes-base")
+```
+
+The example starts billable Mac computers and takes several minutes: `save_snapshot()` waits about 5 minutes after the close.
+
+- **Open.** `open_persistent(name)` opens the Mac with that name, creating it if needed; `mac.created` says which. A stopped one boots from its disk, and a running one is connected to. Names are 1 to 64 letters, digits, `.`, `_` or `-`, start with a letter or digit, and aren't a UUID. The same name opens the same computer from Python, TypeScript and Go. An ID from `list_persistent()` works too.
+- **Close.** `close()`, or leaving the `with` block, stops it and keeps the whole disk. The next open is a cold boot: memory and running processes don't survive, so start your servers again.
+- **What's kept.** Everything on the disk: files, installed tools, repositories, build products, simulators, app data, system settings, the login keychain and browser profiles. A computer created from a snapshot gets the same disk, but things tied to the original Mac's hardware identity (Apple Account, iCloud, Safari's saved passwords) don't carry over, and websites may open signed out.
+- **Each open is a new run** with the usual computer lifetime: 2 hours by default, up to 24 hours with `timeout` (whole seconds). A run starts saving its disk 3 minutes before it ends, so reaching the end keeps the disk. A running persistent computer bills like any computer.
+- **Snapshots.** `save_snapshot(computer, name)` saves a stopped computer's disk; close it first, or it raises `SESSION_BUSY`. It waits until the save is copied off its Mac, about 5 minutes after the close, for up to `wait_timeout` seconds (900 by default), then raises `TIMEOUT`; call it again to keep waiting. Snapshot names follow the computer-name rule and are unique in your organization.
+- **Copies.** `open_persistent(new_name, from_snapshot="name")` creates a new persistent computer whose disk starts as the snapshot's. `from_snapshot` is used only when the call creates the computer; if one with that name exists, it opens as it is, so check `created`. Starting on a different Mac than the one holding the save, as most snapshot copies do, restores the disk first and can take several minutes. `open_persistent()` waits up to `start_timeout` seconds (900 by default).
+- **Inference.** `open_persistent(name, inference=True)` is used only when the call creates the computer, and the computer keeps it for every later start. A copy doesn't inherit it: pass `inference=True` with `from_snapshot` too. `without_inference=True` applies only when starting a stopped computer created with inference: it starts this one run without the model, for when no Mac with one is up (`inference_unavailable`). It needs a Revyl backend that offers it; otherwise it raises `INVALID_ARGUMENT` saying so.
+- **How long saves last.** Until you delete the computer or the snapshot. Some saves have an end: `saved_disk_expires_at` on `PersistentComputer` and `ComputerSnapshot` is a `datetime` when Revyl reports one, else `None`. From then on, that save can't start.
+- **Limits.** 10 persistent computers and 100 snapshots per organization, unless Revyl raised them.
+- **Cleanup.** `delete_persistent(name_or_id)` deletes the computer and its disk for good; a running one stops first, without saving. Its snapshots stay. `delete_snapshot(name_or_id)` deletes a snapshot; computers made from it keep their disks. Both raise `NOT_FOUND` when nothing has that name or ID.
+- **Lists.** `list_persistent()` returns a `PersistentComputer` for each of your organization's persistent computers, with `id`, `state`, `saved_at`, `saved_off_host`, `created_at` and `saved_disk_expires_at`. Revyl stores no names, so compare `id` with `mac.id`. `list_snapshots()` returns a `ComputerSnapshot` for each snapshot, with `id`, `name`, `computer_id`, `saved_at` and `saved_disk_expires_at`.
+
+Where the table shows no `reason`, the message names Revyl's code, shown here in parentheses.
+
+| Error | When | What to do |
+| --- | --- | --- |
+| `NOT_AVAILABLE_ON_PLATFORM`, `reason="persistent_computers_not_enabled"` | Your organization isn't on a paid Revyl plan | Upgrade the organization's plan |
+| `NOT_AVAILABLE_ON_PLATFORM`, `reason="inference_not_enabled"` | `inference=True`, and your organization isn't on a paid Revyl plan | Upgrade the organization's plan, or leave out `inference` |
+| `NOT_AVAILABLE_ON_PLATFORM`, `reason="inference_unavailable"` | No Mac with a model is up right now; nothing was started | Try again later, or pass `without_inference=True` to start an existing computer without the model this once |
+| `SESSION_BUSY` (`run_conflict`) | The computer's last run is still stopping | Try again in a few minutes; the disk is kept |
+| `SESSION_START_FAILED` (`saved_disk_unavailable`) | The Mac holding the save is offline and the save isn't copied off it yet, or no Mac can start it now | Try again later; the disk is kept |
+| `SESSION_START_FAILED` (`saved_disk_expired`) | The computer's save has reached `saved_disk_expires_at` | `delete_persistent()` it; `open_persistent()` with its name then creates a new one |
+| `SESSION_START_FAILED` (`snapshot_expired`) | The snapshot has reached `saved_disk_expires_at` | Save a new snapshot of a recently stopped computer |
+| `COMPUTER_LIMIT` (`persistent_computer_limit` or `snapshot_limit`) | Your organization keeps as many computers or snapshots as it may | Delete one you no longer need with `delete_persistent()` or `delete_snapshot()`, then try again |
+
+The [persistent computers guide](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/guides/persistent-computers.md) has more.
 
 ## Session profiles
 
@@ -350,7 +504,9 @@ size = session.screen_size()  # the screenshot's size: x is 0 to size.width - 1
 | `launch_app(bundle_id)` | No, use `open_url` or `navigate` | Yes | Yes | No |
 | `navigate(url)` | Yes | No, use `open_url` | No, use `open_url` | No |
 | `cdp()`, for Playwright and Puppeteer | Yes, see [CDP](#cdp-playwright-puppeteer) | No | No | No |
-| `instruction`, `validation`, your own model | Yes | Yes | Yes | No, use `exec()` and the screen calls above |
+| `instruction` | Yes | Yes | Yes | No, use `tap("the Save button")` and `type("the search field", text)` |
+| `validation`, `extract` | Yes | Yes | Yes | Yes, on a Mac opened with `inference=True`; see [validation() and extract() on a Mac](#validation-and-extract-on-a-mac) |
+| your own model (`model`, `agent`) | Yes | Yes | Yes | No |
 | `screenshot()` | Yes | Yes | Yes | Yes |
 | `exec`, files, processes | No, open a Mac computer | No, open a Mac computer | No, open a Mac computer | Yes |
 
@@ -501,7 +657,7 @@ Construct a frozen `Target(platform=...)`:
 
 - **Web:** `app_id` (Revyl UUID) is required. Supply `url` for a public HTTPS site, `build_id` for a specific build, or `branch` for the selected app's latest build. `build_id` cannot be combined with `url` or `branch`. Optional `Viewport(width, height, device_scale_factor=...)` and `SignIn(path, secret, persona=...)` configure the browser and saved sign-in secret reference, not a raw credential.
 - **iOS / Android:** provide exactly one of `app_id`, `build_id`, HTTPS `artifact_url` or installed-app `bundle_id`. Optional `device_model` and `os_version` select the device, written as Revyl names them, such as `device_model="iPhone 16", os_version="iOS 18.5"` or `device_model="Pixel 7", os_version="Android 14"`. A value Revyl doesn't offer raises `INVALID_ARGUMENT` listing the values it accepts, and no session starts. An `app_id` or `build_id` Revyl can't find raises `INVALID_ARGUMENT` naming what wasn't found and how to fix it, and no session starts. A `bundle_id` that can't be launched raises `SESSION_START_FAILED` naming the bundle id, with the session link. Do not combine mobile app sources.
-- **Mac:** only `platform` and `start_timeout` are accepted; app/browser/device fields are unavailable.
+- **Mac:** only `platform`, `start_timeout`, `timeout` (the lifetime in seconds) and `inference` (run on a Mac with its own vision model; see [validation() and extract() on a Mac](#validation-and-extract-on-a-mac)) are accepted; app/browser/device fields are unavailable.
 
 `start_timeout` defaults to 600 seconds (allowed range 10–1800). Web/mobile also accept `idle_timeout_seconds` (60–3600). `open`, `async_open`, `attach` and `async_attach` accept default `step_timeout` in seconds.
 
@@ -525,17 +681,17 @@ else:
 
 Cleanup status is `acknowledged` for a validated device stop response, `confirmed` for terminal computer state plus physical release, `unconfirmed` when cleanup failed or no usable mobile identity was returned, and `not_required` after a definite create refusal. `not_attempted` applies before startup ownership exists. An unknown mobile ID is `None`, never invented. Web/computer caller-generated IDs remain available after an uncertain create; a mismatched web acknowledgment never authorizes stopping the other ID. Startup cleanup uses a fresh bounded deadline, preserves the original failure, and attaches a separate cleanup error. Do not retry creation to recover an uncertain outcome; inspect the known session privately. A device stop acknowledgment does not prove physical release.
 
-Session properties include `id`, `platform`, `viewer_url`, `expires_at` and `closed`. Steps return `StepResult` with `passed`, `reason`, `duration_seconds` and, for a step run on your own model, `model`; commands return `ExecResult` with `exit_code`, `stdout` and `stderr`. Computer methods also include `stat(path)`, `processes()` and `terminate(handle_id)`, with bounded seconds-based timeouts. Errors raise `VerifyError` with a stable `code`. Async session methods have the same arguments/results and are awaited.
+Session properties include `id`, `platform`, `viewer_url`, `expires_at` and `closed`. Steps return `StepResult` with `passed`, `reason`, `duration_seconds`, `value` (extract steps only), `engine` (`"local"` or `"hosted"` when Revyl says which model answered, else `None`) and, for a step run on your own model, `model`; commands return `ExecResult` with `exit_code`, `stdout` and `stderr`. Computer methods also include `stat(path)`, `processes()` and `terminate(handle_id)`, with bounded seconds-based timeouts. Errors raise `VerifyError` with a stable `code`. Async session methods have the same arguments/results and are awaited.
 
 `EDGE_BLOCKED` identifies HTTP 403 with a `text/html` content type and nonempty `cf-ray`, unless the body is syntactically valid JSON. HTML branding is not required; `cf-ray` alone is not enough. Other responses retain their existing mapping, including JSON 401/403 authentication errors. Edge-block errors expose `http_status` but no body or ray ID. Check network access or contact support; Verify does not retry blocked requests.
 
 `VerifyError.reason` is an optional exported `RefusalReason` literal containing only a known safe server code; `http_status` is the response status when available. Raw server messages and payloads are not exposed through these fields. Ordinary Web startup `409 web_runtime_unavailable` keeps `code="API_ERROR"`, computer admission keeps `COMPUTER_LIMIT` for `computer_limit` and `NOT_AVAILABLE_ON_PLATFORM` for `runtime_unavailable`; inspect `reason` to distinguish availability from other failures. Hosted errors use `NOT_AVAILABLE_ON_PLATFORM` for runtime/capability refusals, `COMPUTER_LIMIT` for capacity, `SESSION_ENDED` for `computer_not_running`, `NOT_FOUND` for `computer_not_found`, `INVALID_ARGUMENT` for build selection and `SESSION_BUSY` for child identity conflicts. Unknown reasons remain `None`; no refusal automatically retries creation.
 
-| Platform | Instructions / validations | Commands / files / processes | PNG screenshot |
+| Platform | Instructions / validations / extract | Commands / files / processes | PNG screenshot |
 | --- | :---: | :---: | :---: |
 | Web | Yes, if the backend supports web steps | — | Yes |
 | iOS simulator / Android emulator | Yes | — | Yes |
-| Mac computer | — | Yes | Yes |
+| Mac computer | Validations and extract, on a Mac opened with `inference=True` | Yes | Yes |
 
 Mac computers are available to organizations on a current paid Revyl plan. When Revyl says Pro would unlock Macs for a Free-plan organization (`computer_not_enabled` with `unlocks_with_card: true`), `open()` and `open_persistent()` raise `NOT_AVAILABLE_ON_PLATFORM` with `reason="upgrade_required"`. The message starts `Mac computers come with Pro, so Revyl refused this computer (computer_not_enabled, upgrade_required).` and ends with Revyl's upgrade offer and its HTTPS billing link, or with `Add a card in Revyl's billing settings to unlock them.` when Revyl sends no offer. Any other `computer_not_enabled` keeps the support guidance and no reason. Computer admission may return `COMPUTER_LIMIT`; the SDK does not retry creation. Computer sessions have a hard lifetime from creation: 2 hours by default, or up to 24 hours with `Target(platform="mac", timeout=...)` (seconds, 60 to 86400). `session.extend(timeout)` keeps a running computer going at least that long from now, up to 24 hours after creation; it never shortens the lifetime, so retrying is safe, and it refreshes `expires_at`, the authoritative deadline. Lifetimes over 2 hours can be refused with `COMPUTER_LIMIT` (`computer_long_limit`, at most 2 such computers per organization at once) or `NOT_AVAILABLE_ON_PLATFORM` (no host can run that long, or the host can't extend). Screenshot observation retries structured startup screen-not-ready errors within a bounded window; other errors are not silently replayed.
 
@@ -564,13 +720,17 @@ Use an empty `dist/` before building; the package checker rejects stale or extra
 
 - [TypeScript API and platform contracts](https://github.com/RevylAI/verify/tree/main/packages/verify/docs)
 - [Use your own model](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/own-model.md): providers, live results and troubleshooting, which apply to Python too
+- [Mac model checks](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/guides/mac-model-checks.md): `validation()` and `extract()` on a Mac opened with inference
+- [Apps inside an inference Mac](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/guides/apps-inside-an-inference-mac.md): local inference for iOS and Web sessions
+- [Persistent computers](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/guides/persistent-computers.md): persistent Macs and snapshots
 - [Go SDK](https://github.com/RevylAI/verify/tree/main/go)
 - [Live results from other SDKs and limitations](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/end-to-end.md)
 - [Python release procedure](https://github.com/RevylAI/verify/blob/main/RELEASING.md#python)
 
 ## Troubleshooting
 
-- **`NOT_AVAILABLE_ON_PLATFORM`:** computers do not support instruction/validation, your own model, or exact actions other than `tap`, `type`, `screen_size()`, `type_focused(text, clear=False)` and `press_key`; devices do not support commands, files, processes or recording metadata; iOS has no `back()`, Web has no `launch_app()` or `go_home()`, and iOS and Android have no `type_focused()` and no keys other than Enter and Backspace.
+- **`NOT_AVAILABLE_ON_PLATFORM`:** computers do not support `instruction()` (use `tap("the Save button")` and `type("the search field", text)`), `validation()` or `extract()` except on a Mac opened with `inference=True`, your own model, or exact actions other than `tap`, `type`, `screen_size()`, `type_focused(text, clear=False)` and `press_key`; devices do not support commands, files, processes or recording metadata; iOS has no `back()`, Web has no `launch_app()` or `go_home()`, and iOS and Android have no `type_focused()` and no keys other than Enter and Backspace.
+- **`STEP_FAILED` from `extract()` or a Mac validation:** nothing was read, or the model couldn't confirm an answer. Describe one value or one thing that is visible on the screen now, and check it with `screenshot()`.
 - **`SESSION_PROFILE_FAILED`:** the session profile's script couldn't be sent, Revyl couldn't find it, or it ran and failed. `error.outcome` and `error.failure_reason` say which; see [Session profile errors](#session-profile-errors).
 - **`MODEL_KEY_MISSING`:** the provider's key variable named in the message is not set. Set it, or pass `CustomModel(id, base_url, api_key=...)`.
 - **`MODEL_ERROR`:** the model's endpoint refused the request or the model misbehaved. The message names the host, the HTTP status and the next step: a rejected key and the variable it came from, an unknown model, the path Verify added on a 404, a rate limit after retries, a text-only model, no tool support, a reply cut off at its output cap, or three turns without a tool call.

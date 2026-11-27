@@ -161,11 +161,11 @@ describe('computer lifecycle', () => {
   });
 
   it('does not send unsupported agent steps', async () => {
-    const fake = fakeMac();
+    const fake = fakeMac().on('POST', /\/steps$/, () => json({ detail: 'step_engine_unavailable' }, 409));
     const session = await start(fake);
     await expect(session.instruction('hi')).rejects.toMatchObject({ code: 'NOT_AVAILABLE_ON_PLATFORM' });
-    await expect(session.validation('ready', { soft: true })).rejects.toMatchObject({ code: 'NOT_AVAILABLE_ON_PLATFORM' });
     expect(fake.requests).toHaveLength(1);
+    await expect(session.validation('ready', { soft: true })).rejects.toMatchObject({ code: 'NOT_AVAILABLE_ON_PLATFORM' });
   });
 
   it.each([

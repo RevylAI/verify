@@ -7,18 +7,19 @@ import type { Platform } from '../api/types.js';
 import { missingCredentialsMessage, resolveCredentials, revylCredentialsPath } from '../auth.js';
 import { VerifyError, errorMessage, isVerifyError } from '../errors.js';
 import { PACKAGE_NAME, VERSION } from '../version.js';
-import { initProject, validateInitAnswers, webAppIdMissingMessage, type InitAnswers } from './init.js';
+import { SKILL_DIRECTORIES, SKILL_NAME, setUpAgents } from './agents.js';
+import { existingInitFiles, initProject, validateInitAnswers, webAppIdMissingMessage, type InitAnswers } from './init.js';
 import { installVerify, packageHasVerify } from './install.js';
 import { signIn } from './login.js';
 
-const INIT_USAGE = `npx ${PACKAGE_NAME} init [--platform ios|android|web|mac] [--app-id <id>] [--url <https-url>] [--force] [--yes] [--no-install]`;
+const INIT_USAGE = `npx ${PACKAGE_NAME} init [--platform ios|android|web|mac] [--app-id <id>] [--url <https-url>] [--force] [--yes] [--no-install] [--no-config] [--no-agents-md] [--no-skill]`;
 const DOCS = `https://github.com/RevylAI/verify/tree/v${VERSION}/packages/verify/docs`;
 
 const HELP = `verify ${VERSION}: open Revyl cloud browsers, devices, and computers from your code
 
 Usage
   ${INIT_USAGE}
-      Install Verify, write verify.config.ts and an example script, and sign in
+      Install Verify, write verify.config.ts and an example script, set up your coding agent, and sign in
   npx ${PACKAGE_NAME} login
       Sign in to Revyl through your browser
   npx ${PACKAGE_NAME} logout
@@ -35,16 +36,28 @@ Docs: ${DOCS}
 
 const INIT_HELP = `Usage: ${INIT_USAGE}
 
-Writes verify.config.ts and verify/example.mts, installs Verify when the project lacks it, and signs
-you in through your browser when no credentials are saved.
+Writes verify.config.ts and verify/example.mts, installs Verify when the project lacks it, sets up
+your coding agent, and signs you in through your browser when no credentials are saved. Running it
+again changes nothing that is already set up.
+
+Coding agent setup, at the repository root:
+  - a Verify section in AGENTS.md, between <!-- verify:start --> and <!-- verify:end --> markers.
+    AGENTS.md is created when missing. A repository with a CLAUDE.md and no AGENTS.md gets the
+    section in CLAUDE.md instead, because Claude Code reads only CLAUDE.md when one exists.
+  - the ${SKILL_NAME} skill in ${SKILL_DIRECTORIES.map((directory) => `${directory}/`).join(' and ')}, where Claude Code, Cursor,
+    Codex and other agents look for skills.
 
   --platform    ios, android, web, or mac. Without it, init asks. iOS and Android without --app-id
                 open the device's built-in Settings app, so the example runs before you upload anything.
   --app-id      The Revyl app to open. Required for web; create a Web app at https://app.revyl.ai first.
   --url         The public HTTPS URL a web target opens (default https://example.com).
-  --force       Overwrite existing files.
-  --yes         Install Verify without asking.
-  --no-install  Skip installing Verify.
+  --force         Overwrite verify.config.ts and verify/example.mts if they exist. Without it, init
+                  keeps them and needs no --platform.
+  --yes           Install Verify without asking.
+  --no-install    Skip installing Verify.
+  --no-config     Skip writing verify.config.ts and verify/example.mts.
+  --no-agents-md  Skip the Verify section in AGENTS.md or CLAUDE.md.
+  --no-skill      Skip the ${SKILL_NAME} skill.
 
 Docs: ${DOCS}/getting-started.md
 `;
@@ -93,6 +106,9 @@ async function initCommand(args: string[]): Promise<number> {
       force: { type: 'boolean' },
       yes: { type: 'boolean' },
       'no-install': { type: 'boolean' },
+      'no-config': { type: 'boolean' },
+      'no-agents-md': { type: 'boolean' },
+      'no-skill': { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
   });
@@ -101,6 +117,8 @@ async function initCommand(args: string[]): Promise<number> {
     return 0;
   }
   const interactive = Boolean(process.stdin.isTTY) && !process.env.CI;
+  const kept = values['no-config'] || values.force ? [] : existingInitFiles(process.cwd());
+  const writeConfig = !values['no-config'] && kept.length === 0;
   let answers: InitAnswers | undefined;
   if (values.platform) {
     answers = validateInitAnswers({
@@ -108,8 +126,8 @@ async function initCommand(args: string[]): Promise<number> {
       ...(values['app-id'] ? { appId: values['app-id'] } : {}),
       ...(values.url ? { url: values.url } : {}),
     });
-  } else if (!interactive) {
-    throw new VerifyError('INVALID_ARGUMENT', 'Pass --platform web, ios, android, or mac when not running in a terminal.');
+  } else if (writeConfig && !interactive) {
+    throw new VerifyError('INVALID_ARGUMENT', 'Pass --platform web, ios, android, or mac when not running in a terminal, or --no-config to set up only the coding agent.');
   }
   if (!values['no-install'] && !(await packageHasVerify(process.cwd()))) {
     let installApproved = !interactive || Boolean(values.yes);
@@ -124,9 +142,21 @@ async function initCommand(args: string[]): Promise<number> {
     }
     if (installApproved) await installVerify(process.cwd());
   }
-  answers ??= await askInitQuestions(values['app-id'], values.url);
-  const result = await initProject(process.cwd(), answers, { force: values.force ?? false });
-  process.stdout.write(`Created ${result.created.join(' and ')}${result.gitignoreUpdated ? ', and added .verify/ to .gitignore' : ''}.\n`);
+  if (writeConfig) {
+    answers ??= await askInitQuestions(values['app-id'], values.url);
+    const result = await initProject(process.cwd(), answers, { force: values.force ?? false });
+    process.stdout.write(`Created ${result.created.join(' and ')}${result.gitignoreUpdated ? ', and added .verify/ to .gitignore' : ''}.\n`);
+  } else if (kept.length > 0) {
+    process.stdout.write(`Kept ${kept.join(' and ')}, which already exist. Pass --force to overwrite them.\n`);
+  }
+  if (!values['no-agents-md'] || !values['no-skill']) {
+    const setup = await setUpAgents(process.cwd(), { instructions: !values['no-agents-md'], skill: !values['no-skill'] });
+    process.stdout.write(
+      setup.written.length > 0
+        ? `Set up your coding agent: wrote ${setup.written.join(', ')}.\n`
+        : `Your coding agent is already set up (${setup.unchanged.join(', ')}).\n`,
+    );
+  }
   let signedIn = true;
   try {
     await signInAndCheck(interactive);
@@ -138,8 +168,9 @@ async function initCommand(args: string[]): Promise<number> {
   }
   const steps = [
     ...(signedIn ? [] : [`Sign in: run npx ${PACKAGE_NAME} login in a terminal, or set REVYL_API_KEY to a key from Revyl (Settings → API keys). Check it with npx ${PACKAGE_NAME} whoami.`]),
-    'Run: node verify/example.mts',
-    ...(answers.platform === 'mac' || answers.appId ? [] : ['To test your own app, put its Revyl app id in verify.config.ts in place of the Settings bundle id.']),
+    ...(existingInitFiles(process.cwd()).length === 2 ? ['Run: node verify/example.mts'] : []),
+    ...(!answers || answers.platform === 'mac' || answers.appId ? [] : ['To test your own app, put its Revyl app id in verify.config.ts in place of the Settings bundle id.']),
+    ...(values['no-agents-md'] && values['no-skill'] ? [] : ['Ask your coding agent to check something, such as "check that the home page loads": it now uses Verify.']),
   ];
   process.stdout.write(
     [

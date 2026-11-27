@@ -233,7 +233,7 @@ class ComputerTests(unittest.TestCase):
                 self.assertTrue(session.closed)
                 self.assert_code("SESSION_ENDED", lambda: session.exec(["true"]))
                 self.assert_code("NOT_AVAILABLE_ON_PLATFORM", lambda: session.instruction("click"))
-                self.assert_code("NOT_AVAILABLE_ON_PLATFORM", lambda: session.validation("exists"))
+                self.assert_code("SESSION_ENDED", lambda: session.validation("exists"))
                 self.assertEqual(session.report()["state"], "stopped")
                 recording = session.recording()
                 self.assertIsNotNone(recording)

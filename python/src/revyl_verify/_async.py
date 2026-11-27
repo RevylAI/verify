@@ -13,6 +13,7 @@ from ._agent import Key, KeyModifier, LocalAgent, Location, ModelOption, SwipeDi
 from ._cleanup import _close, install_signal_cleanup
 from ._models import (
     CDPEndpoint,
+    ComputerInferenceReadiness,
     ComputerProcess,
     ComputerRecording,
     ExecResult,
@@ -56,6 +57,10 @@ class AsyncSession:
     @property
     def steps(self) -> list[StepResult]:
         return list(self._session.steps)
+
+    @property
+    def inference(self) -> ComputerInferenceReadiness | None:
+        return self._session.inference
 
     async def __aenter__(self) -> AsyncSession:
         return self
@@ -112,6 +117,9 @@ class AsyncSession:
                 self._session.validation, text, timeout=timeout, soft=soft, model=model, agent=agent
             )
         )
+
+    async def extract(self, text: str, *, timeout: float | None = None) -> StepResult:
+        return await self._call(functools.partial(self._session.extract, text, timeout=timeout))
 
     async def tap(self, at: Location, *, settle: bool = True) -> Point:
         return await self._call(functools.partial(self._session.tap, at, settle=settle))
