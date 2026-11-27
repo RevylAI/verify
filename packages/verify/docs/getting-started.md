@@ -50,6 +50,7 @@ Use `init` when you want named targets in `verify.config.ts` and a generated exa
 
 - `verify.config.ts`: the targets `open()` can start, by name
 - `verify/example.mts`: a script that opens the target, runs steps and takes a screenshot (web/mobile) or checks commands and files (Mac), and closes
+- `AGENTS.md` and the `revyl-verify` skill in `.agents/skills/` and `.claude/skills/`, so your coding agent uses Verify when you ask it to check something. See [configuration.md](configuration.md#command-line) for where they go and the flags that skip them.
 
 In scripts and CI, pass the answers as flags. Non-interactive runs never prompt or open a browser; provide `REVYL_API_KEY` as a secret. If `init` can't confirm a sign-in after writing the files, it says why, lists signing in as the first next step and exits 0, because the files are written and need no change:
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.0 (unreleased)
+
+- `init` sets up your coding agent, so asking it to "check that this page loads" ends in a Verify script instead of a guess. At the repository root (the nearest folder above with a `.git`), it writes the new `revyl-verify` skill to `.agents/skills/revyl-verify/SKILL.md`, which Cursor, Codex and Capy read, and `.claude/skills/revyl-verify/SKILL.md`, which Claude Code reads. It adds a short Verify section, between `<!-- verify:start` and `<!-- verify:end -->` markers, to `AGENTS.md`, creating it when missing; a repository with a `CLAUDE.md` and no `AGENTS.md` gets the section in `CLAUDE.md`, because Claude Code reads only `CLAUDE.md` when one exists. `--no-agents-md` and `--no-skill` skip either part. It writes no MCP configuration, because Verify runs in your scripts.
+- Running `init` again changes nothing. When `verify.config.ts` or `verify/example.mts` exists, `init` keeps both and needs no `--platform`, where it used to stop and ask for `--force`; `--force` still overwrites them. The new `--no-config` skips them, so `npx @revyl/verify init --no-config` sets up only the coding agent, including in Python and Go projects.
+- The `revyl-verify` skill ships in the npm package and at `skills/revyl-verify/` in this repository, which is also a plugin for Claude Code (`/plugin marketplace add RevylAI/verify`), Cursor and Capy. The Python and Go READMEs say how to install it without init.
+
 ## 0.7.1 (2026-11-25)
 
 - Web: `typeFocused()` with no text field focused throws `ACTION_FAILED` with the new reason `no_focused_input` and the message `Nothing was typed: no text field has focus (no_focused_input). Use type({ target: 'the email field' }, text), which taps the field and types into it, or tap the field first.` Revyl answers this with HTTP 409, which 0.7.0 reported as `SESSION_BUSY`, so a script or agent gave up on a call it could fix. Your own model's loop now feeds the message back to the model instead of ending the step, because `ACTION_FAILED` doesn't abort it. A session that really is busy, such as a second step while one runs, still throws `SESSION_BUSY`.

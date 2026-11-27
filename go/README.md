@@ -14,6 +14,25 @@ go get github.com/RevylAI/verify/go@v0.6.1
 
 Go releases use independent repository tags such as `go/v0.6.1`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
 
+## Set up your coding agent
+
+The `revyl-verify` skill teaches a coding agent (Claude Code, Cursor, Codex, Capy and others) when and how to check a web page, an app or a Mac with Verify, in Go as well as TypeScript. With Node.js 22.18 or later, run this at the repository root. It writes the skill to `.agents/skills/` and `.claude/skills/`, adds a short Verify section to `AGENTS.md` (or to `CLAUDE.md` when the repository has that and no `AGENTS.md`), and changes nothing when run again:
+
+```sh
+npx @revyl/verify init --no-config --no-install
+```
+
+Without Node.js, copy the skill into the two folders agents read:
+
+```sh
+for dir in .agents/skills .claude/skills; do
+  mkdir -p "$dir/revyl-verify"
+  curl -fsSL https://raw.githubusercontent.com/RevylAI/verify/main/skills/revyl-verify/SKILL.md -o "$dir/revyl-verify/SKILL.md"
+done
+```
+
+Or install the Verify plugin in your agent; see [Set up your coding agent](https://github.com/RevylAI/verify#set-up-your-coding-agent).
+
 ## Quick start: iOS Settings
 
 This program opens the iOS Settings app on a cloud simulator, which every account can run before uploading a build. It starts a real, billable session.
