@@ -21,6 +21,7 @@ from ._models import (
     Platform,
     Point,
     ScreenSize,
+    SessionReport,
     StepResult,
     Target,
 )
@@ -285,6 +286,30 @@ async def async_attach(
             _cancellation=cancellation,
         )
     )
+
+
+async def async_report(
+    session_id: str, *, backend_url: str | None = None, app_url: str | None = None
+) -> SessionReport:
+    """report() for asyncio: reads a session's outcome and steps from Revyl by its ID."""
+    from . import report
+
+    cancellation = Cancellation()
+    task = asyncio.create_task(
+        asyncio.to_thread(
+            report,
+            session_id,
+            backend_url=backend_url,
+            app_url=app_url,
+            _cancellation=cancellation,
+        )
+    )
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        cancellation.cancel()
+        task.add_done_callback(_consume)
+        raise
 
 
 async def _create_session(create: Callable[[Cancellation], Session]) -> AsyncSession:

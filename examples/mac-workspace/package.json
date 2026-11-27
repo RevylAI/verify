@@ -5,11 +5,11 @@
   "description": "Verify example: commands and files on a Revyl Mac computer",
   "type": "module",
   "scripts": {
-    "workspace": "node verify/workspace.ts",
+    "workspace": "node verify/workspace.mts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
-    "@revyl/verify": "0.8.1",
+    "@revyl/verify": "0.8.2",
     "@types/node": "^22.10.0",
     "typescript": "^5.9.0"
   }

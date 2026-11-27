@@ -8,7 +8,7 @@ Web is available to every organization. Create the Web app first; see [Create th
 export REVYL_API_KEY=...            # or: revyl auth login
 export REVYL_WEB_APP_ID=...         # a web app you created in Revyl
 npm install
-node verify/playwright.ts
+node verify/playwright.mts
 ```
 
 `playwright-core` is enough: Playwright connects to Revyl's browser, so it downloads no browser of its own. The rules for CDP on a Verify session, such as using the session's own page and connecting once per `cdp()` call, are in [the API reference](../../packages/verify/docs/api.md#cdp-playwright-puppeteer). Against a backend without CDP, `cdp()` throws `NOT_AVAILABLE_ON_PLATFORM`.

@@ -46,10 +46,10 @@ In CI, Verify never prompts or opens a browser; set `REVYL_API_KEY` as a secret.
 
 ## Scaffold a config (optional)
 
-Use `init` when you want named targets in `verify.config.ts` and a generated example script. It is optional; installing the package is enough to use inline targets. It detects your package manager from the lockfile, asks before adding `@revyl/verify` as a dev dependency, asks what you want to open (iOS by default), adds `.verify/` to `.gitignore`, signs you in through the browser when no credentials are saved, and prints the command that runs the example:
+Use `init` when you want named targets in `verify.config.ts` and a generated example script. It is optional; installing the package is enough to use inline targets. It detects your package manager from the lockfile, asks before adding `@revyl/verify` as a dev dependency, asks what you want to open (iOS by default), adds `.verify/` and `node_modules/` to `.gitignore` when they're missing, signs you in through the browser when no credentials are saved, and prints the command that runs the example:
 
 - `verify.config.ts`: the targets `open()` can start, by name
-- `verify/example.mts`: a script that opens the target, runs steps and takes a screenshot (web/mobile) or checks commands and files (Mac), and closes
+- `verify/example.mts`: a script that opens the target, runs steps and takes a screenshot (web/mobile) or checks commands and files (Mac) inside `try`, and closes the session in `finally`, so it closes even when a step fails
 - `AGENTS.md` and the `revyl-verify` skill in `.agents/skills/` and `.claude/skills/`, so your coding agent uses Verify when you ask it to check something. See [configuration.md](configuration.md#command-line) for where they go and the flags that skip them.
 
 In scripts and CI, pass the answers as flags. Non-interactive runs never prompt or open a browser; provide `REVYL_API_KEY` as a secret. If `init` can't confirm a sign-in after writing the files, it says why, lists signing in as the first next step and exits 0, because the files are written and need no change:
@@ -107,7 +107,7 @@ Illustrative output (durations vary):
 [verify] ios: closed
 ```
 
-Open the link to watch the session live. After the session ends, the link keeps its report and any available recording. The Revyl CLI prints the stored report with `revyl device report --session-id <id>` for web/mobile, or `revyl computer report <id>` for computers. For a computer, call `recording()` after `close()` on the same object: it waits until Revyl has saved the video and returns its private link, without downloading it.
+Open the link to watch the session live. After the session ends, the link keeps its report and any available recording. To read the result later from a terminal, after the script exited, run `npx @revyl/verify report <session-id>` (the id is the end of the link), or `--json` for JSON; a script can call [`report(sessionId)`](api.md#reportsessionid-options). The Revyl CLI also prints the stored report with `revyl device report --session-id <id>` for web/mobile, or `revyl computer report <id>` for computers. For a computer, call `recording()` after `close()` on the same object: it waits until Revyl has saved the video and returns its private link, without downloading it.
 
 For validation verdicts in device reports, inspect each step's `effective_status` and `validation_result`, and compare `validations_passed` with `total_validations`. `passed_steps`, `failed_steps`, and transport `status: success` can describe successful execution of a validation whose verdict is false. See the [live example](end-to-end.md#reading-the-verdict).
 

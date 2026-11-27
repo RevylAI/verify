@@ -2,10 +2,11 @@
 import { rm } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs } from 'node:util';
-import { RevylClient } from '../api/client.js';
+import { DEFAULT_BACKEND_URL, RevylClient } from '../api/client.js';
 import type { Platform } from '../api/types.js';
 import { missingCredentialsMessage, resolveCredentials, revylCredentialsPath } from '../auth.js';
 import { VerifyError, errorMessage, isVerifyError } from '../errors.js';
+import { report, type SessionReport } from '../report.js';
 import { PACKAGE_NAME, VERSION } from '../version.js';
 import { SKILL_DIRECTORIES, SKILL_NAME, setUpAgents } from './agents.js';
 import { existingInitFiles, initProject, validateInitAnswers, webAppIdMissingMessage, type InitAnswers } from './init.js';
@@ -26,6 +27,9 @@ Usage
       Remove the saved Revyl login from this computer
   npx ${PACKAGE_NAME} whoami
       Check which Revyl account your credentials belong to
+  npx ${PACKAGE_NAME} report <session-id> [--json]
+      Print a session's status, link and steps, also after the script that ran it exited.
+      Exits 0 whenever the report was read, whatever the session's outcome.
 
 Authentication
   In a terminal, init, login, and your first open() sign you in through your browser and save the
@@ -90,6 +94,8 @@ export async function main(argv: string[]): Promise<number> {
       if (command === 'login') return signInAndCheck(Boolean(process.stdin.isTTY) && !process.env.CI);
       return command === 'logout' ? logoutCommand() : whoamiCommand();
     }
+    case 'report':
+      return reportCommand(rest);
     default:
       process.stderr.write(`Unknown command: ${command}\n\n${HELP}`);
       return 2;
@@ -145,7 +151,7 @@ async function initCommand(args: string[]): Promise<number> {
   if (writeConfig) {
     answers ??= await askInitQuestions(values['app-id'], values.url);
     const result = await initProject(process.cwd(), answers, { force: values.force ?? false });
-    process.stdout.write(`Created ${result.created.join(' and ')}${result.gitignoreUpdated ? ', and added .verify/ to .gitignore' : ''}.\n`);
+    process.stdout.write(`Created ${result.created.join(' and ')}${result.gitignoreAdded.length > 0 ? `, and added ${result.gitignoreAdded.join(' and ')} to .gitignore` : ''}.\n`);
   } else if (kept.length > 0) {
     process.stdout.write(`Kept ${kept.join(' and ')}, which already exist. Pass --force to overwrite them.\n`);
   }
@@ -216,11 +222,44 @@ async function askInitQuestions(appId: string | undefined, url: string | undefin
 async function whoamiCommand(): Promise<number> {
   const credentials = await resolveCredentials();
   if (!credentials) throw new VerifyError('AUTH_MISSING', missingCredentialsMessage());
-  const who = await new RevylClient({ token: credentials.token }).whoAmI();
+  const client = new RevylClient({ token: credentials.token });
+  const who = await client.whoAmI();
   const name = who.email ?? who.user_id ?? 'an unnamed user';
   const org = who.org_name ?? who.org_id;
   process.stdout.write(`Signed in to Revyl as ${name}${org ? ` in ${org}` : ''} (credentials from ${credentials.source}).\n`);
+  if (client.backendUrl !== DEFAULT_BACKEND_URL) process.stdout.write(`Revyl API: ${client.backendUrl}\n`);
   return 0;
+}
+
+const REPORT_USAGE = `Usage: npx ${PACKAGE_NAME} report <session-id> [--json]`;
+
+async function reportCommand(args: string[]): Promise<number> {
+  const { values, positionals } = parseArgs({ args, allowPositionals: true, options: { json: { type: 'boolean' }, help: { type: 'boolean', short: 'h' } } });
+  if (values.help) {
+    process.stdout.write(`${REPORT_USAGE}\n\nPrints a Revyl session's status, link and steps. --json prints them as JSON.\n`);
+    return 0;
+  }
+  if (positionals.length !== 1) throw new VerifyError('INVALID_ARGUMENT', `report takes one session id. ${REPORT_USAGE}`);
+  const result = await report(positionals[0]!);
+  process.stdout.write(values.json ? `${JSON.stringify(result, null, 2)}\n` : reportText(result));
+  return 0;
+}
+
+function reportText(result: SessionReport): string {
+  const firstLine = (value: string | null) => value?.split(/\r?\n/).find((line) => line.trim() !== '')?.trim();
+  const sessionError = firstLine(result.error);
+  const lines = [
+    `Session ${result.id}${result.platform ? ` (${result.platform})` : ''}: ${result.status}`,
+    `Link: ${result.viewerUrl}`,
+    ...(sessionError ? [`Error: ${sessionError}`] : []),
+  ];
+  if (result.steps.length === 0) lines.push("No steps in Revyl's report for this session.");
+  result.steps.forEach((step, index) => {
+    lines.push(`${index + 1}. ${step.status}  ${step.type}${step.description ? `  ${firstLine(step.description)}` : ''}`);
+    const note = firstLine(step.error) ?? firstLine(step.reasoning);
+    if (note) lines.push(`   ${note}`);
+  });
+  return `${lines.join('\n')}\n`;
 }
 
 async function logoutCommand(): Promise<number> {

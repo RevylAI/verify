@@ -224,20 +224,27 @@ def test_hosted_start_reuses_parent_and_normal_session(
         parent.open(target)
 
 
-@pytest.mark.parametrize("platform", ["web", "ios", "android"])
+_HOSTED_TARGET_CHANGES: list[tuple[str, Callable[[Target], Target]]] = [
+    ("app_id", lambda target: replace(target, app_id=None)),
+    ("build_id", lambda target: replace(target, build_id=None)),
+    ("app_id", lambda target: replace(target, app_id="invalid")),
+    ("build_id", lambda target: replace(target, build_id="invalid")),
+    ("url", lambda target: replace(target, url="https://example.test")),
+    ("branch", lambda target: replace(target, branch="main")),
+    ("bundle_id", lambda target: replace(target, bundle_id="com.example.app")),
+    ("artifact_url", lambda target: replace(target, artifact_url="https://example.test/app.zip")),
+    ("device_model", lambda target: replace(target, device_model="iPhone")),
+    ("os_version", lambda target: replace(target, os_version="27")),
+]
+
+
 @pytest.mark.parametrize(
-    "change",
+    "platform,change",
     [
-        lambda target: replace(target, app_id=None),
-        lambda target: replace(target, build_id=None),
-        lambda target: replace(target, app_id="invalid"),
-        lambda target: replace(target, build_id="invalid"),
-        lambda target: replace(target, url="https://example.test"),
-        lambda target: replace(target, branch="main"),
-        lambda target: replace(target, bundle_id="com.example.app"),
-        lambda target: replace(target, artifact_url="https://example.test/app.zip"),
-        lambda target: replace(target, device_model="iPhone"),
-        lambda target: replace(target, os_version="27"),
+        (platform, change)
+        for platform in ("web", "ios", "android")
+        for name, change in _HOSTED_TARGET_CHANGES
+        if platform != "ios" or name not in ("device_model", "os_version")
     ],
 )
 def test_hosted_target_requires_exact_build_without_overrides(

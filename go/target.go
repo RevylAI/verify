@@ -107,8 +107,22 @@ func (t *Target) validate(hosted bool) error {
 			return bad("AppID and BuildID must be Revyl UUIDs.")
 		}
 	}
-	if hosted && (t.AppID == "" || t.BuildID == "" || t.URL != "" || t.Branch != "" || t.ArtifactURL != "" || t.BundleID != "" || t.DeviceModel != "" || t.OSVersion != "") {
-		return bad("Hosted targets require AppID and BuildID UUIDs and cannot select URLs, branches, artifacts, bundles, or devices.")
+	if hosted {
+		if t.URL != "" || t.Branch != "" || t.ArtifactURL != "" {
+			return bad("computer.Open can't select URL, Branch or ArtifactURL. Pass AppID and BuildID UUIDs, or for iOS a BundleID such as \"com.apple.Preferences\".")
+		}
+		if t.BundleID != "" && t.Platform != IOS {
+			return bad("BundleID works inside a computer only for iOS for now. For web and Android, pass AppID and BuildID UUIDs.")
+		}
+		if t.BundleID == "" && (t.AppID == "" || t.BuildID == "") || t.BundleID != "" && (t.AppID != "" || t.BuildID != "") {
+			if t.Platform == IOS {
+				return bad("computer.Open for iOS takes exactly one of AppID with BuildID (both Revyl UUIDs) or BundleID, such as BundleID: \"com.apple.Preferences\".")
+			}
+			return bad("computer.Open for web and Android needs both AppID and BuildID (Revyl UUIDs).")
+		}
+		if (t.DeviceModel != "" || t.OSVersion != "") && t.Platform != IOS {
+			return bad("DeviceModel and OSVersion work inside a computer only for iOS; leave them out for web and Android.")
+		}
 	}
 	if t.Platform == Web {
 		if t.AppID == "" || t.BundleID != "" || t.ArtifactURL != "" || t.DeviceModel != "" || t.OSVersion != "" {
@@ -141,20 +155,19 @@ func (t *Target) validate(hosted bool) error {
 	if t.URL != "" || t.Branch != "" || t.Viewport != nil || t.SignIn != nil {
 		return bad("URL, Branch, Viewport, and SignIn apply only to web targets.")
 	}
-	if hosted {
-		return nil
-	}
-	sources := 0
-	for _, source := range []string{t.AppID, t.BuildID, t.ArtifactURL, t.BundleID} {
-		if source != "" {
-			sources++
+	if !hosted {
+		sources := 0
+		for _, source := range []string{t.AppID, t.BuildID, t.ArtifactURL, t.BundleID} {
+			if source != "" {
+				sources++
+			}
 		}
-	}
-	if sources != 1 {
-		return bad("Mobile needs exactly one of AppID, BuildID, ArtifactURL, or BundleID.")
-	}
-	if t.ArtifactURL != "" && !strings.HasPrefix(t.ArtifactURL, "https://") {
-		return bad("ArtifactURL must use HTTPS.")
+		if sources != 1 {
+			return bad("Mobile needs exactly one of AppID, BuildID, ArtifactURL, or BundleID.")
+		}
+		if t.ArtifactURL != "" && !strings.HasPrefix(t.ArtifactURL, "https://") {
+			return bad("ArtifactURL must use HTTPS.")
+		}
 	}
 	for _, item := range []struct {
 		value string

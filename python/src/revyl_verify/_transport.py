@@ -372,6 +372,23 @@ def origin(raw: str, *, app: bool = False) -> str:
         raise VerifyError("CONFIG_INVALID", message) from None
 
 
+def backend_origin(backend_url: str | None = None) -> str:
+    return _configured_origin(backend_url, "REVYL_BACKEND_URL", "https://backend.revyl.ai", False)
+
+
+def app_origin(app_url: str | None = None) -> str:
+    return _configured_origin(app_url, "REVYL_APP_URL", "https://app.revyl.ai", True)
+
+
+def _configured_origin(explicit: str | None, variable: str, default: str, app: bool) -> str:
+    if explicit:
+        return origin(explicit, app=app)
+    configured = os.environ.get(variable, "").strip()
+    if configured:
+        return origin(configured, app=app)
+    return default
+
+
 def refusal_reason(response: Response) -> RefusalReason | None:
     try:
         raw = obj(response.json())
@@ -593,10 +610,9 @@ class Client:
         app_url: str | None = None,
         cancellation: Cancellation | None = None,
     ) -> None:
-        self.base = origin(backend_url or "https://backend.revyl.ai")
-        self._token = credentials(
-            self.base, origin(app_url or "https://app.revyl.ai", app=True), cancellation
-        )
+        self.base = backend_origin(backend_url)
+        self.app = app_origin(app_url)
+        self._token = credentials(self.base, self.app, cancellation)
 
     def request(
         self,
@@ -634,7 +650,7 @@ class Client:
         headers = {
             "Authorization": f"Bearer {self._token}",
             "Accept": "application/json",
-            "User-Agent": "revyl-verify/0.6.1 python",
+            "User-Agent": "revyl-verify/0.6.2 python",
             "X-Revyl-Client": "verify",
         }
         if worker:
@@ -656,11 +672,20 @@ class Client:
             )
         except TimeoutError:
             raise VerifyError("TIMEOUT", "Revyl HTTP client timed out.") from None
-        except (OSError, http.client.HTTPException, ValueError):
+        except (OSError, http.client.HTTPException, ValueError) as error:
             deadline.remaining()
+            cause = (
+                error.strerror
+                if isinstance(error, OSError) and error.strerror
+                else str(error)
+                if isinstance(error, (OSError, http.client.HTTPException))
+                else ""
+            )
             raise VerifyError(
                 "API_ERROR",
-                "Could not reach Revyl; the request was not replayed unless it is safe to retry.",
+                f"Could not reach Revyl at {self.base}: "
+                f"{' '.join(str(cause).split())[:200] or type(error).__name__}; "
+                "the request was not replayed unless it is safe to retry.",
             ) from None
 
     def json(

@@ -7,14 +7,14 @@
 Mac computers are available to organizations on a current paid Revyl plan. See computers.md#availability-and-errors.
 
 - [Getting started](getting-started.md): install, authenticate, init, run a script
-- [API](api.md): open() and session profiles (Revyl runs a profile from .revyl/config.yaml before open() returns), attach(), hosted children, navigate(), cdp() for Playwright and Puppeteer on web, report(), agent steps, extract(), screenshot(), exec(), file/process methods, close(), persistent computers
-- [Configuration](configuration.md): verify.config.ts targets, environment variables, the init and whoami commands
+- [API](api.md): open() and session profiles (Revyl runs a profile from .revyl/config.yaml before open() returns), attach(), hosted children, navigate(), cdp() for Playwright and Puppeteer on web, session.report(), report(sessionId) for a finished session after the script exited, agent steps, extract(), screenshot(), exec(), file/process methods, close(), persistent computers
+- [Configuration](configuration.md): verify.config.ts targets, environment variables, the init, whoami and report <session-id> [--json] commands
 - [Web](web.md): Revyl web sessions, URLs and builds, sign-in, steps, and exact actions
 - [Mobile](mobile.md): iOS and Android devices, installing apps, and exact actions
-- [Computers](computers.md#availability-and-errors): Mac availability, commands and files, the screen (clicks, typing and keys), validation() and extract() on a Mac opened with inference, app sessions inside a Mac, persistent computers, expiry, capacity errors, recording metadata, and confirmed release
+- [Computers](computers.md#availability-and-errors): Mac availability, commands and files, the screen (clicks, typing and keys), validation() and extract() on a Mac opened with inference, app sessions inside a Mac (iOS by bundleId, such as com.apple.Preferences, or appId and buildId; device model and OS version; launchApp), the workspace path ($HOME is the workspace; file calls take workspace-relative paths), persistent computers, expiry, capacity errors, recording metadata, and confirmed release
 - [Verify working end to end](end-to-end.md): live verification scope, observed outcomes, and limits of the evidence
 - [CI and test runners](ci.md): GitHub Actions, node:test, Vitest, Jest, Playwright Test
-- [Use your own model](own-model.md): run instructions and validations on Claude, GPT, Gemini, a local model or any OpenAI-compatible endpoint; providers, limits, privacy and troubleshooting
+- [Use your own model](own-model.md): run instructions and validations on Claude, GPT, Gemini, a local model or any OpenAI-compatible endpoint; extract() is refused with your own model; providers, limits, privacy and troubleshooting
 - [Errors](errors.md): every error code and what to do about it
 - [For coding agents](agents.md): the workflow and rules for agents using Verify, and the coordinate rule for exact actions
 
@@ -22,12 +22,16 @@ Mac computers are available to organizations on a current paid Revyl plan. See c
 
 - [Check an iOS change](guides/check-an-ios-change.md): open({ platform: 'ios' }), one instruction and one validation, the live link, your own app's appId or buildId; Python and Go
 - [Every platform](guides/every-platform.md): the same checks on web, iOS and Android in parallel with Promise.allSettled; Python threads and Go goroutines
-- [Session profiles](guides/session-profiles.md): .revyl/config.yaml, a sign-in script that writes the browser's storage state and first page, open(target, { profile }); errors
+- [Session profiles](guides/session-profiles.md): .revyl/config.yaml whose project.id names a project that already exists in Revyl, a sign-in script that writes the browser's storage state and a first page that answers 200, open(target, { profile }); project_not_found and other errors
 - [Playwright over CDP](guides/playwright-cdp.md): session.cdp(), chromium.connectOverCDP(url), the session's page, validation() while attached; single-use url and limits
 - [A cloud Mac](guides/mac-computer.md): open({ platform: 'mac' }), exec(), writeFile()/readFile(), tap({ target }), type({ target }, text), pressKey(), recording() after close()
 - [Checks on a Mac's own model](guides/mac-model-checks.md): open({ platform: 'mac', inference: true }), then validation() and extract() answered by the Mac's vision model, with no inference charge; readiness and refusals
-- [Apps inside an inference Mac](guides/apps-inside-an-inference-mac.md): iOS and Web sessions from computer.open() run validations and single-tap instructions on the Mac's model first by default; engine, opt-out with inference: false, billing
-- [Persistent computers and snapshots](guides/persistent-computers.md): openPersistent(), saveSnapshot(), fromSnapshot copies, what is kept, lifetimes, limits, cleanup, and use cases
+- [Apps inside an inference Mac](guides/apps-inside-an-inference-mac.md): computer.open({ platform: 'ios', app: { bundleId: 'com.apple.Preferences' } }) runs as written; iOS and Web sessions from computer.open() run validations and single-tap instructions on the Mac's model first by default; engine, opt-out with inference: false, billing
+- [Persistent computers and snapshots](guides/persistent-computers.md): openPersistent(), saveSnapshot(), fromSnapshot copies, what is kept, lifetimes, a timeout budget for CI, limits, cleanup (deletePersistent and deleteSnapshot throw NOT_FOUND for a missing name or ID), and use cases
+
+## Versions
+
+TypeScript @revyl/verify 0.8.2 = Python revyl-verify 0.6.2 = Go github.com/RevylAI/verify/go v0.7.2: one release, the same features in each language.
 
 ## Exact actions and coordinates
 

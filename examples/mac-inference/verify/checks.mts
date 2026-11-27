@@ -10,14 +10,12 @@ try {
 
   const appId = process.env.IOS_APP_ID;
   const buildId = process.env.IOS_BUILD_ID;
-  if (appId && buildId) {
-    const app = await mac.open({ platform: 'ios', app: { appId, buildId } });
-    try {
-      const shown = await app.validation("The app's first screen is showing", { soft: true });
-      console.log('App first screen:', shown.passed, `(${shown.engine})`);
-    } finally {
-      await app.close();
-    }
+  const app = await mac.open({ platform: 'ios', app: appId && buildId ? { appId, buildId } : { bundleId: 'com.apple.Preferences' } });
+  try {
+    const shown = await app.validation("The app's first screen is showing", { soft: true });
+    console.log('App first screen:', shown.passed, `(${shown.engine})`);
+  } finally {
+    await app.close();
   }
 } finally {
   await mac.close();

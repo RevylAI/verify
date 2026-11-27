@@ -1,6 +1,6 @@
 # Use your own model
 
-**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0; the [Python](https://github.com/RevylAI/verify/blob/v0.8.1/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.8.1/go/README.md#your-own-model) READMEs show them with each language's names. Verify normally runs `instruction()` and `validation()` on Revyl's agent. Pass a `model` and the agent loop runs in your process instead, on a model you choose, with your own key. Revyl still provides the cloud browser or device and, by default, finds the elements your model names on screen.
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0; the [Python](https://github.com/RevylAI/verify/blob/v0.8.2/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.8.2/go/README.md#your-own-model) READMEs show them with each language's names. Verify normally runs `instruction()` and `validation()` on Revyl's agent. Pass a `model` and the agent loop runs in your process instead, on a model you choose, with your own key. Revyl still provides the cloud browser or device and, by default, finds the elements your model names on screen. `extract()` is the exception: it runs only on Revyl's agent, so on a session opened with `model` or `agent` it throws `INVALID_ARGUMENT` before anything is sent; read the value from `screenshot()` with your model instead.
 
 Use it when you want a specific model, your own prompts and key, or faster steps on a cheap model. Leave `model` out and nothing changes.
 
@@ -52,7 +52,7 @@ log.Println(step.Model.ID, len(step.Model.Turns), step.Model.InputTokens, step.M
 _, err = s.Validation(ctx, "The screen shows the iOS version")
 ```
 
-The [Python](https://github.com/RevylAI/verify/blob/v0.8.1/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.8.1/go/README.md#your-own-model) READMEs have the full reference for each.
+The [Python](https://github.com/RevylAI/verify/blob/v0.8.2/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.8.2/go/README.md#your-own-model) READMEs have the full reference for each.
 
 Set `model` on `open()` to run every step on it, or on one step to override it:
 
@@ -212,5 +212,6 @@ The session link works as usual and shows the recording. On iOS and Android, you
 
 ## Not supported yet
 
-- Mac computers: `model` and `agent` work on Web, iOS and Android sessions only.
+- `extract()`: it throws `INVALID_ARGUMENT` on a session opened with `model` or `agent`. Read the value from `screenshot()` with your model, or open a second session without `model` for it.
+- Mac computers: `model` and `agent` work on Web, iOS and Android sessions only, and not on iOS or Web sessions inside a cloud Mac, whose `computer.open(target)` takes only a target.
 - Agent runtimes that run their own loop, such as Claude Code over ACP. Wrap a single-call model in a `ModelAdapter` instead.

@@ -24,7 +24,6 @@ from ._transport import (
     edge_blocked_error,
     mac_upgrade_message,
     obj,
-    origin,
     timestamp,
 )
 
@@ -524,15 +523,27 @@ def delete_snapshot(
     """
     _check_snapshot(snapshot, "delete_snapshot()")
     client, progress, _ = _connect(backend_url, app_url, log)
+    deadline = Deadline(60)
+    not_found = (
+        f"There is no snapshot named or with the ID {snapshot}. "
+        "list_snapshots() shows your organization's snapshots."
+    )
+    found = _to_snapshot(
+        _call(
+            client,
+            "GET",
+            f"{_BASE}/snapshots/{quote(snapshot, safe='')}",
+            deadline,
+            not_found=not_found,
+        ).json()
+    )
     _call(
         client,
         "DELETE",
-        f"{_BASE}/snapshots/{quote(snapshot, safe='')}",
-        Deadline(60),
+        f"{_BASE}/snapshots/{quote(found.id, safe='')}",
+        deadline,
         retry=True,
-        not_found=f"There is no snapshot named or with the ID {snapshot}. "
-        "list_snapshots() shows your "
-        "organization's snapshots.",
+        not_found=not_found,
     )
     if progress:
         progress(f"snapshot {snapshot}: deleted")
@@ -545,8 +556,8 @@ def _connect(
 
     progress = _progress(log)
     install_signal_cleanup()
-    viewer = origin(app_url or "https://app.revyl.ai", app=True).rstrip("/")
-    return Client(backend_url, app_url), progress, viewer
+    client = Client(backend_url, app_url)
+    return client, progress, client.app
 
 
 def _find(

@@ -35,7 +35,7 @@ describe('initProject', () => {
     const dir = await mkdtemp(join(tmpdir(), 'verify-init-'));
     await writeFile(join(dir, '.gitignore'), 'node_modules');
     const result = await initProject(dir, { platform: 'web', appId: APP_ID, url: 'https://shop.example.com' });
-    expect(result).toEqual({ created: ['verify.config.ts', 'verify/example.mts'], gitignoreUpdated: true });
+    expect(result).toEqual({ created: ['verify.config.ts', 'verify/example.mts'], gitignoreAdded: ['.verify/'] });
     const config = await readFile(join(dir, 'verify.config.ts'), 'utf8');
     expect(config).toContain(`from '${PACKAGE_NAME}'`);
     expect(config).toContain(`appId: '${APP_ID}'`);
@@ -46,7 +46,7 @@ describe('initProject', () => {
     expect(script).toContain('session.validation(');
     expect(script).toContain('session.close()');
     expect(await readFile(join(dir, '.gitignore'), 'utf8')).toBe('node_modules\n.verify/\n');
-    expect((await initProject(dir, { platform: 'web', appId: APP_ID }, { force: true })).gitignoreUpdated).toBe(false);
+    expect((await initProject(dir, { platform: 'web', appId: APP_ID }, { force: true })).gitignoreAdded).toEqual([]);
   });
 
   it('writes a mobile config whose target matches the example script', async () => {

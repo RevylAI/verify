@@ -87,6 +87,9 @@ func rejectProfile(options []OpenOptions) error {
 	return nil
 }
 
+// Open starts a web, iOS or Android session inside this computer. Web and Android take AppID and BuildID UUIDs. iOS
+// takes AppID and BuildID, or a BundleID of an app already installed on the simulator, such as
+// "com.apple.Preferences", and optionally DeviceModel and OSVersion.
 func (s *Session) Open(ctx context.Context, target Target) (*Session, error) {
 	if !s.platform.computer() {
 		return nil, failure(ErrNotAvailableOnPlatform, "Only a computer can host a session.")
@@ -133,7 +136,12 @@ func (s *Session) Open(ctx context.Context, target Target) (*Session, error) {
 		return nil, failure(ErrAPI, "Could not generate a hosted session ID.")
 	}
 	child := &Session{client: s.client, id: id, platform: target.Platform, viewer: s.viewerBase + "/sessions/" + url.PathEscape(id), stepTimeout: s.stepTimeout, log: s.log, host: s, lifetime: s.lifetime}
-	request := map[string]any{"platform": target.Platform, "session_id": id, "computer_session_id": s.id, "app_id": target.AppID, "build_id": target.BuildID, "idle_timeout_seconds": target.IdleTimeoutSeconds}
+	request := map[string]any{"platform": target.Platform, "session_id": id, "computer_session_id": s.id, "idle_timeout_seconds": target.IdleTimeoutSeconds}
+	for key, value := range map[string]string{"app_id": target.AppID, "build_id": target.BuildID, "device_model": target.DeviceModel, "os_version": target.OSVersion} {
+		if value != "" {
+			request[key] = value
+		}
+	}
 	if target.Platform == Web {
 		web := map[string]any{}
 		if target.Viewport != nil {
@@ -156,13 +164,13 @@ func (s *Session) Open(ctx context.Context, target Target) (*Session, error) {
 	r, err := s.client.send(ctx, http.MethodPost, "/api/v1/execution/start_device", request, false, 2*time.Minute, false)
 	reason := refusalReason(r)
 	if err == nil && ((r.status >= 400 && r.status < 500 && r.status != 408) || (r.status == 503 && reason != "" && reason != ReasonRequestTimeout && reason != ReasonProtocolError)) {
-		return nil, hostedStartError(r, target.Platform, parentInference)
+		return nil, hostedStartError(r, target, parentInference)
 	}
 	s.mu.Lock()
 	s.children = append(s.children, child)
 	s.mu.Unlock()
 	if err == nil && (r.status < 200 || r.status >= 300) {
-		err = hostedStartError(r, target.Platform, parentInference)
+		err = hostedStartError(r, target, parentInference)
 	}
 	if err == nil {
 		var start struct {
@@ -206,15 +214,30 @@ func (s *Session) Open(ctx context.Context, target Target) (*Session, error) {
 	return child, nil
 }
 
-func hostedStartError(r response, platform Platform, parentInference bool) error {
+func hostedStartError(r response, target Target, parentInference bool) error {
 	code := ErrAPI
 	reason := refusalReason(r)
+	platform := target.Platform
 	if reason == ReasonComputerLocalInferenceUnavailable {
 		fix := "Open the computer with " + macInferenceOpen + " to use its model, or"
 		if parentInference {
 			fix = "It was opened with Inference set to true but its Mac's model isn't answering now (computer.Inference() shows it); try again shortly, or"
 		}
 		return &Error{Code: ErrNotAvailableOnPlatform, Reason: reason, HTTPStatus: r.status, Message: fmt.Sprintf("Revyl refused the %s session's local inference (computer_local_inference_unavailable): the hosting computer has no vision model answering. %s pass Inference: new(false) in the Target you give computer.Open to run this session's steps on Revyl's hosted model.", platform, fix)}
+	}
+	if reason == ReasonNotAvailableOnPlatform && r.status == 422 && (target.DeviceModel != "" || target.OSVersion != "") {
+		var body struct {
+			Detail struct {
+				Message string `json:"message"`
+			} `json:"detail"`
+		}
+		if json.Unmarshal(r.body, &body) == nil && strings.TrimSpace(body.Detail.Message) != "" {
+			message := strings.TrimSpace(body.Detail.Message)
+			if len(message) > 500 {
+				message = strings.ToValidUTF8(message[:500], "")
+			}
+			return &Error{Code: ErrNotAvailableOnPlatform, Reason: reason, HTTPStatus: r.status, Message: "Revyl can't run the requested iOS device inside this computer (not_available_on_platform): " + sentence(message)}
+		}
 	}
 	switch {
 	case r.status == 401 || r.status == 403:

@@ -8,9 +8,9 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "start": "node --env-file-if-exists=.env mac-remembers.ts"
+    "start": "node --env-file-if-exists=.env mac-remembers.mts"
   },
   "devDependencies": {
-    "@revyl/verify": "0.8.0"
+    "@revyl/verify": "0.8.2"
   }
 }

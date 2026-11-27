@@ -8,7 +8,7 @@ Web is available to every organization. Create the Web app first; see [Create th
 export REVYL_API_KEY=...            # or: revyl auth login
 export REVYL_WEB_APP_ID=...         # a web app you created in Revyl
 npm install
-node verify/checkout.ts
+node verify/checkout.mts
 ```
 
 The script uses the default Revyl service. `REVYL_WEB_APP_ID` names the web app in Revyl. Against a backend without web steps, the script stops at its first step with `NOT_AVAILABLE_ON_PLATFORM`.

@@ -532,7 +532,7 @@ const REFUSALS: Record<string, { code: VerifyError['code']; fix: (plan: SessionP
   session_profile_files_need_named: { code: 'INVALID_ARGUMENT', fix: () => 'Update Verify to the latest version; it sends checkout files only with a named profile.' },
   session_profile_script_unavailable: { code: 'SESSION_PROFILE_FAILED', fix: () => 'Commit the script or add it to .revyl/scripts, or create the Library Script with that name in your Revyl organization.' },
   repository_connection_missing: { code: 'CONFIG_INVALID', fix: () => "Connect the repository's GitHub or GitLab app to the project in Revyl, then open the session again." },
-  project_not_found: { code: 'CONFIG_INVALID', fix: (plan) => `project.id in ${plan.configPath ?? '.revyl/config.yaml'} isn't a project in this API key's organization. Use a key from that organization, or fix project.id.` },
+  project_not_found: { code: 'CONFIG_INVALID', fix: (plan) => `project.id in ${plan.configPath ?? '.revyl/config.yaml'} must name a project that already exists in Revyl, in this API key's organization. 'revyl init' writes a new id that Revyl doesn't know until the project is published: connect the repository to Revyl ('revyl github connect'), then run 'revyl config push' from the checkout. Or put an existing project's id in project.id, or open with ${NONE_HINT} to start without a session profile.` },
   repository_unavailable: { code: 'API_ERROR', fix: () => "Revyl couldn't read the repository after 3 attempts. Try again in a few minutes." },
 };
 

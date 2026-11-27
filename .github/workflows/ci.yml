@@ -64,6 +64,18 @@ jobs:
           test -z "$(gofmt -l .)"
           go vet ./...
 
+  links:
+    name: Links
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Every link the skill, READMEs and llms.txt hand an agent answers 200 and pins no older release
+        run: npm run check:links
+
   test:
     name: Node ${{ matrix.node }}
     runs-on: ubuntu-latest

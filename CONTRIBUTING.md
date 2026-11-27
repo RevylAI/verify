@@ -12,6 +12,8 @@ npm run check:package
 
 Tests use a fake Revyl API and need no account. Do not start live sessions merely to run the test suite; any live run needs an authorized account, environment, and workload limit. Never put credentials, private URLs, or customer data in fixtures, logs, screenshots, issues, or pull requests. Follow [SECURITY.md](SECURITY.md) for private reports.
 
+`REVYL_BACKEND_URL` and `REVYL_APP_URL` select another Revyl environment, such as staging, for every SDK and the Verify CLI; they are the same names as the Revyl CLI's.
+
 For the Go SDK, use Go 1.26.9 or later and run `test -z "$(gofmt -l .)"`, `go vet ./...`, and `go test -race ./...` from `go/`. See [the Go SDK guide](go/README.md). Both SDKs consume `go/testdata/device-contract.json` and `go/testdata/computer-contract.json`; keep those fixtures aligned with the public API.
 
 For the Python SDK, use Python ≥3.10 and `uv`. From `python/`, run `uv sync --frozen`, `uv run --frozen ruff check .`, `uv run --frozen ruff format --check .`, `uv run --frozen mypy`, and `uv run --frozen pytest`. Build with `uv build` into an empty `dist/`, then run `uv run --frozen python -m twine check --strict dist/*` and `uv run --frozen python scripts/check_package.py`. The latter installs the wheel in an isolated fresh venv and runs a fake-server smoke without pytest. Regenerate `python/uv.lock` using `uv lock` after intentional dependency changes. See [the Python guide](python/README.md); no live sessions are part of these checks.

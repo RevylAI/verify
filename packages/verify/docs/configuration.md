@@ -74,7 +74,7 @@ Computers do not accept `idleTimeoutSeconds`, image, provider, or cwd. The serve
 
 ## Command line
 
-Hosted children use `computer.open(target)` rather than named config targets. Unlike ordinary mobile targets, they require an existing app/build pair and use the computer's fixed device profile. See [the hosted API](api.md#computeropentarget).
+Hosted children use `computer.open(target)` rather than named config targets. An iOS child takes `app: { bundleId }`, such as `'com.apple.Preferences'`, or an existing `app: { appId, buildId }` pair, plus an optional `device: { model, osVersion }`; a Web child takes an existing app/build pair. `url`, `branch` and `artifactUrl` aren't accepted there. See [the hosted API](api.md#computeropentarget).
 
 Use the explicitly scoped package command below. Installing `@revyl/verify` provides the `verify` and `revyl-verify` bins. The separate `revyl-verify` npm alias also provides `npx revyl-verify` with the same behavior; bare `npx verify` can fetch an unrelated package. Scripts run with `node`, not through the CLI.
 
@@ -83,11 +83,12 @@ npx @revyl/verify init [--platform ios|android|web|mac] [--app-id <id>] [--url <
 npx @revyl/verify login
 npx @revyl/verify logout
 npx @revyl/verify whoami
+npx @revyl/verify report <session-id> [--json]
 npx @revyl/verify --help
 npx @revyl/verify --version
 ```
 
-- `init` writes `verify.config.ts` and `verify/example.mts`, and adds `.verify/` to `.gitignore`. Without `--platform` it asks its questions interactively, defaulting to iOS. When either file already exists, it keeps both and needs no `--platform`; `--force` overwrites them. `--no-config` skips them. `init --help` lists its options.
+- `init` writes `verify.config.ts` and `verify/example.mts`, and adds `.verify/` and `node_modules/` to `.gitignore` when they aren't there yet, printing what it added. The example runs its steps in `try { … } finally { await session.close(); }`, so the session closes even when a step fails. Without `--platform` it asks its questions interactively, defaulting to iOS. When either file already exists, it keeps both and needs no `--platform`; `--force` overwrites them. `--no-config` skips them. `init --help` lists its options.
 - `init` sets up your coding agent at the repository root, the nearest folder above with a `.git`. It writes the `revyl-verify` skill to `.agents/skills/revyl-verify/SKILL.md` and `.claude/skills/revyl-verify/SKILL.md`: Cursor, Codex and Capy read `.agents/skills/`, and Claude Code reads `.claude/skills/`. It adds a Verify section between `<!-- verify:start` and `<!-- verify:end -->` to `AGENTS.md`, creating the file when it's missing. A repository with a `CLAUDE.md` (or `.claude/CLAUDE.md`) and no `AGENTS.md` gets the section in `CLAUDE.md` instead, because Claude Code reads only `CLAUDE.md` when one exists. Running `init` again replaces only that section and the skill, so it changes nothing until a new Verify version changes them. `--no-agents-md` skips the section and `--no-skill` skips the skill. `init` writes no MCP configuration: Verify runs in your scripts, so it needs no MCP server.
 - iOS and Android without `--app-id` target the device's built-in Settings app by bundle id (`com.apple.Preferences`, `com.android.settings`), so the example runs before you upload a build. Web requires `--app-id`; without it, `init` writes no files and explains how to create the Web app ([web.md](web.md#create-the-web-app)).
 - `npx @revyl/verify init --platform mac` needs no app id and generates a command/file script. `--app-id` is rejected for Mac, and `--url` applies only to web.
@@ -96,7 +97,17 @@ npx @revyl/verify --version
 - `login` signs in through Revyl's browser approval flow and saves the login to `~/.revyl/credentials.json`, which the Revyl CLI shares. It needs a terminal; in CI, set `REVYL_API_KEY`.
 - `logout` deletes `~/.revyl/credentials.json`. The API key it held keeps working until you delete it in Revyl under Settings → API keys, and a `REVYL_API_KEY` in the environment still applies.
 - `whoami` prints the Revyl account and organization your credentials belong to.
+- `report <session-id>` reads a finished session from Revyl, including after the script that ran it exited: its status, link and each step's verdict, with the first line of the reasoning or error. `--json` prints the [`SessionReport`](api.md#reportsessionid-options) as JSON. It exits 0 whenever it read the report, whatever the session's outcome, so check the status or the steps' verdicts:
+
+  ```text
+  Session <id> (web): completed
+  Link: https://app.revyl.ai/sessions/<id>
+  1. passed  validation  The Revyl pricing page has loaded …
+     <first line of the reasoning or error>
+  ```
+
+  A session with no steps in Revyl's report, such as a computer, prints `No steps in Revyl's report for this session.`
 
 Running `init` again changes nothing: it keeps the config and example, finds Verify already installed, and finds the agent setup up to date. It still checks the sign-in.
 
-Exit codes: `0` success, including an `init` that wrote its files but couldn't confirm a sign-in; `1` a Revyl or file error; `2` a usage or authentication problem.
+Exit codes: `0` success, including an `init` that wrote its files but couldn't confirm a sign-in and a `report` of a failed session; `1` a Revyl or file error, including `report` of a session Revyl doesn't have (`NOT_FOUND`); `2` a usage or authentication problem.

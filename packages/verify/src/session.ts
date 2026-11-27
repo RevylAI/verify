@@ -44,7 +44,7 @@ const LIVE_STEP_NOT_FOUND = /^live step not found/i;
 const STEP_CANCEL_TIMEOUT_MS = 5_000;
 const MAX_STEP_TEXT_LENGTH = 4_000;
 const ENDED_STATUSES = new Set(['completed', 'failed', 'cancelled', 'timeout', 'stopping']);
-const FINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'timeout']);
+export const FINAL_STATUSES: ReadonlySet<string> = new Set(['completed', 'failed', 'cancelled', 'timeout']);
 const REPORT_SETTLE_MS = 5_000;
 const STEP_TERMINAL_STATUSES = new Set(['completed', 'failed']);
 const SESSION_NOT_RUNNING = /session is (not running|not active|stopping)/i;
@@ -203,7 +203,10 @@ export interface Session {
 }
 
 export interface OpenedSession extends Session {
-  /** The session's metadata from Revyl. After close(), waits up to 5 seconds for a final status: completed, failed, cancelled or timeout. */
+  /**
+   * The session's metadata from Revyl. After close(), waits up to 5 seconds for a final status: completed, failed, cancelled or timeout.
+   * To read a session's outcome and steps after this process exits, call report(session.id) from the package.
+   */
   report(): Promise<Record<string, unknown>>;
   navigate(url: string): Promise<void>;
   open(target: HostedTargetConfig): Promise<OpenedSession>;
@@ -244,7 +247,7 @@ export interface OpenedSession extends Session {
   goHome(): Promise<void>;
   /** Opens a URL or deep link on a device, or loads a URL in a browser. */
   openUrl(url: string): Promise<void>;
-  /** Launches an installed app by bundle ID or package name. Devices only. */
+  /** Launches an installed app by bundle ID or package name on iOS and Android, including iOS sessions opened inside a cloud Mac with computer.open(), such as launchApp('com.apple.Preferences'). Not on Web. */
   launchApp(bundleId: string): Promise<void>;
   /** Asks Revyl's grounding model where an element is on the current screen, in screenshot pixels. Browsers and devices only. */
   locate(target: string): Promise<Point>;
@@ -391,9 +394,11 @@ export class DeviceSession implements Session {
       platform: target.platform,
       session_id: id,
       computer_session_id: parent.id,
-      app_id: target.app.appId,
-      build_id: target.app.buildId,
+      ...(target.app.appId ? { app_id: target.app.appId } : {}),
+      ...(target.app.buildId ? { build_id: target.app.buildId } : {}),
       idle_timeout_seconds: target.idleTimeoutSeconds,
+      ...(target.platform !== 'web' && target.device?.model ? { device_model: target.device.model } : {}),
+      ...(target.platform !== 'web' && target.device?.osVersion ? { os_version: target.device.osVersion } : {}),
       ...(target.platform === 'web' ? { web: {
         ...(target.viewport ? { viewport: { width: target.viewport.width, height: target.viewport.height, device_scale_factor: target.viewport.deviceScaleFactor } } : {}),
         ...(target.signIn ? { sign_in: { path: target.signIn.path, secret_name: target.signIn.secret, persona: target.signIn.persona } } : {}),
@@ -422,7 +427,8 @@ export class DeviceSession implements Session {
           : response.status === 422 || response.status === 400 ? 'INVALID_ARGUMENT'
           : response.status === 409 ? 'SESSION_BUSY'
           : response.status === 408 || response.status >= 500 ? 'ACTION_UNCERTAIN' : 'API_ERROR';
-        throw new VerifyError(code, `Revyl refused the hosted session start (${reason ?? `HTTP ${response.status}`}).`, { reason, httpStatus: response.status });
+        const explanation = reason === 'not_available_on_platform' ? refusalMessage(response) : undefined;
+        throw new VerifyError(code, `Revyl refused the hosted session start (${reason ?? `HTTP ${response.status}`})${explanation ? `: ${sentence(explanation)}` : '.'}`, { reason, httpStatus: response.status });
       }
       const start = parseJson<StartDeviceResponse>(response, 'hosted session start');
       if (!start || typeof start !== 'object' || Array.isArray(start)) throw new VerifyError('API_ERROR', 'Revyl returned an invalid hosted session response.');
@@ -433,6 +439,7 @@ export class DeviceSession implements Session {
         if (target.platform === 'web') await session.waitForWebReady(deadline);
         else {
           await session.waitForDeviceReady(deadline);
+          if ('bundleId' in target.app && target.app.bundleId) await session.launch(target.app.bundleId);
           await session.waitForScreenContent(deadline);
         }
       });
@@ -838,7 +845,7 @@ export class DeviceSession implements Session {
     await this.perform({ kind: 'open_url', url });
   }
 
-  /** Launches an installed app by bundle ID or package name. Devices only. */
+  /** Launches an installed app by bundle ID or package name on iOS and Android, including iOS sessions opened inside a cloud Mac with computer.open(), such as launchApp('com.apple.Preferences'). Not on Web. */
   async launchApp(bundleId: string): Promise<void> {
     if (this.platform === 'web') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', 'launchApp() is available only on iOS and Android sessions; on web, use openUrl() or navigate().');
     if (typeof bundleId !== 'string' || !/^[A-Za-z0-9._-]{1,255}$/.test(bundleId)) throw new VerifyError('INVALID_ARGUMENT', 'launchApp() takes a bundle ID or package name.');
@@ -1310,6 +1317,21 @@ function pointBody(point: Point & { screenToken?: string }, at: Location | undef
 
 function formatDuration(ms: number): string {
   return ms < 60_000 ? `${(ms / 1_000).toFixed(1)}s` : `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1_000)}s`;
+}
+
+/** The human message Revyl sends with a refusal, such as an unsupported device model and OS version, when it has one. */
+function refusalMessage(response: RawResponse): string | undefined {
+  let body: unknown;
+  try {
+    body = JSON.parse(new TextDecoder().decode(response.body));
+  } catch {
+    return undefined;
+  }
+  if (!body || typeof body !== 'object') return undefined;
+  const record = body as Record<string, unknown>;
+  const detail = record.detail && typeof record.detail === 'object' ? (record.detail as Record<string, unknown>) : {};
+  const message = [detail.message, record.message].find((value): value is string => typeof value === 'string' && value.trim() !== '');
+  return message?.replace(/[\x00-\x1f\x7f]+/g, ' ').trim().slice(0, 500);
 }
 
 function sentence(reason: string | undefined): string {

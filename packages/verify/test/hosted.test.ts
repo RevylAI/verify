@@ -144,7 +144,7 @@ describe('attached computers and hosted children', () => {
       { platform: 'android', app: { appId: APP_ID, buildId: BUILD_ID } },
       { ...web, app: { appId: APP_ID } },
       { ...web, app: { appId: APP_ID, buildId: BUILD_ID, url: 'http://localhost:3000' } },
-      { platform: 'ios', app: { appId: APP_ID, buildId: BUILD_ID }, device: { model: 'Other phone' } },
+      { platform: 'ios', app: { appId: APP_ID, buildId: BUILD_ID, artifactUrl: 'https://example.com/app.zip' } },
     ]) await expect(parent.open(target as typeof web)).rejects.toBeDefined();
     expect(fake.calls('POST', /\/start_device$/)).toHaveLength(0);
   });

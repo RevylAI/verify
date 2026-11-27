@@ -2,7 +2,7 @@
 
 A Verify web session runs in a Revyl cloud browser, and `session.cdp()` hands you a Chrome DevTools Protocol endpoint for that browser. Attach Playwright to it, drive the page with selectors you already trust, and ask Verify whether the result looks right in plain language. The session's link records both.
 
-Works with TypeScript `@revyl/verify` 0.7.1 and Python `revyl-verify` 0.5.1, and Go `github.com/RevylAI/verify/go` v0.6.1 with chromedp.
+Python works the same way, and Go with chromedp.
 
 ## What you'll build
 
@@ -16,7 +16,7 @@ A script that opens a cloud browser on [Sauce Demo](https://www.saucedemo.com), 
 
 ## The script
 
-Save this as `playwright-cdp.ts`:
+Save this as `playwright-cdp.mts`:
 
 ```ts
 import { open } from '@revyl/verify';
@@ -48,7 +48,7 @@ try {
 }
 ```
 
-Run it with `WEB_APP_ID=<your web app id> node playwright-cdp.ts`:
+Run it with `WEB_APP_ID=<your web app id> node playwright-cdp.mts` (the `.mts` extension makes Node run it as an ES module in any project):
 
 ```text
 [verify] web: starting web session https://app.revyl.ai/sessions/<id>
@@ -95,7 +95,7 @@ with open(web) as session:
 
 ## Go
 
-`s.CDP(ctx)` returns the same single-use endpoint. Pass `endpoint.URL` to chromedp with `remote.NewAllocator(ctx, endpoint.URL, remote.NoModifyURL)` from `github.com/chromedp/chromedp/remote`, then attach to the session's tab. The [Go README](https://github.com/RevylAI/verify/blob/main/go/README.md#cdp-playwright-puppeteer) has the complete chromedp program.
+`s.CDP(ctx)` returns the same single-use endpoint. Pass `endpoint.URL` to chromedp with `remote.NewAllocator(ctx, endpoint.URL, remote.NoModifyURL)` from `github.com/chromedp/chromedp/remote`, then attach to the session's tab. The [Go README](https://github.com/RevylAI/verify/blob/go/v0.7.2/go/README.md#cdp-playwright-puppeteer) has the complete chromedp program.
 
 ## Limits and errors
 

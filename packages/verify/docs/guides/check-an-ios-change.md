@@ -2,8 +2,6 @@
 
 After a coding agent changes your iOS app, it can check the change itself: open the app on a Revyl cloud iOS simulator, tell Revyl's agent what to do in plain language, check what the screen shows, and hand you a link to watch the run. This guide builds that script in TypeScript, with the same calls in Python and Go.
 
-Works with TypeScript `@revyl/verify` 0.7.1, Python `revyl-verify` 0.5.1 and Go `github.com/RevylAI/verify/go` v0.6.1.
-
 ## What you'll build
 
 A script that:
@@ -16,11 +14,11 @@ A script that:
 ## Before you start
 
 - A Revyl account. Sign in once with `npx @revyl/verify login`, or set `REVYL_API_KEY` in the environment (CI, agents without a browser).
-- Node.js 22.18 or later, which runs `.ts` files directly. In an ESM project (`"type": "module"` in `package.json`), run `npm install @revyl/verify`.
+- Node.js 22.18 or later, which runs TypeScript files directly, and `npm install @revyl/verify` in your project.
 
 ## The script
 
-Save this as `check-ios.ts`:
+Save this as `check-ios.mts`:
 
 ```ts
 import { open } from '@revyl/verify';
@@ -38,7 +36,7 @@ try {
 }
 ```
 
-Run it with `node check-ios.ts`.
+Run it with `node check-ios.mts`. The `.mts` extension makes Node run it as an ES module in any project.
 
 ## What you'll see
 
@@ -73,7 +71,7 @@ Upload builds with the Revyl CLI (`revyl build upload`) or from your CI; see [mo
 
 ## Hand it to your agent
 
-Tell your coding agent, in its instructions file or the prompt: "After you change the iOS app, run `node check-ios.ts` with the steps that prove your change, and include the live view link in your reply." The agent reads the docs that ship in `node_modules/@revyl/verify/docs/`, so it can adjust the steps itself.
+Tell your coding agent, in its instructions file or the prompt: "After you change the iOS app, run `node check-ios.mts` with the steps that prove your change, and include the live view link in your reply." The agent reads the docs that ship in `node_modules/@revyl/verify/docs/`, so it can adjust the steps itself.
 
 ## Python
 
@@ -111,7 +109,7 @@ _, err = s.Screenshot(ctx, "about.png")
 return err
 ```
 
-Install with `go get github.com/RevylAI/verify/go@v0.6.1`; the [Go README](https://github.com/RevylAI/verify/blob/main/go/README.md#quick-start-ios-settings) has the whole program. Your app: `AppID: "<your app id>"` or `BuildID: "<build id>"`.
+Install with `go get github.com/RevylAI/verify/go@v0.7.2`; the [Go README](https://github.com/RevylAI/verify/blob/go/v0.7.2/go/README.md#quick-start-ios-settings) has the whole program. Your app: `AppID: "<your app id>"` or `BuildID: "<build id>"`.
 
 ## Limits and errors
 

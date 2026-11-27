@@ -2,7 +2,7 @@
 
 A session profile is a script in your project that Revyl runs as a session starts, before your first step. It can sign a test user in and hand the browser its cookies and a first page, so every session starts signed in and your steps test the app instead of the login form. This guide adds a profile to a project and opens a web session with it.
 
-Works with TypeScript `@revyl/verify` 0.7.1, Python `revyl-verify` 0.5.1 and Go `github.com/RevylAI/verify/go` v0.6.1. Profiles work on web, iOS, Android and Mac computers; this guide uses the web.
+Profiles work on web, iOS, Android and Mac computers; this guide uses the web.
 
 ## What you'll build
 
@@ -14,7 +14,7 @@ The demo site is [the-internet.herokuapp.com](https://the-internet.herokuapp.com
 
 ## Before you start
 
-- A Revyl account and project. `revyl init` in your app's checkout writes `.revyl/config.yaml` with `project.id`; Verify reads that file from the current folder or the nearest one above it.
+- A Revyl account and a project that already exists in Revyl, in your API key's organization. Verify reads `.revyl/config.yaml` from the current folder or the nearest one above it, and its `project.id` must name that project. `revyl init` in your app's checkout writes the file with a new id, which Revyl doesn't know until the project is published: connect the repository to Revyl (`revyl github connect`), then run `revyl config push` from the checkout. Or put an existing project's id in `project.id`. With an id Revyl doesn't have, `open()` throws `CONFIG_INVALID` with reason `project_not_found`.
 - A Revyl web app id in `WEB_APP_ID` (see [every platform](every-platform.md#before-you-start)).
 - Node.js 22.18 or later and `npm install @revyl/verify` in an ESM project.
 
@@ -59,13 +59,15 @@ printf '/secure' > "$REVYL_DEEP_LINK_FILE"
 The script runs on Revyl's hosted runner, not on your machine, in an empty folder with `bash`, `curl`, `jq`, Python and Node.js. It writes two of the files Revyl gives it:
 
 - `$REVYL_BROWSER_STORAGE_STATE_FILE`: the browser's cookies, in Playwright's storage-state format. The browser holds them before its first page.
-- `$REVYL_DEEP_LINK_FILE`: the first page to open, as a path on the app's site. It must answer 200; a page that answers 404 fails the start.
+- `$REVYL_DEEP_LINK_FILE`: the first page to open, as a path on the app's site. It must answer 200; a page that answers 404 fails the start. A single-page app on a static host, such as GitHub Pages, answers 404 on its client-side routes (`/inventory.html` on a Pages-hosted store, say), so write a path the host serves, such as `/`, or `/?/inventory.html` when the site uses the GitHub Pages SPA redirect shim, and navigate to the route in your first step.
+
+`httpOnly: true` in the cookie above suits a session cookie only the server reads, as this one is. A cookie the page's own JavaScript reads, such as a token a single-page app takes from `document.cookie`, needs `httpOnly: false`: the browser hides an `httpOnly` cookie from the page's scripts, and the app then acts signed out.
 
 Test it on your machine first: `REVYL_BROWSER_STORAGE_STATE_FILE=state.json REVYL_DEEP_LINK_FILE=link bash .revyl/scripts/demo-sign-in.sh`.
 
 ## 3. Open a session with it
 
-Save this as `signed-in.ts` in the same project:
+Save this as `signed-in.mts` in the same project:
 
 ```ts
 import { open } from '@revyl/verify';
@@ -83,7 +85,7 @@ try {
 }
 ```
 
-Run it with `WEB_APP_ID=<your web app id> node signed-in.ts`:
+Run it with `WEB_APP_ID=<your web app id> node signed-in.mts`. The `.mts` extension makes Node run it as an ES module in any project:
 
 ```text
 [verify] web: starting web session https://app.revyl.ai/sessions/<id>
@@ -131,9 +133,10 @@ Verify sends the profile's definition, its script as it is on disk (uncommitted 
 | What happened | Error | What to do |
 | --- | --- | --- |
 | No `.revyl/config.yaml` here or above | `CONFIG_NOT_FOUND` | Run from your app's checkout, or pass `profile: 'none'` |
-| No `project.id`, an unknown profile name, or a project outside your organization | `CONFIG_INVALID` | The message names the file and the fix |
+| No `project.id`, or an unknown profile name | `CONFIG_INVALID` | The message names the file and the fix |
+| `project.id` isn't a project in Revyl in this API key's organization, for example a new id from `revyl init` that was never published | `CONFIG_INVALID`, reason `project_not_found` | Connect the repository (`revyl github connect`) and run `revyl config push`, put an existing project's id in `project.id`, or pass `profile: 'none'` |
 | The script exited with an error, ran past 300 seconds, or wrote a bad file | `SESSION_PROFILE_FAILED`, with `error.outcome` | Run the script yourself; `outcome` and `failureReason` say what broke. Revyl stops the session |
-| The first page didn't load | `SESSION_START_FAILED` | Write a path that answers 200 to `$REVYL_DEEP_LINK_FILE` |
+| The first page didn't load | `SESSION_START_FAILED` | Write a path that answers 200 to `$REVYL_DEEP_LINK_FILE`; on a static host, `/` rather than a single-page app's route |
 | A Linux computer | `NOT_AVAILABLE_ON_PLATFORM` | Profiles run on web, iOS, Android and Mac computers |
 
 [api.md](../api.md#session-profile-errors) has the full tables. Sites end sign-ins on their own schedule; a profile signs in fresh on every start.
