@@ -43,7 +43,21 @@ npx @revyl/verify init --platform ios
 
 `init` adds Verify to your project, writes `verify.config.ts` and an example script for the platform you pass (`web`, `ios`, `android` or `mac`; in a terminal, leave `--platform` out and it asks), writes `verify.config.ts` and an example script, signs you in through the browser on the first interactive run, and prints the command that runs the example. With no app id, the iOS and Android examples open the built-in Settings app, so they run on a new account before you upload anything. To skip the config, run `npm install @revyl/verify` and save the example above as `verify/check.mts`, then run `node verify/check.mts`. [Getting started](packages/verify/docs/getting-started.md) covers sign-in, your own app, and [CI](packages/verify/docs/ci.md).
 
+`init` also sets up your coding agent; see [below](#set-up-your-coding-agent).
+
 For finished projects, see [`examples/`](examples/): a [web store](examples/web-store/), [mobile Settings](examples/mobile-settings/), a [Mac workspace](examples/mac-workspace/), a small [agent platform](examples/agent-platform/) that runs web and iOS side by side, and [your own model](examples/byo-model/) (with [Python](python/examples/byo_model.py) and [Go](go/examples/byomodel/main.go) versions).
+
+## Set up your coding agent
+
+`npx @revyl/verify init` gives your coding agent the `revyl-verify` skill, which teaches it when and how to check a web page, an iOS or Android app, or a Mac with Verify, so that "check that the pricing page loads" ends in a script that runs on a real cloud browser. It writes the skill to `.agents/skills/` and `.claude/skills/`, where Claude Code, Cursor, Codex, Capy and other agents find skills, and a short Verify section to `AGENTS.md`, or to `CLAUDE.md` when the repository has that and no `AGENTS.md`. Running it again changes nothing; `--no-agents-md` and `--no-skill` skip either part, and `--no-config` sets up only the agent. In a Python or Go project, see [Python](python/README.md#set-up-your-coding-agent) or [Go](go/README.md#set-up-your-coding-agent).
+
+Or install the skill as a plugin, which keeps it out of your repository and up to date:
+
+- **Claude Code:** `/plugin marketplace add RevylAI/verify`, then `/plugin install revyl-verify@revyl-verify`.
+- **Cursor:** in **Customize**, add a plugin **From GitHub Repository** with `https://github.com/RevylAI/verify`.
+- **Capy:** under Settings → MCP & plugins, choose Add → **From GitHub repository** with `https://github.com/RevylAI/verify`.
+
+The plugin holds the skill only: Verify runs in your scripts, so it needs no MCP server.
 
 ## Exact actions
 

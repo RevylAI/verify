@@ -36,6 +36,10 @@ Review both npm archives and the Python wheel and source distribution. Package c
 
 Set the same version in `packages/verify/package.json`, `packages/revyl-verify/package.json` (its version and its exact `@revyl/verify` dependency), the alias README's versioned links, and the `@revyl/verify` pin of every example, then run `npm install` to update `package-lock.json`. Add a `## X.Y.Z (unreleased)` section to `CHANGELOG.md` and replace `unreleased` with the release date just before tagging. Docs pages for the release ship in the same change; the docs.revyl.com update merges right after the release is published.
 
+## Agent plugin
+
+The repository root is the `revyl-verify` plugin: `skills/revyl-verify/SKILL.md` is the skill that `init` installs and the npm package ships, `.claude-plugin/` lists it for Claude Code, `.cursor-plugin/marketplace.json` for Cursor, and `plugin.json` (Agent Plugins format) for Capy and other clients. When the skill changes, raise `version` in both `plugin.json` and `.claude-plugin/plugin.json` in the same change, so Claude Code, Cursor and Capy see an update; a Capy organization that added the plugin from GitHub still clicks **Sync** on its page.
+
 ## Package rules
 
 Keep the scoped npm package and its alias at the same version, with the alias depending on that exact scoped version. The Go module and Python distribution use their own versions and tags. Never reuse a published version or move an existing tag.

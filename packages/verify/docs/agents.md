@@ -2,6 +2,8 @@
 
 This page is for AI coding agents (Claude Code, Cursor, Codex, and others) that use Verify to check an app on a cloud browser/device or run commands and files on a Mac computer. The rest of this folder describes the API in full; this page is the workflow.
 
+`npx @revyl/verify init` installs the `revyl-verify` skill in `.agents/skills/` and `.claude/skills/` and adds a short Verify section to `AGENTS.md`, so an agent working in the project finds this workflow on its own. See [configuration.md](configuration.md#command-line).
+
 ## Workflow
 
 1. Read `verify.config.ts` to learn the target names and their platforms. If there is none, run `npx @revyl/verify init --platform ios` or `--platform android` (without `--app-id` they open the built-in Settings app), `npx @revyl/verify init --platform web --app-id <id> --url <https-url>`, or `npx @revyl/verify init --platform mac`. If `init` prints `Could not confirm a Revyl sign-in`, its files are already written: sign in with `npx @revyl/verify login` or set `REVYL_API_KEY`, then go on to step 2, and don't run `init` again. You can also pass a target object to `open()`.

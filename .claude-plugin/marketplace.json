@@ -1,0 +1,16 @@
+{
+  "name": "revyl-verify",
+  "description": "Verify by Revyl: the revyl-verify skill for checking web pages, mobile apps and Macs on Revyl cloud devices.",
+  "owner": {
+    "name": "Revyl",
+    "email": "support@revyl.ai"
+  },
+  "plugins": [
+    {
+      "name": "revyl-verify",
+      "source": "./",
+      "description": "Teaches your coding agent to check web pages, iOS and Android apps, and Macs on real Revyl cloud browsers, simulators, emulators and computers by writing and running a short Verify script.",
+      "category": "development"
+    }
+  ]
+}
