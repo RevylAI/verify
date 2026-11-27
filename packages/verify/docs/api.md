@@ -425,7 +425,7 @@ import { openPersistent, saveSnapshot, listPersistent, listSnapshots, deletePers
 | `saveSnapshot(computer, name, { waitTimeout? }?)` | A `ComputerSnapshot` of a stopped computer's disk, once the save is copied off its Mac |
 | `listPersistent()` | `{ id, state, savedAt?, savedOffHost, createdAt, savedDiskExpiresAt? }[]` |
 | `listSnapshots()` | `{ id, name, computerId, savedAt, expiresAt?, savedDiskExpiresAt? }[]` |
-| `deletePersistent(computer)` | Deletes the computer and its disk for good; its snapshots stay |
+| `deletePersistent(computer)` | Stops a running computer, which saves its disk, then deletes the computer and its disk for good; its snapshots stay |
 | `deleteSnapshot(snapshot)` | Deletes the snapshot; computers made from it keep their disks |
 
 `computer` and `snapshot` take a name or an ID. Every call also takes `log`, `backendUrl` and `appUrl`, as `open()` does. `savedDiskExpiresAt` (since 0.8.0) is when a save stops being able to start a computer, when Revyl reports one. `inference` (since 0.8.0) is used only when the call creates the computer; `withoutInference` (since 0.8.0) starts a stopped inference computer once without its model.

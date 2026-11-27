@@ -200,8 +200,8 @@ def open_persistent(
     Every persistent-computer call raises VerifyError, with .code saying what happened and the
     message saying what to do: NOT_FOUND (no computer or snapshot by that name or ID), SESSION_BUSY
     (the computer is running, or its last stop hasn't finished), TIMEOUT (a wait ran out; the call
-    can be repeated), COMPUTER_LIMIT (the organization keeps its maximum number of computers or
-    snapshots, or can't start another computer now), NOT_AVAILABLE_ON_PLATFORM, INVALID_ARGUMENT,
+    can be repeated), COMPUTER_LIMIT (the organization keeps its maximum number of snapshots,
+    or can't start another computer now), NOT_AVAILABLE_ON_PLATFORM, INVALID_ARGUMENT,
     AUTH_REJECTED, SESSION_START_FAILED and API_ERROR.
 
     Example::
@@ -494,8 +494,9 @@ def delete_persistent(
     computer: str, *, backend_url: str | None = None, app_url: str | None = None, log: Log = None
 ) -> None:
     """Deletes a persistent computer (by name or ID) and its saved disk for good. A running
-    computer stops first, without saving. Snapshots of it are kept until you delete_snapshot()
-    them. Raises NOT_FOUND when there is no such computer, including one already deleted.
+    computer stops first the normal way, which saves its disk. Snapshots of it are kept until you
+    delete_snapshot() them. Raises NOT_FOUND when there is no such computer, including one already
+    deleted.
     """
     _check_computer(computer, "delete_persistent()")
     client, progress, _ = _connect(backend_url, app_url, log)

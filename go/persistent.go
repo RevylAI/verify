@@ -153,8 +153,8 @@ type ComputerSnapshot struct {
 // Every persistent-computer function returns a *Error; test it with errors.Is(err, verify.ErrNotFound) and read its
 // Message for what to do: ErrNotFound (no computer or snapshot by that name or ID), ErrSessionBusy (the computer is
 // running, or its last stop hasn't finished), ErrTimeout (a wait ran out; the call can be repeated),
-// ErrComputerLimit (the organization keeps its maximum number of computers or snapshots, or can't start another
-// computer now), ErrNotAvailableOnPlatform, ErrInvalidArgument, ErrAuthRejected, ErrSessionStartFailed and ErrAPI.
+// ErrComputerLimit (the organization keeps its maximum number of snapshots, or can't start another computer now),
+// ErrNotAvailableOnPlatform, ErrInvalidArgument, ErrAuthRejected, ErrSessionStartFailed and ErrAPI.
 //
 //	mac, err := verify.OpenPersistent(ctx, "build-cache")
 //	if err != nil {
@@ -236,8 +236,8 @@ func ListSnapshots(ctx context.Context, options ...PersistentOptions) ([]Compute
 }
 
 // DeletePersistent deletes a persistent computer (by name or ID) and its saved disk for good. A running computer
-// stops first, without saving. Snapshots of it are kept until you DeleteSnapshot them. It returns ErrNotFound when
-// there is no such computer, including one already deleted.
+// stops first the normal way, which saves its disk. Snapshots of it are kept until you DeleteSnapshot them. It
+// returns ErrNotFound when there is no such computer, including one already deleted.
 func DeletePersistent(ctx context.Context, computer string, options ...PersistentOptions) error {
 	opt, err := singlePersistentOption(options)
 	if err != nil {

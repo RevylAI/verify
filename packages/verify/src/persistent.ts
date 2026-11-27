@@ -196,7 +196,7 @@ export class PersistentComputerSession extends ComputerSession {
  * Every persistent-computer call throws a VerifyError whose code says what happened and whose message says what to
  * do: NOT_FOUND (no computer or snapshot by that name or ID), SESSION_BUSY (the computer is running, or its last stop
  * hasn't finished), TIMEOUT (a wait ran out; the call can be repeated), COMPUTER_LIMIT (the organization keeps its
- * maximum number of computers or snapshots, or can't start another computer now), NOT_AVAILABLE_ON_PLATFORM,
+ * maximum number of snapshots, or can't start another computer now), NOT_AVAILABLE_ON_PLATFORM,
  * INVALID_ARGUMENT, AUTH_REJECTED, SESSION_START_FAILED and API_ERROR.
  *
  * @example
@@ -285,9 +285,9 @@ export async function listSnapshots(options: PersistentOptions = {}): Promise<Co
 }
 
 /**
- * Deletes a persistent computer (by name or ID) and its saved disk for good. A running computer stops first,
- * without saving. Snapshots of it are kept until you deleteSnapshot() them. Throws NOT_FOUND when there is no such
- * computer, including one already deleted.
+ * Deletes a persistent computer (by name or ID) and its saved disk for good. A running computer stops first the
+ * normal way, which saves its disk. Snapshots of it are kept until you deleteSnapshot() them. Throws NOT_FOUND when
+ * there is no such computer, including one already deleted.
  */
 export async function deletePersistent(computer: string, options: PersistentOptions = {}): Promise<void> {
   checkComputerReference(computer, 'deletePersistent()');

@@ -18,9 +18,9 @@ A computer started from a snapshot gets the same disk, except what is tied to th
 
 - **Stop and reopen.** `close()` returns once the disk is saved on its Mac, so you can reopen or delete the computer right away. If you reopen while a stop is still finishing, `openPersistent()` waits for it, within `startTimeout`.
 - **Runs.** Each open is a new run with the usual computer lifetime: 2 hours by default, up to 24 hours with `timeoutMs` (Python `timeout` in seconds, Go `Timeout`), and `extend()` works as on any computer. A run starts saving its disk 3 minutes before it ends, and reaching the end keeps the disk, as `close()` does.
-- **Cost.** A running persistent computer bills its minutes like any Mac. It costs nothing while stopped; Revyl doesn't charge for stored disks and snapshots while persistent computers are in limited preview.
+- **Cost.** A running persistent computer bills its minutes like any Mac. Saved disks and snapshots bill at $0.04 per GB-month while Revyl stores them, so a stopped computer still bills for its disk until you delete it.
 - **How long a save lasts.** A computer's disk is kept until you delete the computer, and a snapshot until you delete it. A few saves have an end: `savedDiskExpiresAt` on `listPersistent()` and `listSnapshots()` entries (Python `saved_disk_expires_at`, Go `SavedDiskExpiresAt`) says when, if Revyl reports one. From then on that save can't start a computer, and opening it throws `SESSION_START_FAILED` (`saved_disk_expired` or `snapshot_expired`).
-- **Limits.** An organization keeps at most 10 persistent computers and 100 snapshots unless Revyl raised its limits (`COMPUTER_LIMIT`, reason `persistent_computer_limit` or `snapshot_limit`). Persistent computers are Macs only.
+- **Limits.** An organization keeps at most 100 snapshots by default (`COMPUTER_LIMIT`, `snapshot_limit`). Persistent computers are Macs only.
 - **Names.** 1 to 64 letters, digits, `.`, `_` or `-`, starting with a letter or digit. The same name opens the same computer from every language and machine. Revyl stores IDs, not names, so `listPersistent()` shows each computer's `id`; compare it with the `id` of the session `openPersistent()` returned. You can pass that ID instead of the name.
 
 ## Dev environment
@@ -101,7 +101,7 @@ try {
 } finally {
   for (const result of opened) if (result.status === 'fulfilled') await result.value.close();
   for (const name of shards) {
-    await deletePersistent(name).catch((error) => { if (!isVerifyError(error) || error.code !== 'NOT_FOUND') throw error; });   // copies count toward your 10 until deleted
+    await deletePersistent(name).catch((error) => { if (!isVerifyError(error) || error.code !== 'NOT_FOUND') throw error; });   // each copy's disk bills as storage until deleted
   }
 }
 ```
@@ -159,7 +159,7 @@ import { deletePersistent, deleteSnapshot, listPersistent, listSnapshots } from 
 
 console.log(await listPersistent());              // [{ id, state, savedAt?, savedOffHost, createdAt, savedDiskExpiresAt? }]
 console.log(await listSnapshots());               // [{ id, name, computerId, savedAt, expiresAt?, savedDiskExpiresAt? }]
-await deletePersistent('ios-dev');                // the computer and its disk, for good; a running one stops first, without saving
+await deletePersistent('ios-dev');                // a running one stops first, saving its disk; then the computer and its disk go for good
 await deleteSnapshot('ios-dev-base');             // computers already started from it keep their disks
 ```
 
@@ -178,7 +178,7 @@ Deleting a computer keeps its snapshots, and deleting a snapshot keeps the compu
 | The snapshot name is taken | `INVALID_ARGUMENT` | Pick another name or delete the old snapshot |
 | The Mac holding a save is offline and the save isn't copied yet | `SESSION_START_FAILED` (`saved_disk_unavailable`) | Try again later; the disk is kept |
 | A save has reached its end | `SESSION_START_FAILED` (`saved_disk_expired`, `snapshot_expired`) | Delete the computer and create a new one, or save a new snapshot |
-| 10 computers or 100 snapshots already | `COMPUTER_LIMIT` | Delete ones you no longer need |
+| 100 snapshots already, by default | `COMPUTER_LIMIT` (`snapshot_limit`) | Delete ones you no longer need |
 | No computer or snapshot by that name or ID | `NOT_FOUND` | Check `listPersistent()` or `listSnapshots()` |
 
 See [computers.md](../computers.md) for everything a computer does while it runs, and [a cloud Mac your agent can drive](mac-computer.md) for a first script.
