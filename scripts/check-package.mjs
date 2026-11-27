@@ -93,7 +93,7 @@ try {
 }
 const files = new Set(pack.files.map((file) => file.path));
 const missing = required.filter((path) => !files.has(path));
-const unexpected = [...files].filter((path) => !required.includes(path) && !/^dist\/[a-z0-9/-]+\.(js|d\.ts)$/.test(path) && !/^docs\/[a-z-]+\.(md|txt)$/.test(path));
+const unexpected = [...files].filter((path) => !required.includes(path) && !/^dist\/[a-z0-9/-]+\.(js|d\.ts)$/.test(path) && !/^docs\/(guides\/)?[a-z-]+\.(md|txt)$/.test(path));
 if (missing.length > 0 || unexpected.length > 0) {
   console.error(`Missing from the package: ${missing.join(', ') || 'none'}`);
   console.error(`Should not be in the package: ${unexpected.join(', ') || 'none'}`);

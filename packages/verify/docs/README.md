@@ -15,5 +15,10 @@ These files ship inside the npm package at `node_modules/@revyl/verify/docs/`, s
 | [own-model.md](own-model.md) | Run instructions and validations on your own model, such as Claude, GPT or a local model |
 | [errors.md](errors.md) | Understand an error code and fix it, or troubleshoot a common problem |
 | [agents.md](agents.md) | Use Verify as a coding agent |
+| [guides/check-an-ios-change.md](guides/check-an-ios-change.md) | Have a coding agent check its iOS change on a cloud simulator and share the live link |
+| [guides/every-platform.md](guides/every-platform.md) | Run the same checks on iOS, Android and the web at once from one script |
+| [guides/session-profiles.md](guides/session-profiles.md) | Start every session signed in with a session profile |
+| [guides/playwright-cdp.md](guides/playwright-cdp.md) | Drive a Revyl browser with Playwright over CDP and check it with `validation()` |
+| [guides/mac-computer.md](guides/mac-computer.md) | Build, edit files and click macOS apps on a cloud Mac, and get the recording |
 
 [llms.txt](llms.txt) lists the same files in the llms.txt format.
