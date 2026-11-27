@@ -97,7 +97,7 @@ try {
 }
 ```
 
-`goHome()` goes to the home screen on iOS and Android. `longPress()` holds for 1500 ms unless you pass `duration`, from 1 to 5000. `drag(from, to)` presses at one location, moves to the other and releases. On iOS and Android, as everywhere, type with `type({ target: 'Search field' }, text)`, which taps the field and then types; `typeFocused()` throws `NOT_AVAILABLE_ON_PLATFORM` here before anything is sent, naming `type({ target }, text)`.
+`goHome()` goes to the home screen on iOS and Android. `longPress()` holds for 1500 ms unless you pass `duration`, from 1 to 5000. `drag(from, to)` presses at one location, moves to the other and releases. On iOS and Android, as everywhere, type with `type({ target: 'Search field' }, text)`, which taps the field and then types; since 0.8.1, `typeFocused(text)` types into the field that already has focus, for example after `tap({ target })`. With nothing focused it throws `ACTION_FAILED` (reason `no_focused_input`), and on a device that can't tell which field has focus, such as a real iPhone, `NOT_AVAILABLE_ON_PLATFORM` (reason `focused_input_unavailable`).
 
 On Android, `back()` presses the system back button. On both platforms, `goHome()` goes to the home screen, `launchApp(bundleId)` brings an installed app to the front and `openUrl('myapp://orders/42')` opens a deep link. A failed action throws `ACTION_FAILED`. One whose outcome Revyl can't confirm throws `ACTION_UNCERTAIN` or `TIMEOUT`, so check the session before acting again. Actions are never repeated. If Verify can't reach Revyl, the action fails with `API_ERROR` and isn't resent either, so check the session before trying it again. [api.md](api.md#exact-actions) lists every call.
 
@@ -108,7 +108,7 @@ On Android, `back()` presses the system back button. On both platforms, `goHome(
 | `type({ target }, text)`, the way to type | Yes | Yes | Yes | Yes: clicks the field, selects its text unless `{ clear: false }`, then types |
 | `doubleTap`, `longPress`, `swipe`, `drag` | Yes | Yes | Yes | No |
 | `pressKey(key, { modifiers })` | Yes: `'enter'`, `'backspace'`, `'tab'`, `'escape'`, arrows and more, with modifiers | `'enter'` and `'backspace'` only | `'enter'` and `'backspace'` only | Yes: the Web keys and modifiers, where `'meta'` is Command |
-| `typeFocused(text, { clear })` | Yes, types into the focused field; `ACTION_FAILED` (`no_focused_input`) when none has focus | No, use `type({ target }, text)` | No, use `type({ target }, text)` | Yes, with `{ clear: false }` |
+| `typeFocused(text, { clear })` | Yes, types into the focused field; `ACTION_FAILED` (`no_focused_input`) when none has focus | Yes since 0.8.1, the same; a real iPhone throws `NOT_AVAILABLE_ON_PLATFORM` (`focused_input_unavailable`) | Yes since 0.8.1, the same | Yes, with `{ clear: false }` |
 | `back()` | Yes, browser history | No, tap the on-screen back control | Yes, the system back button | No |
 | `goHome()` | No, use `openUrl` or `navigate` | Yes, the home screen | Yes, the home screen | No |
 | `openUrl(url)` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No |

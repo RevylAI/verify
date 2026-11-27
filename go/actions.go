@@ -274,7 +274,8 @@ func (s *Session) Swipe(ctx context.Context, direction SwipeDirection, options .
 }
 
 // TypeFocused types into the field that already has focus, without tapping, clearing it first unless
-// TypeOptions.Clear is false. Web and Mac computers, where Clear must point to false; on iOS and Android, use Type.
+// TypeOptions.Clear is false; on a Mac computer Clear must point to false. When nothing has focus it returns
+// ErrActionFailed with ReasonNoFocusedInput and types nothing.
 func (s *Session) TypeFocused(ctx context.Context, text string, options ...TypeOptions) error {
 	if s.platform.computer() {
 		return s.computerTypeFocused(ctx, text, options)
@@ -282,14 +283,15 @@ func (s *Session) TypeFocused(ctx context.Context, text string, options ...TypeO
 	if len(options) > 1 {
 		return failure(ErrInvalidArgument, "TypeFocused accepts at most one options value.")
 	}
-	if s.platform != Web {
-		return failure(ErrNotAvailableOnPlatform, "TypeFocused isn't available on iOS and Android sessions. Use session.Type(ctx, verify.Element(\"the email field\"), text), which taps the field and types into it.")
-	}
 	if textLength(text) > 16384 {
 		return failure(ErrInvalidArgument, "TypeFocused takes text of at most 16384 characters.")
 	}
 	clearFirst := len(options) == 0 || options[0].Clear == nil || *options[0].Clear
 	_, err := s.perform(ctx, deviceAction{kind: "type_focused", text: text, clear: clearFirst, skipSettle: len(options) == 1 && skipSettle(options[0].Settle)}, "")
+	var failed *Error
+	if s.platform != Web && errors.As(err, &failed) && failed.HTTPStatus == 422 {
+		return &Error{Code: ErrNotAvailableOnPlatform, HTTPStatus: 422, Message: "TypeFocused isn't available on iOS and Android sessions. Use session.Type(ctx, verify.Element(\"the email field\"), text), which taps the field and types into it.", Cause: err}
+	}
 	return err
 }
 

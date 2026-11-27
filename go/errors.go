@@ -47,6 +47,7 @@ const (
 	ReasonLifetimeUnsupported             RefusalReason = "lifetime_unsupported"
 	ReasonUpgradeRequired                 RefusalReason = "upgrade_required"
 	ReasonNoFocusedInput                  RefusalReason = "no_focused_input"
+	ReasonFocusedInputUnavailable         RefusalReason = "focused_input_unavailable"
 
 	ReasonComputerLocalInferenceUnavailable RefusalReason = "computer_local_inference_unavailable"
 	ReasonInferenceNotEnabled               RefusalReason = "inference_not_enabled"

@@ -9,10 +9,10 @@ Use Go 1.26.9 or later and a Revyl account. Set `REVYL_API_KEY` through your she
 The module lives in the repository's `go/` subdirectory. Install the tagged release with:
 
 ```sh
-go get github.com/RevylAI/verify/go@v0.7.0
+go get github.com/RevylAI/verify/go@v0.7.1
 ```
 
-Go releases use independent repository tags such as `go/v0.7.0`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
+Go releases use independent repository tags such as `go/v0.7.1`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
 
 ## Set up your coding agent
 
@@ -40,7 +40,7 @@ This program opens the iOS Settings app on a cloud simulator, which every accoun
 ```sh
 mkdir verify-go && cd verify-go
 go mod init example.com/verify-go
-go get github.com/RevylAI/verify/go@v0.7.0
+go get github.com/RevylAI/verify/go@v0.7.1
 ```
 
 Save this as `main.go`:
@@ -264,7 +264,7 @@ Neither errors nor logs contain the script's content or output. Check the code w
 | `Type(ctx, verify.Element("…"), text)`, the way to type | Yes | Yes | Yes | Yes: clicks the field, selects its text unless `Clear` points to `false`, then types |
 | `DoubleTap`, `LongPress`, `Swipe`, `Drag` | Yes | Yes | Yes | No |
 | `PressKey(ctx, key, KeyOptions{Modifiers})` | Yes: `KeyEnter`, `KeyBackspace`, `KeyTab`, `KeyEscape`, arrows and more, with modifiers | `KeyEnter` and `KeyBackspace` only | `KeyEnter` and `KeyBackspace` only | Yes: the Web keys and modifiers, where `ModifierMeta` is Command |
-| `TypeFocused` | Yes, types into the focused field; `ErrActionFailed` (`no_focused_input`) when none has focus | No, use `Type(ctx, verify.Element("…"), text)` | No, use `Type(ctx, verify.Element("…"), text)` | Yes, with `Clear` pointing to `false` |
+| `TypeFocused` | Yes, types into the focused field; `ErrActionFailed` (`no_focused_input`) when none has focus | Yes since `v0.7.1`, the same; a real iPhone returns `ErrNotAvailableOnPlatform` (`focused_input_unavailable`) | Yes since `v0.7.1`, the same | Yes, with `Clear` pointing to `false` |
 | `Back` | Yes, browser history | No, tap the on-screen back control | Yes, the system back button | No |
 | `GoHome` | No, use `OpenURL` or `Navigate` | Yes, the home screen | Yes, the home screen | No |
 | `OpenURL` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No |
@@ -281,7 +281,7 @@ Coordinates follow the rule in [Exact actions](#exact-actions). A call a platfor
 
 ## Exact actions
 
-**Since Go `v0.3.0`. Early access.** Web, iOS and Android sessions take device actions that need no agent. `DoubleTap`, `LongPress`, `Drag`, `TypeFocused`, `GoHome`, and Web keys and modifiers in `PressKey`, are new in `v0.4.0`. `Tap` (with a point or an `Element`), `ScreenSize`, `TypeFocused` and `PressKey` on a Mac computer's screen are new in `v0.5.0`, and `Type` there in `v0.6.1`; see [Mac screen](#mac-screen). A location is a `verify.Point{X, Y}` in whole, non-negative screenshot pixels from the top-left corner, or a `verify.Element("Login button")` that Revyl's grounding model finds on the current screen.
+**Since Go `v0.3.0`. Early access.** Web, iOS and Android sessions take device actions that need no agent. `DoubleTap`, `LongPress`, `Drag`, `TypeFocused`, `GoHome`, and Web keys and modifiers in `PressKey`, are new in `v0.4.0`. `Tap` (with a point or an `Element`), `ScreenSize`, `TypeFocused` and `PressKey` on a Mac computer's screen are new in `v0.5.0`, and `Type` there in `v0.6.1`; `TypeFocused` on iOS and Android is new in `v0.7.1`; see [Mac screen](#mac-screen). A location is a `verify.Point{X, Y}` in whole, non-negative screenshot pixels from the top-left corner, or a `verify.Element("Login button")` that Revyl's grounding model finds on the current screen.
 
 ```go
 if _, err := s.Tap(ctx, verify.Element("General")); err != nil {
@@ -308,7 +308,7 @@ if err := s.GoHome(ctx); err != nil { // the home screen, on iOS and Android
 }
 ```
 
-**Typing: one rule on every platform.** To type, call `s.Type(ctx, verify.Element("Email field"), text)`: it taps the field you describe and types into it, replacing its text unless `TypeOptions.Clear` points to `false`. It works the same on Web, iOS, Android and a Mac computer. `TypeFocused` types wherever focus already is, without tapping, and only on Web and computers; on Web, when no field has focus it returns `ErrActionFailed` with `Reason` `ReasonNoFocusedInput` (`no_focused_input`) and types nothing.
+**Typing: one rule on every platform.** To type, call `s.Type(ctx, verify.Element("Email field"), text)`: it taps the field you describe and types into it, replacing its text unless `TypeOptions.Clear` points to `false`. It works the same on Web, iOS, Android and a Mac computer. `TypeFocused` types wherever focus already is, without tapping, for example after `Tap`, on every platform (iOS and Android since `v0.7.1`). When no field has focus it returns `ErrActionFailed` with `Reason` `ReasonNoFocusedInput` (`no_focused_input`) and types nothing. A device that can't tell which field has focus, such as a real iPhone, returns `ErrNotAvailableOnPlatform` with `Reason` `ReasonFocusedInputUnavailable`; use `Type` there.
 
 On Web, type into a field, then where the focus moves, and press more keys:
 
@@ -336,7 +336,7 @@ if err := s.PressKey(ctx, verify.KeyEscape); err != nil {
 | `DoubleTap(ctx, at)` | Double-taps (double-clicks on Web) and returns the `Point` |
 | `LongPress(ctx, at, LongPressOptions{Duration})` | Presses and holds for `Duration`, whole milliseconds from 1 millisecond to 5 seconds (zero means 1.5 seconds), and returns the `Point` |
 | `Type(ctx, at, text, TypeOptions{Clear})` | The way to type, on every platform. Taps a text field and types into it, clearing it first unless `Clear` points to `false`, and returns the `Point` tapped. On a Mac computer it clicks the field, selects its text with Command+A unless `Clear` points to `false`, and types |
-| `TypeFocused(ctx, text, TypeOptions{Clear})` | Web and Mac computers: types into the field that already has focus, without clicking. Prefer `Type(ctx, verify.Element("…"), text)`. On Web, with no field focused nothing is typed and it returns `ErrActionFailed` with `Reason` `ReasonNoFocusedInput`; on a Mac computer the keys go to whatever has focus, so check the result. On Web it replaces the field's text unless `Clear` points to `false`. On a Mac computer `Clear` must point to `false`: it types where the cursor is, and leaving `Clear` unset returns `ErrInvalidArgument`. To replace text there, select it first with `PressKey(ctx, verify.Key("a"), verify.KeyOptions{Modifiers: []verify.KeyModifier{verify.ModifierMeta}})`. On iOS and Android it returns `ErrNotAvailableOnPlatform` before anything is sent; use `Type(ctx, verify.Element("…"), text)` |
+| `TypeFocused(ctx, text, TypeOptions{Clear})` | Every platform: types into the field that already has focus, without clicking. Prefer `Type(ctx, verify.Element("…"), text)`. On Web, iOS and Android, with no field focused nothing is typed and it returns `ErrActionFailed` with `Reason` `ReasonNoFocusedInput`, and a device that can't tell which field has focus, such as a real iPhone, returns `ErrNotAvailableOnPlatform` with `Reason` `ReasonFocusedInputUnavailable`; on a Mac computer the keys go to whatever has focus, so check the result. On Web, iOS and Android it replaces the field's text unless `Clear` points to `false`. On a Mac computer `Clear` must point to `false`: it types where the cursor is, and leaving `Clear` unset returns `ErrInvalidArgument`. To replace text there, select it first with `PressKey(ctx, verify.Key("a"), verify.KeyOptions{Modifiers: []verify.KeyModifier{verify.ModifierMeta}})`. iOS and Android since `v0.7.1`; earlier versions, and a Revyl device too old to type without a point, return `ErrNotAvailableOnPlatform` naming `Type` |
 | `Swipe(ctx, direction, SwipeOptions{From})` | Swipes from a location or the screen's center; `SwipeUp` moves the finger up, which scrolls content down |
 | `Drag(ctx, from, to)` | Presses at one location, moves to the other and releases, for example to reorder a list, move a slider or select text |
 | `PressKey(ctx, key, KeyOptions{Modifiers})` | Presses a key on the focused element. Every platform takes `KeyEnter` and `KeyBackspace`. Web and Mac computers also take `KeyTab`, `KeyEscape`, `KeyDelete`, `KeySpace`, `KeyArrowUp`, `KeyArrowDown`, `KeyArrowLeft`, `KeyArrowRight`, `KeyHome`, `KeyEnd`, `KeyPageUp` and `KeyPageDown`, and `Modifiers`: up to four of `ModifierCtrl`, `ModifierShift`, `ModifierAlt` and `ModifierMeta`, held while the key is pressed. With modifiers a lowercase letter or digit works too, such as `verify.Key("a")`. The shortcut key differs: select all with `ModifierMeta` on a Mac computer, where it is Command and `ModifierAlt` is Option, and with `ModifierCtrl` on Web, where `ModifierMeta` is not the shortcut key. Other keys and any modifiers return `ErrNotAvailableOnPlatform` on iOS and Android |

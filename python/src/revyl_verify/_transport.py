@@ -63,6 +63,7 @@ RefusalReason = Literal[
     "lifetime_unsupported",
     "upgrade_required",
     "no_focused_input",
+    "focused_input_unavailable",
     "inference_not_enabled",
     "inference_unavailable",
     "step_engine_unavailable",
@@ -633,7 +634,7 @@ class Client:
         headers = {
             "Authorization": f"Bearer {self._token}",
             "Accept": "application/json",
-            "User-Agent": "revyl-verify/0.6.0 python",
+            "User-Agent": "revyl-verify/0.6.1 python",
             "X-Revyl-Client": "verify",
         }
         if worker:
