@@ -91,7 +91,7 @@ try {
 }
 ```
 
-To keep a Mac's disk between runs, open it with `openPersistent('<name>')` instead of `open()`: `close()` stops it and keeps the disk, and `deletePersistent('<name>')` removes it. A persistent computer gets the Mac's model only when it is created, so pass `openPersistent('<name>', { inference: true })` the first time if you will call `validation()` or `extract()` on it.
+To keep a Mac's disk between runs, open it with `openPersistent('<name>')` instead of `open()`: `close()` stops it and keeps the disk, and `deletePersistent('<name>')` stops it if it is running, which saves the disk, then removes the computer and its disk for good. Saved disks and snapshots bill at $0.04 per GB-month until deleted, so delete the ones you no longer need. A persistent computer gets the Mac's model only when it is created, so pass `openPersistent('<name>', { inference: true })` the first time if you will call `validation()` or `extract()` on it.
 
 Mac computers, local inference and persistent computers come with paid Revyl plans. If Revyl refuses one (`upgrade_required`, `inference_not_enabled` or `persistent_computers_not_enabled`), tell the user their organization's plan needs an upgrade instead of retrying.
 

@@ -307,8 +307,9 @@ The example starts billable Mac computers and takes several minutes: `save_snaps
 - **Copies.** `open_persistent(new_name, from_snapshot="name")` creates a new persistent computer whose disk starts as the snapshot's. `from_snapshot` is used only when the call creates the computer; if one with that name exists, it opens as it is, so check `created`. Starting on a different Mac than the one holding the save, as most snapshot copies do, restores the disk first and can take several minutes. `open_persistent()` waits up to `start_timeout` seconds (900 by default).
 - **Inference.** `open_persistent(name, inference=True)` is used only when the call creates the computer, and the computer keeps it for every later start. A copy doesn't inherit it: pass `inference=True` with `from_snapshot` too. `without_inference=True` applies only when starting a stopped computer created with inference: it starts this one run without the model, for when no Mac with one is up (`inference_unavailable`). It needs a Revyl backend that offers it; otherwise it raises `INVALID_ARGUMENT` saying so.
 - **How long saves last.** Until you delete the computer or the snapshot. Some saves have an end: `saved_disk_expires_at` on `PersistentComputer` and `ComputerSnapshot` is a `datetime` when Revyl reports one, else `None`. From then on, that save can't start.
-- **Limits.** 10 persistent computers and 100 snapshots per organization, unless Revyl raised them.
-- **Cleanup.** `delete_persistent(name_or_id)` deletes the computer and its disk for good; a running one stops first, without saving. Its snapshots stay. `delete_snapshot(name_or_id)` deletes a snapshot; computers made from it keep their disks. Both raise `NOT_FOUND` when nothing has that name or ID.
+- **Storage.** Saved disks and snapshots bill at $0.04 per GB-month while Revyl stores them, including while the computer is stopped.
+- **Limits.** 100 snapshots per organization by default.
+- **Cleanup.** `delete_persistent(name_or_id)` stops a running computer the normal way, which saves its disk, then deletes the computer and its saved disk for good. Its snapshots stay. `delete_snapshot(name_or_id)` deletes a snapshot; computers made from it keep their disks. Both raise `NOT_FOUND` when nothing has that name or ID.
 - **Lists.** `list_persistent()` returns a `PersistentComputer` for each of your organization's persistent computers, with `id`, `state`, `saved_at`, `saved_off_host`, `created_at` and `saved_disk_expires_at`. Revyl stores no names, so compare `id` with `mac.id`. `list_snapshots()` returns a `ComputerSnapshot` for each snapshot, with `id`, `name`, `computer_id`, `saved_at` and `saved_disk_expires_at`.
 
 Where the table shows no `reason`, the message names Revyl's code, shown here in parentheses.
@@ -322,7 +323,7 @@ Where the table shows no `reason`, the message names Revyl's code, shown here in
 | `SESSION_START_FAILED` (`saved_disk_unavailable`) | The Mac holding the save is offline and the save isn't copied off it yet, or no Mac can start it now | Try again later; the disk is kept |
 | `SESSION_START_FAILED` (`saved_disk_expired`) | The computer's save has reached `saved_disk_expires_at` | `delete_persistent()` it; `open_persistent()` with its name then creates a new one |
 | `SESSION_START_FAILED` (`snapshot_expired`) | The snapshot has reached `saved_disk_expires_at` | Save a new snapshot of a recently stopped computer |
-| `COMPUTER_LIMIT` (`persistent_computer_limit` or `snapshot_limit`) | Your organization keeps as many computers or snapshots as it may | Delete one you no longer need with `delete_persistent()` or `delete_snapshot()`, then try again |
+| `COMPUTER_LIMIT` (`snapshot_limit`) | Your organization keeps as many snapshots as it may, 100 by default | Delete one you no longer need with `delete_snapshot()`, then try again |
 
 The [persistent computers guide](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/guides/persistent-computers.md) has more.
 

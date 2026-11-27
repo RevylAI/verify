@@ -198,7 +198,7 @@ try {
 | `timeoutMs` | This run's lifetime, as on `open()`: 2 hours by default, up to 24 hours |
 | `startTimeout` | How long to wait until it is ready: 15 minutes by default, since a start from a snapshot restores the disk first |
 
-Each run bills like any Mac. A few saves have an end, which `savedDiskExpiresAt` on list entries shows when Revyl reports one. An organization keeps at most 10 persistent computers and 100 snapshots unless Revyl raised its limits. The [persistence guide](guides/persistent-computers.md) covers what is kept and what isn't, use cases (a dev environment set up once, parallel copies from a snapshot, a browser that stays signed in, a long-running agent workspace), lifetimes, cleanup and every error.
+Each run bills like any Mac, and saved disks and snapshots bill at $0.04 per GB-month while Revyl stores them. A few saves have an end, which `savedDiskExpiresAt` on list entries shows when Revyl reports one. An organization keeps at most 100 snapshots by default. The [persistence guide](guides/persistent-computers.md) covers what is kept and what isn't, use cases (a dev environment set up once, parallel copies from a snapshot, a browser that stays signed in, a long-running agent workspace), lifetimes, cleanup and every error.
 
 ## Lifecycle and transport
 

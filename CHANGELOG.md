@@ -5,6 +5,7 @@
 - iOS and Android: `typeFocused(text, { clear })` types into the field that already has focus, for example after `tap({ target })`, instead of throwing `NOT_AVAILABLE_ON_PLATFORM` before anything is sent. It posts `/input` with no point. When nothing has focus it throws `ACTION_FAILED` with reason `no_focused_input`, as on Web, and the message says to use `type({ target }, text)` or tap the field first. A device that can't tell which field has focus, such as a real iPhone, throws `NOT_AVAILABLE_ON_PLATFORM` with the new reason `focused_input_unavailable`, naming `type({ target }, text)`. A Revyl device too old to type without a point answers HTTP 422, and `typeFocused` throws the same `NOT_AVAILABLE_ON_PLATFORM` error and message as 0.8.0. Your own model's tools still offer `type_focused` on Web only.
 - A device action that fails with an unclassified HTTP error now carries `httpStatus` on its `VerifyError`.
 - Docs: the README, API, mobile, web, errors and agents pages and llms.txt say `typeFocused` works on iOS and Android, with both refusals.
+- Docs: persistent computers. `deletePersistent()` stops a running computer the normal way, which saves its disk, before deleting it and its disk for good; the docs and its doc comment said it stopped without saving. The 10-computer limit is gone, so the guide, computers page and `COMPUTER_LIMIT` doc comment name only the 100-snapshot default. Saved disks and snapshots bill at $0.04 per GB-month; the guide no longer says stored disks are free in limited preview. The `revyl-verify` skill says the same about delete and storage. No behavior change.
 
 ## Go 0.7.1 (2026-11-27)
 
@@ -12,12 +13,14 @@ To be published as the `go/v0.7.1` tag.
 
 - iOS and Android: `TypeFocused` types into the field that already has focus instead of returning `ErrNotAvailableOnPlatform`, as in TypeScript 0.8.1. With nothing focused it returns `ErrActionFailed` with `Reason` `ReasonNoFocusedInput`; a device that can't tell which field has focus, such as a real iPhone, returns `ErrNotAvailableOnPlatform` with the new `ReasonFocusedInputUnavailable`; a Revyl device too old to type without a point (HTTP 422) returns the same `ErrNotAvailableOnPlatform` error and message as v0.7.0.
 - Docs: the README says `TypeFocused` works on iOS and Android, with both refusals.
+- Docs: persistent computers. `DeletePersistent` stops a running computer the normal way, which saves its disk, before deleting it; the README and doc comment said it stopped without saving. The README drops the 10-computer limit, keeps the 100-snapshot default and says saved disks and snapshots bill at $0.04 per GB-month. No behavior change.
 - `verify.Version` and the `User-Agent` report 0.7.1.
 
 ## Python 0.6.1 (2026-11-27)
 
 - iOS and Android: `type_focused(text, clear=...)` types into the field that already has focus instead of raising `NOT_AVAILABLE_ON_PLATFORM`, as in TypeScript 0.8.1, also on `AsyncSession`. With nothing focused it raises `ACTION_FAILED` with `reason="no_focused_input"`; a device that can't tell which field has focus, such as a real iPhone, raises `NOT_AVAILABLE_ON_PLATFORM` with the new `reason="focused_input_unavailable"`; a Revyl device too old to type without a point (HTTP 422) raises the same `NOT_AVAILABLE_ON_PLATFORM` error and message as 0.6.0.
 - Docs: the README says `type_focused` works on iOS and Android, with both refusals.
+- Docs: persistent computers. `delete_persistent()` stops a running computer the normal way, which saves its disk, before deleting it; the README and docstring said it stopped without saving. The README drops the 10-computer limit, keeps the 100-snapshot default and says saved disks and snapshots bill at $0.04 per GB-month. No behavior change.
 - `revyl_verify.__version__` and the `User-Agent` report 0.6.1.
 
 ## 0.8.0 (2026-11-27)
