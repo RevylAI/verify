@@ -1,0 +1,16 @@
+{
+  "name": "verify-guide-check-an-ios-change",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Verify guide example: check an iOS change",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env check-ios.ts"
+  },
+  "devDependencies": {
+    "@revyl/verify": "0.7.1"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "verify-guide-every-platform",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Verify guide example: one script on web, iOS and Android",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env every-platform.ts"
+  },
+  "devDependencies": {
+    "@revyl/verify": "0.7.1"
+  }
+}

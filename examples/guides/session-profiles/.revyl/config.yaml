@@ -1,0 +1,6 @@
+project:
+  id: <your Revyl project id>
+session:
+  profiles:
+    signed-in:
+      script: demo-sign-in
