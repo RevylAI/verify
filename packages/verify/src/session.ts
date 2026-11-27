@@ -15,6 +15,7 @@ import {
   type RawResponse,
 } from './api/client.js';
 import type {
+  ComputerInferenceReadiness,
   LiveStepResult,
   LiveStepType,
   Platform,
@@ -54,16 +55,28 @@ const WEB_TARGET_ERRORS = new Set(['stale_target', 'target_unstable', 'invalid_c
 
 export type StepType = LiveStepType;
 
-/** The outcome of one instruction or validation, as Revyl's agent reported it. */
+/** The outcome of one instruction, validation or extract, as Revyl's agent reported it. */
 export interface StepResult {
   type: StepType;
   text: string;
   passed: boolean;
+  /** What extract() read off the screen. Extract steps only. */
+  value?: string;
   /** Revyl's explanation, or your model's when the step ran on a local agent. */
   reason?: string;
   durationMs: number;
+  /**
+   * Who answered, when Revyl says: 'local' is the vision model on the Revyl computer the step ran on or inside
+   * (open({ platform: 'mac', inference: true })), 'hosted' is Revyl's hosted model.
+   */
+  engine?: 'local' | 'hosted';
   /** Present when the step ran on your model: its name, grounding, turns and token use. */
   model?: ModelRun;
+}
+
+export interface ExtractOptions {
+  /** Milliseconds before the step is cancelled. Defaults to stepTimeout from the config, or 180000. */
+  timeout?: number;
 }
 
 export interface StepOptions {
@@ -158,16 +171,18 @@ export interface Session {
   readonly id: string;
   /** The live view of the session in Revyl, and its recording and report once it ends. */
   readonly viewerUrl: string;
-  /** Every instruction and validation run on this session, in order. */
+  /** Every instruction, validation and extract run on this session, in order. */
   readonly steps: StepResult[];
   readonly closed: boolean;
   readonly expiresAt?: Date;
   /** A computer's recording after close(), waiting until Revyl has saved it; null when none was saved within timeoutMs (default 15 minutes). Computers only. */
   recording(options?: { timeoutMs?: number }): Promise<ComputerRecording | null>;
-  /** Asks Revyl's agent to do something on the app. Browsers and devices only. */
+  /** Asks Revyl's agent to do something on the app. Browsers and devices; on a computer, use tap({ target }) or type({ target }, text). */
   instruction(text: string, options?: StepOptions): Promise<StepResult>;
-  /** Asks Revyl's agent whether something holds on screen. Browsers and devices only. */
+  /** Asks whether something holds on screen. Every platform; a Mac computer needs open({ platform: 'mac', inference: true }). */
   validation(text: string, options?: ValidationOptions): Promise<StepResult>;
+  /** Reads a value off the screen, such as "the order number", and returns it as result.value. Every platform; a Mac computer needs open({ platform: 'mac', inference: true }). */
+  extract(text: string, options?: ExtractOptions): Promise<StepResult>;
   /** A PNG of the screen right now, also written to path when given. */
   screenshot(options?: { path?: string }): Promise<Uint8Array>;
   /** Runs a program with its arguments, not a shell line. Computers only. */
@@ -197,6 +212,11 @@ export interface OpenedSession extends Session {
    * instruction() and validation() keep working. Each connection needs a fresh url: it works once and expires after 60 seconds. Web only.
    */
   cdp(): Promise<CDPEndpoint>;
+  /**
+   * Computers opened with { inference: true } only: whether the Mac's own vision model answered when Verify last read the
+   * computer's report (at open and on each report()): 'ready', 'unavailable' or 'unknown'. Undefined everywhere else.
+   */
+  readonly inference?: ComputerInferenceReadiness;
   /** Keeps the computer running at least timeoutMs (whole seconds, 60000 to 86400000) from now, up to 24 hours after it started. Never shortens it. Computers only. */
   extend(timeoutMs: number): Promise<void>;
   /**
@@ -245,6 +265,8 @@ export interface HostingParent {
   id: string;
   signal: AbortSignal;
   expiresAt?: Date;
+  /** Whether the hosting computer was opened with inference. */
+  inference: boolean;
   register(session: Session): void;
 }
 
@@ -257,7 +279,7 @@ export class DeviceSession implements Session {
   readonly id: string;
   /** The live view of the session in Revyl, and its recording and report once it ends. */
   readonly viewerUrl: string;
-  /** Every instruction and validation run on this session, in order. */
+  /** Every instruction, validation and extract run on this session, in order. */
   readonly steps: StepResult[] = [];
   private workflowRunId: string;
   private closePromise: Promise<void> | undefined;
@@ -376,6 +398,7 @@ export class DeviceSession implements Session {
         ...(target.viewport ? { viewport: { width: target.viewport.width, height: target.viewport.height, device_scale_factor: target.viewport.deviceScaleFactor } } : {}),
         ...(target.signIn ? { sign_in: { path: target.signIn.path, secret_name: target.signIn.secret, persona: target.signIn.persona } } : {}),
       } } : { is_simulation: true }),
+      ...(target.inference ? { inference: 'local' as const } : {}),
     };
     let submitted = false;
     let refused = false;
@@ -388,6 +411,9 @@ export class DeviceSession implements Session {
         refused = [400, 401, 403, 404, 405, 409, 422, 429].includes(response.status) || (response.status === 503 && reason !== undefined && reason !== 'request_timeout' && reason !== 'protocol_error');
         const blocked = edgeBlockedError(response);
         if (blocked) throw blocked;
+        if (reason === 'computer_local_inference_unavailable') {
+          throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `Revyl refused the ${target.platform} session's local inference (computer_local_inference_unavailable): the hosting computer has no vision model answering. ${parent.inference ? "It was opened with { inference: true } but its Mac's model isn't answering now (computer.inference shows it); try again shortly, or" : "Open the computer with open({ platform: 'mac', inference: true }) to use its model, or"} pass { inference: false } to computer.open() to run this session's steps on Revyl's hosted model.`, { reason, httpStatus: response.status });
+        }
         const code = response.status === 401 || response.status === 403 ? 'AUTH_REJECTED'
           : reason === 'computer_not_found' || response.status === 404 ? 'NOT_FOUND'
           : reason === 'computer_not_running' ? 'SESSION_ENDED'
@@ -445,6 +471,14 @@ export class DeviceSession implements Session {
       throw new VerifyError('VALIDATION_FAILED', `Validation failed: "${result.text}". ${sentence(result.reason)} See ${this.viewerUrl}`, { result });
     }
     return result;
+  }
+
+  /**
+   * Reads a value off the screen, such as "the order number", and returns the step with it in value. Throws STEP_FAILED
+   * when Revyl could not read it. Runs on Revyl's agent, so a session opened with your own model throws INVALID_ARGUMENT.
+   */
+  async extract(text: string, options: ExtractOptions = {}): Promise<StepResult> {
+    return this.step('extract', text, options);
   }
 
   /** A PNG of the screen right now, also written to path when given. */
@@ -585,18 +619,21 @@ export class DeviceSession implements Session {
       throw new VerifyError('INVALID_ARGUMENT', `${type}() takes a description of 1 to ${MAX_STEP_TEXT_LENGTH} characters.`);
     }
     const agent = chooseAgent(options, `${type}()`) ?? this.options.agent;
+    if (type === 'extract' && agent) {
+      throw new VerifyError('INVALID_ARGUMENT', "extract() runs on Revyl's agent, and this session runs steps on your model because open() was passed model or agent. Read the value from screenshot() with your model, or open a session without model or agent to use extract().");
+    }
     const timeoutMs = options.timeout ?? this.options.stepTimeout;
     if (!Number.isInteger(timeoutMs) || timeoutMs < 1_000) {
       throw new VerifyError('INVALID_ARGUMENT', `${type}() takes a timeout of at least 1000 ms.`);
     }
     if (this.stepRunning) {
-      throw new VerifyError('INVALID_ARGUMENT', 'Run one step at a time on a session: await each instruction or validation before starting the next.');
+      throw new VerifyError('INVALID_ARGUMENT', 'Run one step at a time on a session: await each instruction, validation or extract before starting the next.');
     }
     this.stepRunning = true;
     const description = text.trim();
     const startedAt = Date.now();
     try {
-      if (agent) {
+      if (agent && type !== 'extract') {
         const local = await this.runLocal(type, description, timeoutMs, agent);
         const result: StepResult = { type, text: description, passed: local.passed, ...(local.reason ? { reason: local.reason } : {}), durationMs: Date.now() - startedAt, model: local.run };
         this.steps.push(result);
@@ -610,10 +647,16 @@ export class DeviceSession implements Session {
         const why = outcome.success === true ? 'Revyl returned no verdict.' : sentence(reason);
         throw new VerifyError('STEP_FAILED', `Validation did not reach a verdict: "${description}". ${why} See ${this.viewerUrl}`);
       }
+      const value = output.extracted_data?.information;
+      if (type === 'extract' && (outcome.success !== true || output.status === 'failed' || typeof value !== 'string')) {
+        const why = outcome.success === true && output.status !== 'failed' ? 'Revyl returned no value.' : sentence(reason);
+        throw new VerifyError('STEP_FAILED', `Extract read nothing: "${description}". ${why} Describe one value that is on the screen now, such as "the order number on the confirmation". See ${this.viewerUrl}`);
+      }
       const passed = type === 'validation' ? output.validation_result === true : outcome.success === true && output.status !== 'failed';
-      const result: StepResult = { type, text: description, passed, ...(reason ? { reason } : {}), durationMs: Date.now() - startedAt };
+      const engine = output.engine === 'local' || output.engine === 'hosted' ? output.engine : undefined;
+      const result: StepResult = { type, text: description, passed, ...(type === 'extract' ? { value: value as string } : {}), ...(reason ? { reason } : {}), durationMs: Date.now() - startedAt, ...(engine ? { engine } : {}) };
       this.steps.push(result);
-      this.log(`${passed ? '✓' : '✗'} ${type} "${description}" (${formatDuration(result.durationMs)})${!passed && reason ? `: ${reason}` : ''}`);
+      this.log(`${passed ? '✓' : '✗'} ${type} "${description}" (${formatDuration(result.durationMs)}${engine ? `, ${engine} model` : ''})${type === 'extract' ? `: ${value}` : !passed && reason ? `: ${reason}` : ''}`);
       return result;
     } catch (error) {
       this.log(`✗ ${type} "${description}": ${isVerifyError(error) ? error.code : errorMessage(error)}`);
@@ -681,7 +724,7 @@ export class DeviceSession implements Session {
     }
   }
 
-  private async runLocal(type: StepType, description: string, timeoutMs: number, agent: LocalAgent): Promise<{ passed: boolean; reason?: string; run: ModelRun }> {
+  private async runLocal(type: 'instruction' | 'validation', description: string, timeoutMs: number, agent: LocalAgent): Promise<{ passed: boolean; reason?: string; run: ModelRun }> {
     const signal = AbortSignal.timeout(timeoutMs);
     this.attribution = {
       'X-Revyl-Agent': `Verify local: ${agent.model.name}`.replace(/[^\x20-\x7e]/g, '?').slice(0, 100),

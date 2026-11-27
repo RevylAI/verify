@@ -47,6 +47,7 @@ from ._cleanup import track, untrack
 from ._models import (
     UUID_PATTERN,
     CDPEndpoint,
+    ComputerInferenceReadiness,
     ComputerProcess,
     ComputerRecording,
     ExecResult,
@@ -237,6 +238,13 @@ class Session:
     def closed(self) -> bool:
         return self._closed
 
+    @property
+    def inference(self) -> ComputerInferenceReadiness | None:
+        """Computers opened with inference=True only: whether the Mac's own vision model answered
+        when Verify last read the computer's report (at open and on each report()): "ready",
+        "unavailable" or "unknown". None everywhere else."""
+        return None
+
     def __enter__(self) -> Session:
         return self
 
@@ -268,6 +276,7 @@ class Session:
         computer_session_id: str | None = None,
         expires_at: datetime | None = None,
         profile: SessionProfilePlan | None = None,
+        computer_inference: bool = False,
     ) -> Session:
         cancellation = cancellation or Cancellation()
         deadline = Deadline(target.start_timeout, cancellation)
@@ -318,6 +327,8 @@ class Session:
                     body[key] = value
         if profile is not None:
             body.update(profile.fields)
+        if hosted and target.inference:
+            body["inference"] = "local"
         session = cls(
             client,
             proposed_id if target.platform == "web" or hosted else "",
@@ -360,6 +371,24 @@ class Session:
                     or (start_refusal(response) if mobile else None)
                     or http_error(response, hosted=hosted)
                 )
+                if hosted and error.reason == "computer_local_inference_unavailable":
+                    error = VerifyError(
+                        "NOT_AVAILABLE_ON_PLATFORM",
+                        f"Revyl refused the {target.platform} session's local inference "
+                        "(computer_local_inference_unavailable): the hosting computer has no "
+                        "vision model answering. "
+                        + (
+                            "It was opened with inference=True but its Mac's model isn't "
+                            "answering now (computer.inference shows it); try again shortly, or"
+                            if computer_inference
+                            else 'Open the computer with open(Target(platform="mac", '
+                            "inference=True)) to use its model, or"
+                        )
+                        + " set inference=False on the Target you pass to computer.open() to run "
+                        "this session's steps on Revyl's hosted model.",
+                        reason=error.reason,
+                        http_status=response.status,
+                    )
                 if profile_refusal is not None:
                     refused = True
                     if error.reason == "repository_unavailable" and attempt < len(
@@ -1234,9 +1263,15 @@ class Session:
             )
         return result
 
+    def extract(self, text: str, *, timeout: float | None = None) -> StepResult:
+        """Reads a value off the screen, such as "the order number", and returns the step with it
+        in value. Raises STEP_FAILED when Revyl could not read it. Runs on Revyl's agent, so a
+        session opened with your own model raises INVALID_ARGUMENT."""
+        return self._step("extract", text, timeout, None, None)
+
     def _step(
         self,
-        kind: Literal["instruction", "validation"],
+        kind: Literal["instruction", "validation", "extract"],
         text: str,
         timeout: float | None,
         model: ModelOption | None,
@@ -1247,20 +1282,28 @@ class Session:
                 "INVALID_ARGUMENT", "Step description must contain 1–4000 characters."
             )
         local = choose_agent(model, agent, f"{kind}()") or self._agent
+        if kind == "extract" and local is not None:
+            raise VerifyError(
+                "INVALID_ARGUMENT",
+                "extract() runs on Revyl's agent, and this session runs steps on your model "
+                "because open() was passed model or agent. Read the value from screenshot() with "
+                "your model, or open a session without model or agent to use extract().",
+            )
         duration = seconds(
             self._step_timeout if timeout is None else timeout, 1, 3600, "Step timeout"
         )
         with self._lock:
             if self._step_running:
                 raise VerifyError(
-                    "INVALID_ARGUMENT", "Run one instruction or validation at a time on a session."
+                    "INVALID_ARGUMENT",
+                    "Run one instruction, validation or extract at a time on a session.",
                 )
             self._step_running = True
         deadline = Deadline(duration, self._cancellation)
         started = time.monotonic()
         step_id: str | None = None
         try:
-            if local is not None:
+            if local is not None and kind != "extract":
                 passed, explanation, run = self._run_local(
                     kind, text.strip(), duration, local, deadline
                 )
@@ -1352,6 +1395,32 @@ class Session:
                     "STEP_FAILED", "Validation did not reach a verdict. See " + self.viewer_url
                 )
             reason = output.get("status_reason") or output.get("reasoning")
+            extracted = output.get("extracted_data")
+            value = None if extracted is None else obj(extracted).get("information")
+            if kind == "extract" and (
+                not success or output.get("status") == "failed" or not isinstance(value, str)
+            ):
+                why = (
+                    "Revyl returned no value."
+                    if success and output.get("status") != "failed"
+                    else (reason.strip() if isinstance(reason, str) else "")
+                    or "Revyl gave no reason."
+                )
+                if why[-1] not in ".!?":
+                    why += "."
+                raise VerifyError(
+                    "STEP_FAILED",
+                    f'Extract read nothing: "{text.strip()}". {why} Describe one value that is on '
+                    'the screen now, such as "the order number on the confirmation". See '
+                    + self.viewer_url,
+                )
+            engine: Literal["local", "hosted"] | None = (
+                "local"
+                if output.get("engine") == "local"
+                else "hosted"
+                if output.get("engine") == "hosted"
+                else None
+            )
             result = StepResult(
                 kind,
                 text.strip(),
@@ -1360,9 +1429,16 @@ class Session:
                 else success and output.get("status") != "failed",
                 reason if isinstance(reason, str) else None,
                 time.monotonic() - started,
+                value=value if kind == "extract" and isinstance(value, str) else None,
+                engine=engine,
             )
             self.steps.append(result)
-            self._log(f"{'✓' if result.passed else '✗'} {kind} ({result.duration_seconds:.1f}s)")
+            self._log(
+                f"{'✓' if result.passed else '✗'} {kind} ({result.duration_seconds:.1f}s"
+                + (f", {engine} model" if engine else "")
+                + ")"
+                + (f": {result.value}" if result.value is not None else "")
+            )
             return result
         except VerifyError as error:
             self._log(f"✗ {kind}: {error.code}")

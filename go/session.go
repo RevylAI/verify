@@ -41,6 +41,7 @@ type StepOption interface{ stepOption() }
 type ValidationOption interface{ validationOption() }
 
 type StepOptions struct{ Timeout time.Duration }
+type ExtractOptions struct{ Timeout time.Duration }
 type ValidationOptions struct {
 	Timeout time.Duration
 	Soft    bool
@@ -51,11 +52,16 @@ func (StepOptions) stepOption()             {}
 func (ValidationOptions) validationOption() {}
 
 type StepResult struct {
-	Type     string
-	Text     string
-	Passed   bool
+	Type   string
+	Text   string
+	Passed bool
+	// Value is what Extract read off the screen. Extract steps only.
+	Value    string
 	Reason   string
 	Duration time.Duration
+	// Engine is who answered, when Revyl says: "local" is the vision model on the Revyl computer the step ran on or
+	// inside (a Mac opened with Inference), "hosted" is Revyl's hosted model. Empty when Revyl doesn't say.
+	Engine string
 	// Model is set when the step ran on your own model: its name, grounding, turns and token use.
 	Model *ModelRun
 }
@@ -88,6 +94,8 @@ type Session struct {
 	profile                  *sessionProfilePlan
 	startTimeout             time.Duration
 	persistentName           string
+	inference                bool
+	inferenceReadiness       ComputerInferenceReadiness
 }
 
 func (s *Session) ID() string        { return s.id }

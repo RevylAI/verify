@@ -47,7 +47,15 @@ type Target struct {
 	IdleTimeoutSeconds int
 	Viewport           *Viewport
 	SignIn             *SignIn
+	// Inference, on a Mac computer, runs it on a Mac whose own vision model is loaded, so Validation and Extract work on
+	// it and iOS and Web sessions it opens use that model too; it comes with paid Revyl plans. On an iOS or Web target
+	// passed to a computer's Open, it runs that session's steps on the hosting Mac's model first, with Revyl's hosted
+	// model as the fallback: nil means true inside a computer opened with Inference and false otherwise, and a pointer
+	// to false opts out.
+	Inference *bool
 }
+
+const macInferenceOpen = "verify.Open(ctx, verify.Target{Platform: verify.Mac, Inference: new(true)})"
 
 var uuidPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 var webPattern = regexp.MustCompile(`^https://[^/?#@\s]+(/[^?#\s]*)?$`)
@@ -69,7 +77,10 @@ func (t *Target) validate(hosted bool) error {
 	}
 	if t.Platform.computer() {
 		if t.AppID != "" || t.BundleID != "" || t.URL != "" || t.BuildID != "" || t.ArtifactURL != "" || t.Branch != "" || t.DeviceModel != "" || t.OSVersion != "" || t.IdleTimeoutSeconds != 0 || t.Viewport != nil || t.SignIn != nil {
-			return bad("Computer targets accept only Platform, StartTimeout, and Timeout.")
+			return bad("Computer targets accept only Platform, StartTimeout, Timeout, and Inference.")
+		}
+		if t.Platform == Linux && t.Inference != nil && *t.Inference {
+			return bad("Inference is for Mac computers only; open one with " + macInferenceOpen + ".")
 		}
 		if t.Timeout != 0 && (t.Timeout < time.Minute || t.Timeout > 24*time.Hour || t.Timeout%time.Second != 0) {
 			return bad("Timeout must be whole seconds from 1 minute to 24 hours.")
@@ -78,6 +89,12 @@ func (t *Target) validate(hosted bool) error {
 	}
 	if t.Timeout != 0 {
 		return bad("Timeout applies only to computer targets.")
+	}
+	if t.Inference != nil && !hosted {
+		return bad("Inference applies only to Mac computers and to iOS and Web sessions a computer's Open starts.")
+	}
+	if t.Inference != nil && *t.Inference && t.Platform == Android {
+		return bad("Inference runs only for iOS and Web sessions inside a Mac computer; leave it out for Android.")
 	}
 	if t.IdleTimeoutSeconds == 0 {
 		t.IdleTimeoutSeconds = 600

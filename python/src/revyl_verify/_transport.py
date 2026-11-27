@@ -49,6 +49,7 @@ _ResponseRefusalReason = Literal[
     "persistent_computers_not_enabled",
     "request_timeout",
     "protocol_error",
+    "computer_local_inference_unavailable",
 ]
 RefusalReason = Literal[
     _ResponseRefusalReason,
@@ -62,6 +63,9 @@ RefusalReason = Literal[
     "lifetime_unsupported",
     "upgrade_required",
     "no_focused_input",
+    "inference_not_enabled",
+    "inference_unavailable",
+    "step_engine_unavailable",
 ]
 SessionProfileOutcome = Literal[
     "succeeded",
@@ -629,7 +633,7 @@ class Client:
         headers = {
             "Authorization": f"Bearer {self._token}",
             "Accept": "application/json",
-            "User-Agent": "revyl-verify/0.5.1 python",
+            "User-Agent": "revyl-verify/0.6.0 python",
             "X-Revyl-Client": "verify",
         }
         if worker:

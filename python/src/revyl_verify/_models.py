@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 from ._transport import VerifyError, seconds
 
 Platform = Literal["web", "ios", "android", "mac", "linux"]
+ComputerInferenceReadiness = Literal["ready", "unavailable", "unknown"]
 UUID_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
 
 
@@ -46,6 +47,12 @@ class Target:
     viewport: Viewport | None = None
     sign_in: SignIn | None = None
     timeout: int | None = None
+    inference: bool | None = None
+    """Mac: run the computer on a Mac whose own vision model is loaded, so validation() and
+    extract() work on it and iOS and Web sessions opened inside it use that model too. Comes with
+    paid Revyl plans. Inside a computer (computer.open()), iOS and Web: run this session's steps on
+    the hosting Mac's own vision model first, with Revyl's hosted model as the fallback; defaults
+    to True inside a computer opened with inference=True, and False turns it off."""
 
     def validate(self, *, hosted: bool = False) -> None:
         def bad(message: str) -> None:
@@ -53,6 +60,8 @@ class Target:
 
         if self.platform not in ("web", "ios", "android", "mac", "linux"):
             bad("Platform must be web, ios, android, mac, or linux.")
+        if self.inference is not None and not isinstance(self.inference, bool):
+            bad("inference must be True or False.")
         if hosted:
             if self.platform not in ("web", "ios", "android"):
                 bad("Hosted targets must be web, ios, or android.")
@@ -91,9 +100,14 @@ class Target:
             if any(
                 getattr(self, field.name) is not None
                 for field in fields(self)
-                if field.name not in ("platform", "start_timeout", "timeout")
+                if field.name not in ("platform", "start_timeout", "timeout", "inference")
             ):
-                bad("Computer targets accept only platform, start_timeout, and timeout.")
+                bad("Computer targets accept only platform, start_timeout, timeout, and inference.")
+            if self.inference is True and self.platform == "linux":
+                bad(
+                    'inference is for Mac computers only; use Target(platform="mac", '
+                    "inference=True)."
+                )
             if self.timeout is not None and (
                 type(self.timeout) is not int or not 60 <= self.timeout <= 86_400
             ):
@@ -101,6 +115,16 @@ class Target:
             return
         if self.timeout is not None:
             bad("timeout applies only to mac and linux targets.")
+        if self.inference is not None and not hosted:
+            bad(
+                "inference applies only to mac targets and to iOS and Web targets passed to "
+                "computer.open()."
+            )
+        if self.inference is True and self.platform == "android":
+            bad(
+                "inference runs only for iOS and Web sessions inside a Mac computer; leave it "
+                "out for Android."
+            )
         if self.idle_timeout_seconds is not None and (
             type(self.idle_timeout_seconds) is not int
             or not 60 <= self.idle_timeout_seconds <= 3600
@@ -220,12 +244,17 @@ class ModelRun:
 
 @dataclass(frozen=True)
 class StepResult:
-    type: Literal["instruction", "validation"]
+    type: Literal["instruction", "validation", "extract"]
     text: str
     passed: bool
     reason: str | None
     duration_seconds: float
     model: ModelRun | None = None
+    value: str | None = None
+    """What extract() read off the screen. Extract steps only."""
+    engine: Literal["local", "hosted"] | None = None
+    """Who answered, when Revyl says: "local" is the vision model on the Revyl computer the step
+    ran on or inside (Target(platform="mac", inference=True)), "hosted" is Revyl's hosted model."""
 
 
 @dataclass(frozen=True)

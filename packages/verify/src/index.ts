@@ -1,9 +1,9 @@
 export { attach, currentComputer, open } from './open.js';
 export type { AttachOptions, OpenOptions } from './open.js';
-export type { ActionOptions, CDPEndpoint, OpenedSession, Session, StepOptions, StepResult, StepType, ValidationOptions, OperationOptions, ExecOptions, ExecResult, FileStat, ComputerProcess, ComputerRecording } from './session.js';
+export type { ActionOptions, CDPEndpoint, ExtractOptions, OpenedSession, Session, StepOptions, StepResult, StepType, ValidationOptions, OperationOptions, ExecOptions, ExecResult, FileStat, ComputerProcess, ComputerRecording } from './session.js';
 export { defineConfig } from './config.js';
 export type { HostedTargetConfig, MobileAppConfig, MobileTargetConfig, ComputerTargetConfig, TargetConfig, VerifyConfig, WebAppConfig, WebTargetConfig } from './config.js';
-export type { Platform, ComputerPlatform, MobilePlatform } from './api/types.js';
+export type { Platform, ComputerInferenceReadiness, ComputerPlatform, MobilePlatform } from './api/types.js';
 export { openPersistent, saveSnapshot, listPersistent, listSnapshots, deletePersistent, deleteSnapshot } from './persistent.js';
 export type { ComputerSnapshot, PersistentComputer, PersistentComputerSession, PersistentComputerState, PersistentOpenOptions, PersistentOptions, SaveSnapshotOptions } from './persistent.js';
 export { VerifyError, isVerifyError } from './errors.js';

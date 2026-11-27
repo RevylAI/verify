@@ -9,10 +9,10 @@ Use Go 1.26.9 or later and a Revyl account. Set `REVYL_API_KEY` through your she
 The module lives in the repository's `go/` subdirectory. Install the tagged release with:
 
 ```sh
-go get github.com/RevylAI/verify/go@v0.6.1
+go get github.com/RevylAI/verify/go@v0.7.0
 ```
 
-Go releases use independent repository tags such as `go/v0.6.1`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
+Go releases use independent repository tags such as `go/v0.7.0`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
 
 ## Set up your coding agent
 
@@ -40,7 +40,7 @@ This program opens the iOS Settings app on a cloud simulator, which every accoun
 ```sh
 mkdir verify-go && cd verify-go
 go mod init example.com/verify-go
-go get github.com/RevylAI/verify/go@v0.6.1
+go get github.com/RevylAI/verify/go@v0.7.0
 ```
 
 Save this as `main.go`:
@@ -88,7 +88,7 @@ Run it with `go run .`. It prints `ios: starting ios session <link>` as soon as 
 
 ## Core API
 
-Inside a function returning `error`, with `verify "github.com/RevylAI/verify/go"`, `context`, and `time` imported:
+Inside a function returning `error`, with `verify "github.com/RevylAI/verify/go"`, `context`, `log`, and `time` imported:
 
 ```go
 s, err := verify.Open(ctx, verify.Target{Platform: verify.Android, BundleID: "com.example.app"})
@@ -106,11 +106,18 @@ if _, err := s.Instruction(ctx, "Open the cart"); err != nil {
 if _, err := s.Validation(ctx, "The cart shows one item"); err != nil {
 	return err
 }
+total, err := s.Extract(ctx, "the cart total")
+if err != nil {
+	return err
+}
+log.Println("Total:", total.Value)
 _, err = s.Screenshot(ctx, "artifacts/cart.png")
 return err
 ```
 
 This sketch ignores cleanup errors for brevity; the complete example below reports them. Go has no automatic process-exit cleanup: explicitly close every successful session, including on error. Use a fresh, bounded cleanup context so canceling the work context does not prevent cleanup. `Close` is idempotent. An abrupt process termination cannot run deferred functions.
+
+`Extract(ctx, text)` reads one value off the screen and returns it in `StepResult.Value`. Describe one value that is visible now, such as `"the order number"`. On web, iOS and Android it runs on Revyl's agent, like `Instruction` and `Validation`; on a Mac computer it runs on the Mac's own model and needs a Mac opened with inference (see [Validation and Extract on a Mac](#validation-and-extract-on-a-mac)). When nothing is read, it returns `ErrStepFailed` with the reason: describe a value that is on the screen now. A session opened with `WithModel`, `WithCustomModel` or `WithAgent` returns `ErrInvalidArgument`, because `Extract` runs on Revyl's agent: read the value from `Screenshot` with your model instead. `ExtractOptions{Timeout: time.Minute}` overrides the step timeout.
 
 On web/mobile, `Close` requests a device stop (or cancels startup when no session ID was returned); success acknowledges the request, not confirmed physical release. Computers require confirmed physical release. Concurrent/repeated calls share the first close result, including an error. It does not retry a failed close as a new operation.
 
@@ -168,16 +175,16 @@ Run with `go test -v -timeout 6m`. `t.Fatal` runs deferred cleanup. The URL and 
 
 - **Web:** `Target{Platform: verify.Web, AppID: "…", URL: "https://…"}` registers a deployed HTTPS URL as a web build. Alternatively supply `BuildID`, or omit URL and build ID to select the latest web build on `Branch` (the app's default branch if omitted). `Viewport` accepts `Width`, `Height`, and optional `DeviceScaleFactor`; `SignIn` accepts `Path`, `Secret` (the stored secret's name, never its value), and optional `Persona`.
 - **iOS and Android:** set `Platform` to `verify.IOS` or `verify.Android` and exactly one of `AppID`, `BuildID`, `ArtifactURL` (HTTPS), or `BundleID` (an app already installed). `DeviceModel` and `OSVersion` are optional and written as Revyl names them, such as `DeviceModel: "iPhone 16", OSVersion: "iOS 18.5"` or `DeviceModel: "Pixel 7", OSVersion: "Android 14"`. A value Revyl doesn't offer returns `ErrInvalidArgument` listing the values it accepts, and no session starts. An `AppID` or `BuildID` Revyl can't find returns `ErrInvalidArgument` naming what wasn't found and how to fix it, and no session starts. A `BundleID` that can't be launched returns `ErrSessionStartFailed` naming the bundle ID, with the session link. `URL`, `Branch`, `Viewport`, and `SignIn` are web-only.
-- **Mac computers:** `Target{Platform: verify.Mac}` creates a workspace; only `StartTimeout` is accepted alongside the platform. Mac computers are available to organizations on a current paid Revyl plan. When Revyl says Pro would unlock Macs for a Free-plan organization (`computer_not_enabled` with `unlocks_with_card: true`), `Open` and `OpenPersistent` return `ErrNotAvailableOnPlatform` with `Reason` `ReasonUpgradeRequired`, and the message gives Revyl's upgrade offer and its HTTPS billing link, or says to add a card in Revyl's billing settings when Revyl sends no offer. A 429 `ErrComputerLimit` means queued work or a concurrency limit; Verify does not guess which cause applies or retry creation. See [computer availability](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#availability-and-errors).
+- **Mac computers:** `Target{Platform: verify.Mac}` creates a workspace; only `StartTimeout`, `Timeout` and `Inference` are accepted alongside the platform. `Inference: new(true)` runs it on a Mac whose own vision model is loaded, so `Validation` and `Extract` work on it; see [Validation and Extract on a Mac](#validation-and-extract-on-a-mac). Mac computers are available to organizations on a current paid Revyl plan. When Revyl says Pro would unlock Macs for a Free-plan organization (`computer_not_enabled` with `unlocks_with_card: true`), `Open` and `OpenPersistent` return `ErrNotAvailableOnPlatform` with `Reason` `ReasonUpgradeRequired`, and the message gives Revyl's upgrade offer and its HTTPS billing link, or says to add a card in Revyl's billing settings when Revyl sends no offer. A 429 `ErrComputerLimit` means queued work or a concurrency limit; Verify does not guess which cause applies or retry creation. See [computer availability](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#availability-and-errors).
 - `Target.StartTimeout` bounds startup (default 10 minutes); on web/mobile, `IdleTimeoutSeconds` sets the session's idle timeout (default 600 seconds). All methods also honor the caller's context.
-- `Open` takes at most one `OpenOptions` value, plus `WithModel`, `WithCustomModel` or `WithAgent` to run steps on your own model; `Instruction` and `Validation` take the same options for one step. `OpenOptions{StepTimeout: 3*time.Minute}` changes the default step timeout. Per-call `StepOptions{Timeout: time.Minute}` and `ValidationOptions{Timeout: time.Minute, Soft: true}` override it. Run one step at a time per session.
+- `Open` takes at most one `OpenOptions` value, plus `WithModel`, `WithCustomModel` or `WithAgent` to run steps on your own model; `Instruction` and `Validation` take the same options for one step. `OpenOptions{StepTimeout: 3*time.Minute}` changes the default step timeout. Per-call `StepOptions{Timeout: time.Minute}`, `ValidationOptions{Timeout: time.Minute, Soft: true}` and `ExtractOptions{Timeout: time.Minute}` override it. Run one step at a time per session, on computers too.
 - `OpenOptions{Profile: "signed-in"}` runs a session profile from your project's `.revyl/config.yaml` before `Open` returns; `Profile: "none"` runs no profile. Left empty, the project's `session.default_profile` runs when it sets one. Web, iOS, Android and Mac computers. See [Session profiles](#session-profiles).
 - Redirects are rejected, not followed with credentials.
 - `OpenOptions{Log: func(line string) { ... }}` opts into progress lines: `<platform>: starting <platform> session <link>` as soon as the session ID exists, before the browser or device is ready, then `ready`, on web, iOS, Android and hosted sessions; computer lifecycle; evidence-gap messages; mobile best-effort first-screen debug notes; and the turns of steps run on your own model. The default is quiet for all targets, so pass `Log: func(line string) { log.Println(line) }` to see the session link while a slow start runs. Keep that callback concurrency-safe if operations run concurrently. A confirmed execution result remains usable when its report evidence is pending or failed; the callback identifies that gap without logging private output or recording URLs.
 
 Requests have bounded deadlines even when passed `context.Background()`: ordinary HTTP requests use 30 seconds, device session creation up to 2 minutes, and accepted-step cancellation up to 5 seconds on a fresh context. Ordinary responses are limited to 16 MiB; computer screenshots allow up to 128 MiB of decoded image data. Safe reads and idempotent device build-registration/stop requests retry at most twice on transient failures; session creation, launch, and step/operation submission are never replayed. Caller cancellation remains detectable with `errors.Is(err, context.Canceled)` or `context.DeadlineExceeded`, alongside `verify.ErrTimeout` for device operations; interrupted computer mutation observation returns `verify.ErrActionUncertain`.
 
-The Go SDK does not read `verify.config.ts`, resolve named targets, or provide an init CLI. Every step runs on the live session; there is no cached replay. Instruction and validation methods on computers return `ErrNotAvailableOnPlatform` locally; computer-only methods on web/mobile do the same.
+The Go SDK does not read `verify.config.ts`, resolve named targets, or provide an init CLI. Every step runs on the live session; there is no cached replay. `Instruction` on a computer returns `ErrNotAvailableOnPlatform` locally, and its message names `Tap(ctx, verify.Element("the Save button"))` and `Type(ctx, verify.Element("the search field"), text)`. `Validation` and `Extract` work on a Mac opened with `Inference: new(true)`, and return `ErrNotAvailableOnPlatform` locally on a Linux computer. Computer-only methods on web/mobile return `ErrNotAvailableOnPlatform` locally too.
 
 ## Session profiles
 
@@ -264,7 +271,9 @@ Neither errors nor logs contain the script's content or output. Check the code w
 | `LaunchApp` | No, use `OpenURL` or `Navigate` | Yes | Yes | No |
 | `Navigate` | Yes | No, use `OpenURL` | No, use `OpenURL` | No |
 | `CDP`, for chromedp, Playwright and Puppeteer | Yes, see [CDP](#cdp-playwright-puppeteer) | No | No | No |
-| `Instruction`, `Validation`, your own model | Yes | Yes | Yes | No, use `Exec` and the screen calls above |
+| `Instruction` | Yes | Yes | Yes | No, use `Tap(ctx, verify.Element("the Save button"))` and `Type(ctx, verify.Element("the search field"), text)` |
+| `Validation`, `Extract` | Yes | Yes | Yes | Yes, on a Mac opened with `Inference: new(true)`; see [Validation and Extract on a Mac](#validation-and-extract-on-a-mac) |
+| Your own model (`WithModel`, `WithCustomModel`, `WithAgent`) | Yes, except `Extract` | Yes, except `Extract` | Yes, except `Extract` | No |
 | `Screenshot` | Yes | Yes | Yes | Yes |
 | `Exec`, files, processes | No, open a Mac computer | No, open a Mac computer | No, open a Mac computer | Yes |
 
@@ -556,7 +565,7 @@ To attach without taking ownership, set `stop := false` and pass `verify.OpenOpt
 
 Call `computer.Open(ctx, target)` to start a web, iOS, or Android app session inside that computer, rather than on an unrelated worker. It reuses the computer's credentials, backend, viewer, HTTP client, step timeout, and log callback. Both `AppID` and `BuildID` must be exact Revyl UUIDs. Hosted targets cannot select `URL`, `Branch`, `ArtifactURL`, `BundleID`, `DeviceModel`, or `OSVersion`. Web targets allow `Viewport`, `SignIn`, `IdleTimeoutSeconds`, and `StartTimeout`; native targets allow the two timeouts and always request simulation.
 
-Mac computers can host web and iOS. This is a client-side compatibility limit, not a capacity guarantee: the server can refuse any hosted start.
+Mac computers can host web and iOS. This is a client-side compatibility limit, not a capacity guarantee: the server can refuse any hosted start. Inside a Mac opened with inference, the session's steps run on the Mac's model first; see [iOS and Web sessions inside an inference Mac](#ios-and-web-sessions-inside-an-inference-mac).
 
 Inside a function returning `error`, with a computer ID and existing app/build UUIDs supplied by your caller:
 
@@ -586,7 +595,7 @@ _, err = browser.Validation(ctx, "The Swag Labs login form is shown")
 return err
 ```
 
-Select an existing HTTPS web build for startup. Leave out `StopOnClose` only for a computer your program owns. `Navigate` can also reach a guest-local HTTP service, but only one already listening there, such as one an earlier step of a `revyl-macos` job started: Verify has no call that starts one, and a process started through `Exec` ends when the command returns. `Navigate(ctx, url)` is web-only and submits `open_url` once, without retries. HTTP and HTTPS URLs of up to 2048 characters are accepted, including localhost; credentials, whitespace, control characters, backslashes, and invalid ports are rejected. On a hosted child, localhost refers to its parent computer; on an ordinary cloud web session, it refers to that web runtime, not your computer or another Revyl computer. A cold development server may need a warm-up request before navigation succeeds. If navigation returns `ACTION_UNCERTAIN`, the request may still commit; re-navigating is the caller's choice. The runtime is responsible for enforcing its navigation network policy. It checks the success envelope and returns only an error, without logging the URL. Hosted sessions reuse `Instruction`, `Validation`, `Screenshot`, and `Close`.
+Select an existing HTTPS web build for startup. Leave out `StopOnClose` only for a computer your program owns. `Navigate` can also reach a guest-local HTTP service, but only one already listening there, such as one an earlier step of a `revyl-macos` job started: Verify has no call that starts one, and a process started through `Exec` ends when the command returns. `Navigate(ctx, url)` is web-only and submits `open_url` once, without retries. HTTP and HTTPS URLs of up to 2048 characters are accepted, including localhost; credentials, whitespace, control characters, backslashes, and invalid ports are rejected. On a hosted child, localhost refers to its parent computer; on an ordinary cloud web session, it refers to that web runtime, not your computer or another Revyl computer. A cold development server may need a warm-up request before navigation succeeds. If navigation returns `ACTION_UNCERTAIN`, the request may still commit; re-navigating is the caller's choice. The runtime is responsible for enforcing its navigation network policy. It checks the success envelope and returns only an error, without logging the URL. Hosted sessions reuse `Instruction`, `Validation`, `Extract`, `Screenshot`, and `Close`.
 
 Each hosted start gets a distinct preallocated session ID and is never replayed. Ambiguous startup failures attempt cleanup of that child ID; definite refusals do not. Child startup failure never stops the parent. Parent close prevents new child opens and cancels in-flight startup. It spends at most five seconds total waiting for startup cleanup and closing children, or half the caller's remaining deadline if shorter, then requests parent stop with the remaining budget. Prompt child cleanup finishes before parent stop; slow child cleanup cannot consume the whole stop budget. The server's parent stop also stops its children. Confirmed physical parent release completes cleanup even if a child stop failed; the optional log callback reports that failure without response content. Otherwise cleanup errors remain observable. Child readiness is bounded by both `StartTimeout` and the computer's remaining lifetime; older computer reports without an expiry cannot host sessions. Child worker operations also honor the parent's expiry and close cancellation; cleanup and reports remain available afterward. Explicitly closing a child does not close its parent.
 
@@ -661,7 +670,7 @@ if err != nil {
 }
 ```
 
-Revyl saves the video a few seconds after release, so `Recording` asks every 5 seconds until it is saved and returns `*ComputerRecording{URL, Duration, StartedAt}` without downloading the video; `Duration` and `StartedAt` are nullable pointers. It returns `(nil, nil)` only when none was saved within 15 minutes or before `ctx`'s deadline, and `ctx.Err()` when `ctx` is canceled. Since `v0.6.1`; earlier versions returned `(nil, nil)` at once while the video was still uploading. On a computer that is still running it returns `ErrSessionBusy` saying to call `Close` first. `Attach` can't reopen a closed computer, so a later process can't fetch it. Signed recording URLs last up to one hour, are private, and are never logged; call `Recording` again to refresh metadata rather than retaining an expired URL.
+Revyl saves the video a few seconds after release, so `Recording` asks every 5 seconds until it is saved and returns `*ComputerRecording{URL, Duration, StartedAt}` without downloading the video; `Duration` and `StartedAt` are nullable pointers. It returns `(nil, nil)` only when none was saved within 15 minutes or before `ctx`'s deadline, and `ctx.Err()` when `ctx` is canceled. A check already under way when the 15 minutes run out can take up to 30 seconds more. Since `v0.6.1`; earlier versions returned `(nil, nil)` at once while the video was still uploading. On a computer that is still running it returns `ErrSessionBusy` saying to call `Close` first. `Attach` can't reopen a closed computer, so a later process can't fetch it. Signed recording URLs last up to one hour, are private, and are never logged; call `Recording` again to refresh metadata rather than retaining an expired URL.
 
 ## Mac screen
 
@@ -692,9 +701,168 @@ if _, err := s.Tap(ctx, verify.Point{X: 400, Y: 300}); err != nil { // or click 
 
 On a computer, as everywhere, type with `Type(ctx, verify.Element("description"), text)`: it clicks the field, selects its text with Command+A unless `Clear` points to `false`, and types. `TypeFocused` needs `Clear` pointing to `false`: it types where the cursor is and clears nothing, so to replace text, select it first. `ModifierMeta` is Command and `ModifierAlt` is Option. `ScreenSize` works too. `Tap(ctx, verify.Element("the Help menu in the menu bar"))` clicks a description and returns the `Point` it clicked. It takes several seconds and can click a look-alike, or something else when the target isn't on the screen, so check the point or take a screenshot afterwards, and use a `verify.Point` from a screenshot for anything that's hard to undo. `Locate` and the exact actions other than `Tap`, `Type`, `TypeFocused`, `PressKey` and `ScreenSize` aren't available on computers and return `ErrNotAvailableOnPlatform` before anything is sent. When Revyl answers `screen_starting`, nothing happened, so Verify waits and tries again for up to 30 seconds. A program keeps control of the screen for 120 seconds after its last action, so a teammate can't take control in the Revyl viewer until then; while someone does control it there, actions return `ErrSessionBusy` and nothing happens. A 403 returns `ErrAuthRejected`: the key's owner needs the Member role or above, and CI runner keys can't control the screen yet. Revyl's `screen_input_uncertain` returns `ErrActionUncertain`, so take a screenshot before you act again. [computers.md](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#screen) lists every screen error.
 
+## Validation and Extract on a Mac
+
+Since `v0.7.0`. On a Mac computer opened with `Inference: new(true)`, `Validation` and `Extract` run on the Mac's own vision model, next to the computer. A typical answer takes 1.3 to 3 seconds. Local inference comes with paid Revyl plans. Inside a function returning `error`, with `verify`, `context`, `log` and `time` imported:
+
+```go
+mac, err := verify.Open(ctx, verify.Target{Platform: verify.Mac, Inference: new(true)})
+if err != nil {
+	return err
+}
+defer func() {
+	cleanup, cancel := context.WithTimeout(context.Background(), 310*time.Second)
+	defer cancel()
+	_ = mac.Close(cleanup)
+}()
+log.Println("Model:", mac.Inference()) // verify.InferenceReady, InferenceUnavailable or InferenceUnknown
+if _, err := mac.Validation(ctx, "The Dock is visible at the bottom of the screen"); err != nil {
+	return err
+}
+date, err := mac.Extract(ctx, "the date at the right end of the menu bar")
+if err != nil {
+	return err
+}
+log.Println(date.Value, date.Engine) // Engine is "local": the Mac's model answered
+```
+
+- `Validation` returns a `StepResult` with `Passed` and `Engine` `"local"`. A false statement returns `ErrValidationFailed`, unless you pass `ValidationOptions{Soft: true}`, which returns `Passed` false without an error.
+- `Extract` returns the string it read in `StepResult.Value`. Describe one value that is visible now, such as `"the date at the right end of the menu bar"`.
+- An answer the model can't confirm is never a pass: it returns `ErrStepFailed`. So does an `Extract` that finds nothing, with the model's reason in the message, such as `local_model_found_no_value`. Describe one thing that is visible on the screen now.
+- `Instruction` is still not available on computers. It returns `ErrNotAvailableOnPlatform`, and the message points to `Tap(ctx, verify.Element("the Save button"))` and `Type(ctx, verify.Element("the search field"), text)`.
+- Run one step at a time per computer: the Mac's model is shared with the app sessions inside it.
+- `mac.Inference()` says whether the Mac's model answers: `verify.InferenceReady`, `verify.InferenceUnavailable`, or `verify.InferenceUnknown` when it can't be told yet. Verify refreshes it whenever it reads the computer's report: at `Open`, `Attach` and `OpenPersistent`, and on each `Report(ctx)`. It is `""` on every other session.
+
+| Error | When | What to do |
+| --- | --- | --- |
+| `ErrNotAvailableOnPlatform`, `Reason` `ReasonInferenceNotEnabled` | `Open` with `Inference: new(true)`, and the organization isn't on a paid Revyl plan (HTTP 403) | Upgrade the organization's plan, or open the Mac without `Inference` |
+| `ErrNotAvailableOnPlatform`, `Reason` `ReasonInferenceUnavailable` | No Mac with a model is up right now (HTTP 409). Nothing was started | Try again later, or open the Mac without `Inference` |
+| `ErrNotAvailableOnPlatform`, `Reason` `ReasonStepEngineUnavailable` | A step on a Mac opened without inference, or on a Linux computer (returned before anything is sent), or the Mac's model isn't answering | Open a Mac with `Inference: new(true)` (a persistent computer gets it only when it is created; see [Persistent computers and snapshots](#persistent-computers-and-snapshots)). If it was opened with inference, check `Inference()` and try again shortly |
+| `ErrInvalidArgument` | `Inference: new(true)` on a Linux target | Open a Mac instead |
+| `ErrSessionBusy` (`step_engine_busy`) | The Mac's model was busy with another step for too long | Run one step at a time per computer, and try again in a few seconds |
+| `ErrSessionBusy` (`screen_control_held`) | Someone controls the screen in the Revyl viewer | Try again after they release it; control frees itself after 2 minutes without input |
+| `ErrStepFailed` | The model wasn't sure, or `Extract` read nothing | Describe one thing that is visible on the screen now |
+
+[examples/macinference](examples/macinference/main.go) runs all of this, and the iOS session below: `cd go && go run ./examples/macinference`, with `IOS_APP_ID` and `IOS_BUILD_ID` set to also open your iOS app inside the Mac. It starts a real, billable Mac computer. The [Mac model checks guide](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/guides/mac-model-checks.md) has more examples.
+
+### iOS and Web sessions inside an inference Mac
+
+`mac.Open(ctx, target)` with an iOS or Web target, inside a Mac opened with inference, runs that session's steps on the Mac's model first, with Revyl's hosted model as the fallback. This is the default for every iOS and Web session opened inside an inference Mac. To run a session's steps only on the hosted model, pass `Inference: new(false)` in its `Target`. Macs host iOS and Web sessions only, so `Inference: new(true)` on an Android target returns `ErrInvalidArgument`, as does `Inference` on a target passed to `verify.Open` for a browser or device.
+
+```go
+app, err := mac.Open(ctx, verify.Target{Platform: verify.IOS, AppID: appID, BuildID: buildID}) // local inference by default
+if err != nil {
+	return err
+}
+step, err := app.Validation(ctx, "The app's first screen is showing", verify.ValidationOptions{Soft: true})
+if err != nil {
+	return err
+}
+log.Println(step.Passed, step.Engine) // "local" when the Mac's model answered, "hosted" when Revyl's did
+```
+
+- **Runs on the Mac's model:** validations, and instructions that are a single plain tap on one thing.
+- **Goes to the hosted model:** `Extract`, typing, multi-step instructions such as "scroll down and then tap back", and any local answer that is uncertain or slower than 25 seconds.
+- `StepResult.Engine` says who answered each step: `"local"` or `"hosted"`.
+- Local verdicts are final: a validation the Mac's model answers is not checked again by the hosted model.
+- If the Mac's model isn't answering when the session starts, the start is refused with `ErrNotAvailableOnPlatform` and `Reason` `ReasonComputerLocalInferenceUnavailable`. Try again shortly, or pass `Inference: new(false)` to run the session on the hosted model.
+
+The [apps inside an inference Mac guide](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/guides/apps-inside-an-inference-mac.md) covers this in more depth.
+
+### Billing
+
+- Steps on a computer have no per-step fee. `Validation` and `Extract` on a Mac computer run only on the Mac's own model, so they carry no inference charge; you pay the Mac's minutes, as for any computer.
+- App sessions inside a computer add no device minutes of their own.
+- Inside an inference Mac, steps the Mac's model answers carry no inference charge; steps that fall back to Revyl's hosted model are billed as usual.
+- Local inference comes with paid Revyl plans.
+
+## Persistent computers and snapshots
+
+Since `v0.6.0`. A persistent computer is a Mac whose disk outlives every stop, so tools you install and files you write are there the next time you open it. macOS only. Persistent computers come with paid Revyl plans: without one, `OpenPersistent` and `SaveSnapshot` return `ErrNotAvailableOnPlatform` with `Reason` `ReasonPersistentComputersNotEnabled`; upgrade the organization's plan to use them. The [persistent computers guide](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/guides/persistent-computers.md) walks through a full workflow.
+
+```go
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"time"
+
+	verify "github.com/RevylAI/verify/go"
+)
+
+func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() (err error) {
+	ctx := context.Background()
+	mac, err := verify.OpenPersistent(ctx, "build-cache")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		err = errors.Join(err, mac.Close(cleanup)) // stops it and keeps the disk
+	}()
+	if mac.Created {
+		if err := mac.WriteFile(ctx, "created-at.txt", []byte(time.Now().Format(time.RFC3339))); err != nil {
+			return err
+		}
+	}
+	data, err := mac.ReadFile(ctx, "created-at.txt") // still there on every later run
+	if err != nil {
+		return err
+	}
+	fmt.Printf("created by this run: %v, created at: %s\n", mac.Created, data)
+	return nil
+}
+```
+
+- **Open, close, reopen.** `OpenPersistent(ctx, name)` opens the Mac with that name, creating it if needed; `Created` says whether this call created it. A stopped one boots from its disk, and a running one is connected to. It has every method of a Mac from `Open`. Names are 1-64 letters, digits, `.`, `_` or `-`, starting with a letter or digit, and not a UUID; the same name opens the same computer from Go, TypeScript and Python. An ID from `ListPersistent` works too. `Close` stops it and keeps the whole disk; it returns once the disk is saved on its Mac, which can take a few minutes. Go doesn't stop it when your program exits, so always `Close` it.
+- **What's kept.** Everything on the disk: files, installed tools, repositories, build products, simulators, app data, system settings, the login keychain and browser profiles. Memory and running processes are not kept: the next open is a cold boot, so start your servers again.
+- **Runs.** Each open is a new run with the usual computer lifetime: 2 hours by default, up to 24 hours with `OpenPersistentOptions{Timeout: 8 * time.Hour}`. A run starts saving its disk 3 minutes before it ends, and reaching the end keeps the disk. A running persistent computer bills like any computer. `OpenPersistent` waits up to `StartTimeout` (15 minutes by default) for it to be ready.
+- **Snapshots.** `SaveSnapshot(ctx, computer, name)` saves a stopped computer's disk under a name that is unique in your organization. The computer must be stopped: `Close` it first, or `SaveSnapshot` returns `ErrSessionBusy`. It waits until the save is copied off its Mac, about 5 minutes after `Close`, for up to `SaveSnapshotOptions{WaitTimeout}` (15 minutes by default), then returns `ErrTimeout`.
+- **Copies.** `OpenPersistent(ctx, newName, verify.OpenPersistentOptions{FromSnapshot: name})` creates a new persistent computer whose disk starts as the snapshot's. `FromSnapshot` is used only when the call creates the computer. A copy gets the same disk, but things tied to the original Mac's hardware identity (Apple Account, iCloud, Safari's saved passwords) don't carry over, and websites may open signed out. Starting on a different Mac than the one holding the save, as most copies do, restores the disk first and can take several minutes.
+- **Inference.** `OpenPersistentOptions{Inference: true}` is used only when the call creates the computer, which keeps it for every later start. A copy made with `FromSnapshot` doesn't inherit it, so pass `Inference: true` there too. `WithoutInference: true` is used only when starting a stopped computer created with inference: it starts that one run without the model, for when no Mac with one is up. A Revyl backend that doesn't offer it returns `ErrInvalidArgument` saying so.
+- **Saved-disk expiry.** Saves are kept until you delete the computer or snapshot. Some saves have an end: `PersistentComputer.SavedDiskExpiresAt` and `ComputerSnapshot.SavedDiskExpiresAt` show it when Revyl reports one, and are zero otherwise. From then on it can't start, and `OpenPersistent` returns `ErrSessionStartFailed` (`saved_disk_expired` or `snapshot_expired`).
+- **Limits.** 10 persistent computers and 100 snapshots per organization, unless Revyl raised them. Past that, `ErrComputerLimit` (`persistent_computer_limit` or `snapshot_limit`): delete one you no longer need, then try again.
+- **Cleanup.** `DeletePersistent(ctx, nameOrID)` deletes the computer and its disk for good; a running one stops first, without saving, and its snapshots stay. `DeleteSnapshot(ctx, nameOrID)` deletes a snapshot; computers made from it keep their disks.
+- **Lists.** `ListPersistent(ctx)` lists your organization's persistent computers by ID, because Revyl stores no names: compare with the `ID()` of a session `OpenPersistent` returned. `ListSnapshots(ctx)` lists snapshots.
+- **Busy or unavailable.** `ErrSessionBusy` (`run_conflict`) means the last run hasn't finished stopping: its disk is kept, so try again in a few minutes. `ErrSessionStartFailed` (`saved_disk_unavailable`) means the Mac holding the save is offline or no Mac can start it right now: the disk is kept, so try again later.
+
+After the program above has closed `build-cache`, inside a function returning `error`:
+
+```go
+if _, err := verify.SaveSnapshot(ctx, "build-cache", "build-cache-v1"); err != nil { // waits about 5 minutes after Close
+	return err
+}
+clone, err := verify.OpenPersistent(ctx, "build-cache-copy", verify.OpenPersistentOptions{FromSnapshot: "build-cache-v1"})
+if err != nil {
+	return err
+}
+if err := clone.Close(ctx); err != nil { // stops it and keeps its disk
+	return err
+}
+computers, err := verify.ListPersistent(ctx) // IDs, stopped computers included
+if err != nil {
+	return err
+}
+log.Println(len(computers), "persistent computers")
+if err := verify.DeletePersistent(ctx, "build-cache-copy"); err != nil { // the computer and its disk, for good
+	return err
+}
+return verify.DeleteSnapshot(ctx, "build-cache-v1")
+```
+
 ## Results and errors
 
-`Instruction` and `Validation` return `StepResult{Type, Text, Reason, Passed, Duration, Model}`; `Model` is set only when the step ran on your own model. Failed instructions return `ErrInstructionFailed`; failed validation verdicts return `ErrValidationFailed`. `Soft: true` returns a false verdict without an error, but a missing verdict, failed execution, or cancellation still returns an error such as `ErrStepFailed`. `Screenshot` returns PNG bytes and optionally writes a path, creating parent directories.
+`Instruction`, `Validation` and `Extract` return `StepResult{Type, Text, Passed, Value, Reason, Duration, Engine, Model}`. `Value` is what `Extract` read, on `Extract` steps only. `Engine` is who answered, only when Revyl says: `"local"` for the Mac's own model, `"hosted"` for Revyl's hosted model, and empty on ordinary sessions. `Model` is set only when the step ran on your own model. Failed instructions return `ErrInstructionFailed`; failed validation verdicts return `ErrValidationFailed`; an `Extract` that reads nothing returns `ErrStepFailed`. `Soft: true` returns a false verdict without an error, but a missing verdict, failed execution, or cancellation still returns an error such as `ErrStepFailed`. `Screenshot` returns PNG bytes and optionally writes a path, creating parent directories.
 
 Errors support `errors.Is(err, verify.ErrTimeout)` and `errors.As(err, &sdkError)` where `var sdkError *verify.Error`. Stable codes distinguish invalid arguments/configuration, missing/rejected credentials, startup failure, ended/busy sessions, unavailable operations, action failure/uncertainty, step failure, model failure (`ErrModelError`) and a missing model key (`ErrModelKeyMissing`), and timeout. `Error.Cause` is available through `errors.Unwrap` when present. Do not replay mutations after `ErrActionUncertain`: the action may already have happened. Inspect the session in Revyl instead.
 
@@ -704,7 +872,7 @@ Errors support `errors.Is(err, verify.ErrTimeout)` and `errors.As(err, &sdkError
 
 Credentials resolve from `REVYL_API_KEY`, then `~/.revyl/credentials.json`. A usable CLI login marked `local_auth_override` takes precedence over the environment key, matching the TypeScript SDK and Revyl CLI. Expired access tokens fall back to a stored API key. Never put keys, tokens, or private session content in source, fixtures, or logs.
 
-Instruction and validation text is sent to Revyl for remote processing, unless the step runs on your own model. The Go SDK does not log that text locally; do not include credentials or sensitive content in step descriptions.
+Instruction, validation and extract text is sent to Revyl for processing, on Revyl's hosted model or a Revyl Mac's own model, unless the step runs on your own model. The Go SDK does not log that text locally; do not include credentials or sensitive content in step descriptions.
 
 ## Develop
 

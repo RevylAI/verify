@@ -31,6 +31,7 @@ export interface StartDeviceRequest {
   session_profile?: SessionProfileFields['session_profile'];
   session_profile_source?: SessionProfileFields['session_profile_source'];
   session_profile_files?: SessionProfileFields['session_profile_files'];
+  inference?: 'local';
 }
 
 export interface StartDeviceResponse {
@@ -120,7 +121,7 @@ export interface WorkerActionResult {
   error?: string | null;
 }
 
-export type LiveStepType = 'instruction' | 'validation';
+export type LiveStepType = 'instruction' | 'validation' | 'extract';
 
 export interface LiveStepOutput {
   status?: 'success' | 'warning' | 'failed' | null;
@@ -128,6 +129,9 @@ export interface LiveStepOutput {
   /** The verdict of a validation step. Revyl reports a validation that ran as status 'success', whatever its verdict. */
   validation_result?: boolean | null;
   reasoning?: string | null;
+  extracted_data?: { information?: string | null } | null;
+  /** Who answered a step of a session started with local inference inside a computer. */
+  engine?: 'local' | 'hosted' | null;
 }
 
 export interface LiveStepResult {
@@ -166,6 +170,20 @@ export interface ComputerReport {
   release: 'pending' | 'confirmed' | 'unknown';
   failure_reason?: string | null;
   expires_at?: string | null;
+  /** Only on a computer created with inference: whether its host's own vision model answers now. */
+  inference?: ComputerInferenceReadiness | null;
+}
+
+export type ComputerInferenceReadiness = 'ready' | 'unavailable' | 'unknown';
+
+export interface ComputerStepResponse {
+  step_type: string;
+  success: boolean;
+  status: 'passed' | 'failed' | 'uncertain';
+  status_reason?: string | null;
+  validation_result?: boolean | null;
+  extracted_data?: { information: string } | null;
+  engine: 'local' | 'hosted';
 }
 
 export interface ComputerRecordingResponse {

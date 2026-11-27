@@ -18,6 +18,7 @@ from ._transport import (
     Client,
     Deadline,
     Json,
+    RefusalReason,
     Response,
     VerifyError,
     edge_blocked_error,
@@ -64,6 +65,9 @@ class PersistentComputer:
     """Whether that save has been copied off the Mac that made it. save_snapshot() needs this and
     waits for it."""
     created_at: datetime
+    saved_disk_expires_at: datetime | None = None
+    """When its current save stops being startable, if Revyl reports an end; after it,
+    open_persistent() raises SESSION_START_FAILED (saved_disk_expired)."""
 
 
 @dataclass(frozen=True)
@@ -75,6 +79,9 @@ class ComputerSnapshot:
     saved_at: datetime
     expires_at: datetime | None
     """When the save stops being usable, if it has an end."""
+    saved_disk_expires_at: datetime | None = None
+    """When a computer can no longer be created from it, if Revyl reports an end; after it,
+    open_persistent() with from_snapshot raises SESSION_START_FAILED (snapshot_expired)."""
 
 
 class PersistentComputerSession(ComputerSession):
@@ -153,6 +160,8 @@ def open_persistent(
     *,
     from_snapshot: str | None = None,
     timeout: int | None = None,
+    inference: bool = False,
+    without_inference: bool = False,
     start_timeout: float = 900,
     backend_url: str | None = None,
     app_url: str | None = None,
@@ -173,11 +182,19 @@ def open_persistent(
     whole seconds from 60 to 86400. Defaults to 2 hours. Not applied when the computer was already
     running. Same as Target("mac", timeout=...).
 
+    inference: used only when this call creates the computer: run it on Macs whose own vision
+    model is loaded, as Target("mac", inference=True) does, so validation() and extract() work on
+    it. The computer keeps this for every later start.
+
+    without_inference: used only when this call starts a stopped computer that was created with
+    inference: start this run on any Mac, without the model, for when no Mac with one is up. Later
+    starts ask for the model again. Needs a Revyl backend that offers it.
+
     start_timeout: seconds to wait until it is ready, 10-1800, default 900. Covers waiting for an
     earlier stop to finish saving, and a start from a snapshot, which takes up to about 3 minutes.
 
-    Credentials and backend_url/app_url work as for open(). Persistent computers are turned on per
-    organization: without them, open_persistent() and save_snapshot() raise VerifyError
+    Credentials and backend_url/app_url work as for open(). Persistent computers come with paid
+    Revyl plans: without one, open_persistent() and save_snapshot() raise VerifyError
     NOT_AVAILABLE_ON_PLATFORM with reason "persistent_computers_not_enabled".
 
     Every persistent-computer call raises VerifyError, with .code saying what happened and the
@@ -201,6 +218,10 @@ def open_persistent(
         isinstance(timeout, bool) or not isinstance(timeout, int) or not 60 <= timeout <= 86400
     ):
         raise VerifyError("INVALID_ARGUMENT", "timeout must be whole seconds from 60 to 86400.")
+    if not isinstance(inference, bool):
+        raise VerifyError("INVALID_ARGUMENT", "inference must be True or False.")
+    if not isinstance(without_inference, bool):
+        raise VerifyError("INVALID_ARGUMENT", "without_inference must be True or False.")
     if (
         isinstance(start_timeout, bool)
         or not isinstance(start_timeout, (int, float))
@@ -223,6 +244,9 @@ def open_persistent(
     session._save_lock = threading.RLock()
     session._log_callback = progress
     lifetime: dict[str, Json] | None = None if timeout is None else {"timeout_seconds": timeout}
+    start_body: dict[str, Json] | None = (
+        {**(lifetime or {}), "without_inference": True} if without_inference else lifetime
+    )
     started = False
     attempted = False
     try:
@@ -241,6 +265,8 @@ def open_persistent(
                 body.update(lifetime)
             if from_snapshot:
                 body["from_snapshot"] = from_snapshot
+            if inference:
+                body["inference"] = True
             attempted = True
             response = _call(
                 client,
@@ -257,6 +283,11 @@ def open_persistent(
         else:
             if from_snapshot:
                 session._log(f"already exists, so from_snapshot {from_snapshot} was not used")
+            if inference:
+                session._log(
+                    "already exists, so inference was not changed; a computer keeps the "
+                    "inference it was created with"
+                )
             waiting = False
             while status.state in ("stopping", "stopped"):
                 if status.state == "stopped":
@@ -266,9 +297,13 @@ def open_persistent(
                         "POST",
                         f"{_BASE}/{computer_id}/start",
                         deadline,
-                        lifetime,
+                        start_body,
                         retry=True,
                         accept=("run_conflict",),
+                        invalid="This Revyl backend refused without_inference, which it does not "
+                        "offer yet. Leave it out to start the computer as it was created."
+                        if without_inference
+                        else None,
                     )
                     if started_response.status < 300:
                         started = True
@@ -583,6 +618,7 @@ def _call(
     retry: bool | None = None,
     not_found: str | None = None,
     accept: tuple[str, ...] = (),
+    invalid: str | None = None,
 ) -> Response:
     response = client.request(
         method,
@@ -613,9 +649,7 @@ def _call(
         raise VerifyError(
             known[0],
             known[1],
-            reason="persistent_computers_not_enabled"
-            if detail == "persistent_computers_not_enabled"
-            else None,
+            reason=_REFUSAL_REASONS.get(detail or ""),
             http_status=response.status,
         )
     suffix = f", {detail}" if detail else ""
@@ -633,6 +667,8 @@ def _call(
             not_found or f"Revyl could not find {path} (inaccessible).",
             http_status=404,
         )
+    if (response.status == 422 or detail == "invalid_request") and invalid:
+        raise VerifyError("INVALID_ARGUMENT", invalid, http_status=response.status)
     if response.status == 422 or detail == "invalid_request":
         raise VerifyError(
             "INVALID_ARGUMENT",
@@ -653,8 +689,8 @@ def _call(
 _REFUSALS: dict[str, tuple[str, str]] = {
     "persistent_computers_not_enabled": (
         "NOT_AVAILABLE_ON_PLATFORM",
-        "Persistent computers aren't enabled for this API key's organization yet "
-        "(persistent_computers_not_enabled). Ask support@revyl.ai to turn them on.",
+        "Persistent computers need a paid Revyl plan, so this API key's organization can't use "
+        "them (persistent_computers_not_enabled). Upgrade the organization's plan to use them.",
     ),
     "computer_not_enabled": (
         "NOT_AVAILABLE_ON_PLATFORM",
@@ -715,12 +751,28 @@ _REFUSALS: dict[str, tuple[str, str]] = {
         "an ID from "
         "list_persistent().",
     ),
+    "inference_not_enabled": (
+        "NOT_AVAILABLE_ON_PLATFORM",
+        "Local inference needs a paid Revyl plan, so this API key's organization can't use it "
+        "(inference_not_enabled). Upgrade the organization's plan, or leave out inference.",
+    ),
+    "inference_unavailable": (
+        "NOT_AVAILABLE_ON_PLATFORM",
+        "No Mac with its own vision model is up to take this computer right now "
+        "(inference_unavailable), so nothing was started. Try again later; to start an existing "
+        "computer without the model this once, pass without_inference=True.",
+    ),
     "run_conflict": (
         "SESSION_BUSY",
         "The computer's last run hasn't finished stopping (run_conflict). Its disk is kept; try "
         "again in a few "
         "minutes.",
     ),
+}
+_REFUSAL_REASONS: dict[str, RefusalReason] = {
+    "persistent_computers_not_enabled": "persistent_computers_not_enabled",
+    "inference_not_enabled": "inference_not_enabled",
+    "inference_unavailable": "inference_unavailable",
 }
 
 
@@ -772,12 +824,16 @@ def _to_computer(raw: Json) -> PersistentComputer:
     ):
         raise _invalid()
     saved_at = record.get("saved_at")
+    saved_disk_expires_at = record.get("saved_disk_expires_at")
     return PersistentComputer(
         id=computer_id.lower(),
         state=cast(PersistentComputerState, state),
         saved_at=None if saved_at is None else timestamp(saved_at),
         saved_off_host=durable,
         created_at=timestamp(record.get("created_at")),
+        saved_disk_expires_at=None
+        if saved_disk_expires_at is None
+        else timestamp(saved_disk_expires_at),
     )
 
 
@@ -793,12 +849,16 @@ def _to_snapshot(raw: Json) -> ComputerSnapshot:
     ):
         raise _invalid()
     expires_at = record.get("expires_at")
+    saved_disk_expires_at = record.get("saved_disk_expires_at")
     return ComputerSnapshot(
         id=snapshot_id.lower(),
         name=name,
         computer_id=computer_id.lower(),
         saved_at=timestamp(record.get("saved_at")),
         expires_at=None if expires_at is None else timestamp(expires_at),
+        saved_disk_expires_at=None
+        if saved_disk_expires_at is None
+        else timestamp(saved_disk_expires_at),
     )
 
 

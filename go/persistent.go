@@ -27,7 +27,7 @@ var persistentRefusals = map[string]struct {
 	code    Code
 	message string
 }{
-	"persistent_computers_not_enabled": {ErrNotAvailableOnPlatform, "Persistent computers aren't enabled for this API key's organization yet (persistent_computers_not_enabled). Ask support@revyl.ai to turn them on."},
+	"persistent_computers_not_enabled": {ErrNotAvailableOnPlatform, "Persistent computers need a paid Revyl plan, so this API key's organization can't use them (persistent_computers_not_enabled). Upgrade the organization's plan to use them."},
 	"computer_not_enabled":             {ErrNotAvailableOnPlatform, "Mac computers aren't enabled for this API key's organization (computer_not_enabled). Ask support@revyl.ai about access."},
 	"runtime_unavailable":              {ErrNotAvailableOnPlatform, "Revyl has no Mac computers available in this environment (runtime_unavailable)."},
 	"persistent_computer_limit":        {ErrComputerLimit, "Your organization already keeps as many persistent computers as it may (persistent_computer_limit). ListPersistent shows them; delete one you no longer need with DeletePersistent, then try again."},
@@ -38,6 +38,8 @@ var persistentRefusals = map[string]struct {
 	"saved_disk_expired":               {ErrSessionStartFailed, "This computer's saved disk has reached its end and can't start again (saved_disk_expired). Delete it with DeletePersistent; OpenPersistent with its name then creates a new one."},
 	"snapshot_expired":                 {ErrSessionStartFailed, "This snapshot's saved disk has reached its end and can't start a computer (snapshot_expired). Save a new snapshot of a recently stopped computer."},
 	"computer_not_persistent":          {ErrInvalidArgument, "This ID names a computer that isn't persistent (computer_not_persistent). Pass a name, or an ID from ListPersistent."},
+	"inference_not_enabled":            {ErrNotAvailableOnPlatform, "Local inference needs a paid Revyl plan, so this API key's organization can't use it (inference_not_enabled). Upgrade the organization's plan, or leave out Inference."},
+	"inference_unavailable":            {ErrNotAvailableOnPlatform, "No Mac with its own vision model is up to take this computer right now (inference_unavailable), so nothing was started. Try again later; to start an existing computer without the model this once, set WithoutInference to true."},
 	"run_conflict":                     {ErrSessionBusy, "The computer's last run hasn't finished stopping (run_conflict). Its disk is kept; try again in a few minutes."},
 }
 
@@ -61,6 +63,13 @@ type OpenPersistentOptions struct {
 	// from 1 minute to 24 hours, otherwise ErrInvalidArgument. Zero means 2 hours. Not applied when the computer
 	// was already running. Same as Target.Timeout for Open.
 	Timeout time.Duration
+	// Inference is used only when this call creates the computer: run it on Macs whose own vision model is loaded, as
+	// Target.Inference does for Open, so Validation and Extract work on it. The computer keeps this for every later start.
+	Inference bool
+	// WithoutInference is used only when this call starts a stopped computer that was created with Inference: start this
+	// run on any Mac, without the model, for when no Mac with one is up. Later starts ask for the model again. Needs a
+	// Revyl backend that offers it.
+	WithoutInference bool
 	// StartTimeout is how long OpenPersistent waits for the computer to be ready, from 10 seconds to 30 minutes.
 	// Zero means 15 minutes. It covers waiting for an earlier stop to finish saving, and a start from a snapshot,
 	// which takes about 3 minutes.
@@ -108,6 +117,9 @@ type PersistentComputer struct {
 	// waits for it.
 	SavedOffHost bool
 	CreatedAt    time.Time
+	// SavedDiskExpiresAt is when its current save stops being startable, if Revyl reports an end; zero otherwise. After
+	// it, OpenPersistent returns ErrSessionStartFailed (saved_disk_expired).
+	SavedDiskExpiresAt time.Time
 }
 
 // ComputerSnapshot is a saved disk that OpenPersistent can start a new computer from.
@@ -119,6 +131,9 @@ type ComputerSnapshot struct {
 	SavedAt    time.Time
 	// ExpiresAt is when the save stops being usable; zero when it has no end.
 	ExpiresAt time.Time
+	// SavedDiskExpiresAt is when a computer can no longer be created from it, if Revyl reports an end; zero otherwise.
+	// After it, OpenPersistent with FromSnapshot returns ErrSessionStartFailed (snapshot_expired).
+	SavedDiskExpiresAt time.Time
 }
 
 // OpenPersistent opens the persistent Mac with this name, creating it if it doesn't exist, starting it if it is
@@ -127,12 +142,12 @@ type ComputerSnapshot struct {
 // digit; the same name opens the same computer from Go, TypeScript and Python. Pass an ID from ListPersistent to
 // open an existing computer without creating one. If it is already running, OpenPersistent connects to it.
 //
-// Persistent computers are turned on per organization. Without them, OpenPersistent and SaveSnapshot return
+// Persistent computers come with paid Revyl plans. Without one, OpenPersistent and SaveSnapshot return
 // ErrNotAvailableOnPlatform with Reason ReasonPersistentComputersNotEnabled:
 //
 //	var verr *verify.Error
 //	if errors.As(err, &verr) && verr.Reason == verify.ReasonPersistentComputersNotEnabled {
-//		// ask support@revyl.ai to turn persistent computers on for this organization
+//		// upgrade this organization's plan to use persistent computers
 //	}
 //
 // Every persistent-computer function returns a *Error; test it with errors.Is(err, verify.ErrNotFound) and read its
@@ -290,9 +305,19 @@ func openPersistent(ctx context.Context, name string, options OpenPersistentOpti
 	}
 	var body any
 	create := map[string]any{"computer_session_id": id, "os": "macos", "persistent": true}
+	start := map[string]any{}
 	if options.Timeout != 0 {
-		body = map[string]any{"timeout_seconds": int64(options.Timeout / time.Second)}
+		start["timeout_seconds"] = int64(options.Timeout / time.Second)
 		create["timeout_seconds"] = int64(options.Timeout / time.Second)
+	}
+	if options.WithoutInference {
+		start["without_inference"] = true
+	}
+	if len(start) > 0 {
+		body = start
+	}
+	if options.Inference {
+		create["inference"] = true
 	}
 	started, attempted := false, false
 	err = func() error {
@@ -316,11 +341,17 @@ func openPersistent(ctx context.Context, name string, options OpenPersistentOpti
 			if options.FromSnapshot != "" {
 				s.logLine("already exists, so FromSnapshot " + options.FromSnapshot + " was not used")
 			}
+			if options.Inference {
+				s.logLine("already exists, so Inference was not changed; a computer keeps the inference it was created with")
+			}
 			waiting := false
 			for status.State == "stopping" || status.State == "stopped" {
 				if status.State == "stopped" {
 					attempted = true
 					r, err := persistentCall(ctx, c, "POST", persistentBase+"/"+id+"/start", body, true, "", "run_conflict")
+					if err != nil && options.WithoutInference && errors.Is(err, ErrInvalidArgument) && persistentRefusals[persistentDetail(r)].code == "" {
+						return &Error{Code: ErrInvalidArgument, HTTPStatus: r.status, Message: "This Revyl backend refused WithoutInference, which it does not offer yet. Leave it out to start the computer as it was created.", Cause: err}
+					}
 					if err != nil {
 						return err
 					}
@@ -680,8 +711,9 @@ func persistentCall(ctx context.Context, c *client, method, path string, body an
 	}
 	if known, ok := persistentRefusals[detail]; ok {
 		var reason RefusalReason
-		if detail == string(ReasonPersistentComputersNotEnabled) {
-			reason = ReasonPersistentComputersNotEnabled
+		switch RefusalReason(detail) {
+		case ReasonPersistentComputersNotEnabled, ReasonInferenceNotEnabled, ReasonInferenceUnavailable:
+			reason = RefusalReason(detail)
 		}
 		return r, &Error{Code: known.code, Reason: reason, HTTPStatus: r.status, Message: known.message}
 	}
@@ -740,11 +772,12 @@ func checkComputerReference(value, call string) error {
 }
 
 type persistentStatusJSON struct {
-	ComputerID string     `json:"computer_id"`
-	State      string     `json:"state"`
-	SavedAt    *time.Time `json:"saved_at"`
-	Durable    *bool      `json:"durable"`
-	CreatedAt  time.Time  `json:"created_at"`
+	ComputerID         string     `json:"computer_id"`
+	State              string     `json:"state"`
+	SavedAt            *time.Time `json:"saved_at"`
+	Durable            *bool      `json:"durable"`
+	CreatedAt          time.Time  `json:"created_at"`
+	SavedDiskExpiresAt *time.Time `json:"saved_disk_expires_at"`
 }
 
 func decodePersistentDetail(body []byte) (*PersistentComputer, error) {
@@ -778,16 +811,20 @@ func decodePersistentComputer(raw []byte) (PersistentComputer, error) {
 	if status.SavedAt != nil {
 		computer.SavedAt = *status.SavedAt
 	}
+	if status.SavedDiskExpiresAt != nil {
+		computer.SavedDiskExpiresAt = *status.SavedDiskExpiresAt
+	}
 	return computer, nil
 }
 
 func decodeSnapshot(raw []byte) (ComputerSnapshot, error) {
 	var snapshot struct {
-		ID         string     `json:"id"`
-		Name       string     `json:"name"`
-		ComputerID string     `json:"computer_id"`
-		SavedAt    time.Time  `json:"saved_at"`
-		ExpiresAt  *time.Time `json:"expires_at"`
+		ID                 string     `json:"id"`
+		Name               string     `json:"name"`
+		ComputerID         string     `json:"computer_id"`
+		SavedAt            time.Time  `json:"saved_at"`
+		ExpiresAt          *time.Time `json:"expires_at"`
+		SavedDiskExpiresAt *time.Time `json:"saved_disk_expires_at"`
 	}
 	if json.Unmarshal(raw, &snapshot) != nil || !uuidPattern.MatchString(snapshot.ID) || !uuidPattern.MatchString(snapshot.ComputerID) || snapshot.Name == "" || snapshot.SavedAt.IsZero() {
 		return ComputerSnapshot{}, invalidPersistentResponse()
@@ -795,6 +832,9 @@ func decodeSnapshot(raw []byte) (ComputerSnapshot, error) {
 	result := ComputerSnapshot{ID: strings.ToLower(snapshot.ID), Name: snapshot.Name, ComputerID: strings.ToLower(snapshot.ComputerID), SavedAt: snapshot.SavedAt}
 	if snapshot.ExpiresAt != nil {
 		result.ExpiresAt = *snapshot.ExpiresAt
+	}
+	if snapshot.SavedDiskExpiresAt != nil {
+		result.SavedDiskExpiresAt = *snapshot.SavedDiskExpiresAt
 	}
 	return result, nil
 }

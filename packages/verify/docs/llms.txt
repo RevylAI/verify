@@ -1,17 +1,17 @@
 # Verify
 
-> Verify (@revyl/verify) is an open-source TypeScript library for Revyl. It opens cloud browsers and iOS/Android devices for agent instruction/validation steps, or Mac computers for commands, files, processes, screenshots, clicks and keys on the screen, and the private screen recording after close. Call it from a plain script, coding agent, CI, or any test runner. It has no test runner of its own.
+> Verify (@revyl/verify) is an open-source TypeScript library for Revyl. It opens cloud browsers and iOS/Android devices for agent instruction/validation/extract steps, or Mac computers for commands, files, processes, screenshots, clicks and keys on the screen, checks answered by the Mac's own vision model, and the private screen recording after close. Call it from a plain script, coding agent, CI, or any test runner. It has no test runner of its own.
 
 ## Docs
 
 Mac computers are available to organizations on a current paid Revyl plan. See computers.md#availability-and-errors.
 
 - [Getting started](getting-started.md): install, authenticate, init, run a script
-- [API](api.md): open() and session profiles (Revyl runs a profile from .revyl/config.yaml before open() returns), attach(), hosted children, navigate(), cdp() for Playwright and Puppeteer on web, report(), agent steps, screenshot(), exec(), file/process methods, close()
+- [API](api.md): open() and session profiles (Revyl runs a profile from .revyl/config.yaml before open() returns), attach(), hosted children, navigate(), cdp() for Playwright and Puppeteer on web, report(), agent steps, extract(), screenshot(), exec(), file/process methods, close(), persistent computers
 - [Configuration](configuration.md): verify.config.ts targets, environment variables, the init and whoami commands
 - [Web](web.md): Revyl web sessions, URLs and builds, sign-in, steps, and exact actions
 - [Mobile](mobile.md): iOS and Android devices, installing apps, and exact actions
-- [Computers](computers.md#availability-and-errors): Mac availability, commands and files, the screen (clicks, typing and keys), expiry, capacity errors, recording metadata, and confirmed release
+- [Computers](computers.md#availability-and-errors): Mac availability, commands and files, the screen (clicks, typing and keys), validation() and extract() on a Mac opened with inference, app sessions inside a Mac, persistent computers, expiry, capacity errors, recording metadata, and confirmed release
 - [Verify working end to end](end-to-end.md): live verification scope, observed outcomes, and limits of the evidence
 - [CI and test runners](ci.md): GitHub Actions, node:test, Vitest, Jest, Playwright Test
 - [Use your own model](own-model.md): run instructions and validations on Claude, GPT, Gemini, a local model or any OpenAI-compatible endpoint; providers, limits, privacy and troubleshooting
@@ -25,6 +25,9 @@ Mac computers are available to organizations on a current paid Revyl plan. See c
 - [Session profiles](guides/session-profiles.md): .revyl/config.yaml, a sign-in script that writes the browser's storage state and first page, open(target, { profile }); errors
 - [Playwright over CDP](guides/playwright-cdp.md): session.cdp(), chromium.connectOverCDP(url), the session's page, validation() while attached; single-use url and limits
 - [A cloud Mac](guides/mac-computer.md): open({ platform: 'mac' }), exec(), writeFile()/readFile(), tap({ target }), type({ target }, text), pressKey(), recording() after close()
+- [Checks on a Mac's own model](guides/mac-model-checks.md): open({ platform: 'mac', inference: true }), then validation() and extract() answered by the Mac's vision model, with no inference charge; readiness and refusals
+- [Apps inside an inference Mac](guides/apps-inside-an-inference-mac.md): iOS and Web sessions from computer.open() run validations and single-tap instructions on the Mac's model first by default; engine, opt-out with inference: false, billing
+- [Persistent computers and snapshots](guides/persistent-computers.md): openPersistent(), saveSnapshot(), fromSnapshot copies, what is kept, lifetimes, limits, cleanup, and use cases
 
 ## Exact actions and coordinates
 

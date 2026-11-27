@@ -95,6 +95,30 @@ type ComputerRecording struct {
 	StartedAt *time.Time
 }
 
+// ComputerInferenceReadiness is whether a Mac computer opened with Inference has its own vision model answering.
+type ComputerInferenceReadiness string
+
+const (
+	InferenceReady       ComputerInferenceReadiness = "ready"
+	InferenceUnavailable ComputerInferenceReadiness = "unavailable"
+	InferenceUnknown     ComputerInferenceReadiness = "unknown"
+)
+
+// Inference is, on a Mac computer opened with Inference set to true, whether its own vision model answered when Verify
+// last read the computer's report (at Open, Attach and OpenPersistent, and on each Report): InferenceReady answers now,
+// InferenceUnavailable doesn't, InferenceUnknown can't be told yet. It is empty on every other session.
+func (s *Session) Inference() ComputerInferenceReadiness {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.inference {
+		return ""
+	}
+	if s.inferenceReadiness == "" {
+		return InferenceUnknown
+	}
+	return s.inferenceReadiness
+}
+
 type computerReport struct {
 	ID             string          `json:"computer_session_id"`
 	OS             string          `json:"os"`
@@ -103,6 +127,7 @@ type computerReport struct {
 	FailureReason  string          `json:"failure_reason"`
 	ExpiresAt      *time.Time      `json:"expires_at"`
 	SessionProfile json.RawMessage `json:"session_profile"`
+	Inference      string          `json:"inference"`
 }
 
 type processHandle struct {
@@ -137,7 +162,7 @@ func startComputer(ctx context.Context, c *client, viewer string, target Target,
 		return nil, failure(ErrAPI, "Could not generate a computer session ID.")
 	}
 	lifetime, stop := context.WithCancel(context.Background())
-	s := &Session{client: c, id: id, platform: target.Platform, viewer: viewer + "/sessions/" + url.PathEscape(id) + "?kind=computer", viewerBase: viewer, lifetime: lifetime, stopLifetime: stop, log: options.Log, stepTimeout: options.StepTimeout, profile: profile, startTimeout: target.StartTimeout}
+	s := &Session{client: c, id: id, platform: target.Platform, viewer: viewer + "/sessions/" + url.PathEscape(id) + "?kind=computer", viewerBase: viewer, lifetime: lifetime, stopLifetime: stop, log: options.Log, stepTimeout: options.StepTimeout, profile: profile, startTimeout: target.StartTimeout, inference: target.Inference != nil && *target.Inference}
 	s.logLine("starting " + string(s.platform) + " computer " + s.viewer)
 	computerOS := "macos"
 	if target.Platform == Linux {
@@ -148,6 +173,9 @@ func startComputer(ctx context.Context, c *client, viewer string, target Target,
 		request := map[string]any{"computer_session_id": id, "os": computerOS}
 		if target.Timeout != 0 {
 			request["timeout_seconds"] = int64(target.Timeout / time.Second)
+		}
+		if s.inference {
+			request["inference"] = true
 		}
 		profile.addTo(request)
 		r, err := withRepositoryRetry(ctx, func() (response, error) { return s.computerRequest(ctx, "POST", "", request) })
@@ -237,8 +265,81 @@ const (
 
 const computerScreenCalls = "For the screen, use Screenshot, Tap with a Point or an Element, Type with an Element, TypeFocused with Clear set to false, and PressKey; for commands, use Exec."
 
+const computerNoModel = "Validation and Extract on a computer run on the vision model of the Mac it runs on, so open it with " + macInferenceOpen + ". A persistent computer gets the model only when it is created: verify.OpenPersistent(ctx, newName, verify.OpenPersistentOptions{Inference: true})."
+
 func (s *Session) computerAgentUnavailable(method string) error {
 	return failure(ErrNotAvailableOnPlatform, method+" is not available on computers. "+computerScreenCalls+" See "+s.viewer)
+}
+
+func (s *Session) computerStep(ctx context.Context, kind, text string, timeout time.Duration, ownModel bool) (StepResult, error) {
+	if err := s.assertComputerOpen(); err != nil {
+		return StepResult{}, err
+	}
+	name := "Validation"
+	if kind == "extract" {
+		name = "Extract"
+	}
+	if strings.TrimSpace(text) == "" || textLength(text) > 2000 {
+		return StepResult{}, failure(ErrInvalidArgument, name+" on a computer takes a description of 1 to 2000 characters.")
+	}
+	if ownModel {
+		return StepResult{}, failure(ErrNotAvailableOnPlatform, "Your own model runs steps on browsers and devices, not on computers. Leave out WithModel, WithCustomModel and WithAgent; "+name+" on a Mac runs on the Mac's own vision model.")
+	}
+	if timeout == 0 {
+		timeout = s.stepTimeout
+	}
+	if timeout < time.Second {
+		return StepResult{}, failure(ErrInvalidArgument, "Step timeout must be at least one second.")
+	}
+	if s.platform != Mac {
+		return StepResult{}, &Error{Code: ErrNotAvailableOnPlatform, Reason: ReasonStepEngineUnavailable, Message: name + " is not available on Linux computers: " + computerNoModel + " " + computerScreenCalls}
+	}
+	description := strings.TrimSpace(text)
+	started := time.Now()
+	stepCtx, cancel := s.computerContext(ctx, started.Add(timeout))
+	defer cancel()
+	r, err := s.computerRequestTimeout(stepCtx, "POST", "/steps", map[string]string{"step_type": kind, "description": description}, timeout)
+	if err != nil {
+		if openErr := s.assertComputerOpen(); openErr != nil {
+			return StepResult{}, openErr
+		}
+		if ctx.Err() == nil && stepCtx.Err() != nil {
+			return StepResult{}, &Error{Code: ErrTimeout, Message: fmt.Sprintf("The %s did not finish within %d ms: \"%s\". Pass a larger Timeout. See %s", kind, timeout.Milliseconds(), description, s.viewer), Cause: err}
+		}
+		return StepResult{}, err
+	}
+	var raw struct {
+		StepType   string  `json:"step_type"`
+		Status     string  `json:"status"`
+		Reason     *string `json:"status_reason"`
+		Validation *bool   `json:"validation_result"`
+		Extracted  *struct {
+			Information *string `json:"information"`
+		} `json:"extracted_data"`
+		Engine string `json:"engine"`
+	}
+	if decode(r, &raw) != nil || raw.StepType != kind || (raw.Status != "passed" && raw.Status != "failed" && raw.Status != "uncertain") || (raw.Engine != "local" && raw.Engine != "hosted") {
+		return StepResult{}, invalidComputerResponse()
+	}
+	reason := ""
+	if raw.Reason != nil {
+		reason = *raw.Reason
+	}
+	var value *string
+	if raw.Extracted != nil {
+		value = raw.Extracted.Information
+	}
+	if raw.Status == "uncertain" || (kind == "validation" && raw.Validation == nil) || (kind == "extract" && (raw.Status != "passed" || value == nil)) {
+		if kind == "validation" {
+			return StepResult{}, failure(ErrStepFailed, "Validation did not reach a verdict: \""+description+"\". "+reasonPrefix(reason)+"The Mac's model wasn't sure; describe one thing that is visible on the screen now. See "+s.viewer)
+		}
+		return StepResult{}, failure(ErrStepFailed, "Extract read nothing: \""+description+"\". "+reasonPrefix(reason)+"Describe one value that is on the screen now, such as \"the version number in the About window\". See "+s.viewer)
+	}
+	result := StepResult{Type: kind, Text: description, Passed: kind == "extract" || *raw.Validation, Reason: reason, Duration: time.Since(started), Engine: raw.Engine}
+	if kind == "extract" {
+		result.Value = *value
+	}
+	return result, nil
 }
 
 func computerLocateUnavailable() error {
@@ -479,6 +580,12 @@ func (s *Session) readComputerReport(r response) (computerReport, error) {
 	}
 	switch report.State {
 	case "starting", "active", "closing", "stopped", "failed", "owner_lost":
+		switch readiness := ComputerInferenceReadiness(report.Inference); readiness {
+		case InferenceReady, InferenceUnavailable, InferenceUnknown:
+			s.mu.Lock()
+			s.inference, s.inferenceReadiness = true, readiness
+			s.mu.Unlock()
+		}
 		return report, nil
 	default:
 		return report, invalidComputerResponse()
@@ -597,6 +704,29 @@ func (s *Session) computerRequestTimeout(ctx context.Context, method, suffix str
 		}
 		return r, &Error{Code: ErrNotAvailableOnPlatform, Reason: ReasonLifetimeUnsupported, HTTPStatus: r.status, Message: "No host can keep this computer running that long (lifetime_unsupported); pass " + fix + "."}
 	}
+	if suffix == "" && method == "POST" && detail == "inference_not_enabled" {
+		return r, &Error{Code: ErrNotAvailableOnPlatform, Reason: ReasonInferenceNotEnabled, HTTPStatus: r.status, Message: "Local inference needs a paid Revyl plan, so this API key's organization can't use it (inference_not_enabled). Upgrade the organization's plan, or open the Mac without inference: verify.Open(ctx, verify.Target{Platform: verify.Mac})."}
+	}
+	if suffix == "" && method == "POST" && detail == "inference_unavailable" {
+		return r, &Error{Code: ErrNotAvailableOnPlatform, Reason: ReasonInferenceUnavailable, HTTPStatus: r.status, Message: "No Mac with its own vision model is up to take this computer right now (inference_unavailable), so nothing was started. Try again later, or open the Mac without inference: verify.Open(ctx, verify.Target{Platform: verify.Mac})."}
+	}
+	if suffix == "/steps" {
+		switch detail {
+		case "step_engine_unavailable":
+			s.mu.Lock()
+			inference := s.inference
+			s.mu.Unlock()
+			message := "This computer has no vision model of its own (step_engine_unavailable), so the step didn't run. " + computerNoModel + " To click or type by description on any Mac, use Tap and Type with a verify.Element. See " + s.viewer
+			if inference {
+				message = "This Mac's own vision model isn't answering right now (step_engine_unavailable), so the step didn't run. computer.Inference() shows whether it is ready; try again shortly. See " + s.viewer
+			}
+			return r, &Error{Code: ErrNotAvailableOnPlatform, Reason: ReasonStepEngineUnavailable, HTTPStatus: r.status, Message: message}
+		case "step_engine_busy":
+			return r, responseFailure(r, ErrSessionBusy, "This Mac's vision model is busy with another step (step_engine_busy), so the step didn't run. Run one step at a time on a computer, and try again in a few seconds. See "+s.viewer)
+		case "screen_control_held":
+			return r, responseFailure(r, ErrSessionBusy, "The step didn't run: someone else is controlling this computer's screen in the viewer (screen_control_held). Try again after they release it; control frees itself after 2 minutes without input. See "+s.viewer)
+		}
+	}
 	if r.status == 409 && detail == "extend_unsupported" {
 		return r, responseFailure(r, ErrNotAvailableOnPlatform, "This computer's host can't extend its lifetime (extend_unsupported); its expiry is unchanged. See "+s.viewer)
 	}
@@ -652,7 +782,7 @@ func (s *Session) computerRequestTimeout(ctx context.Context, method, suffix str
 	}
 	reason := fmt.Sprintf("HTTP %d", r.status)
 	switch detail {
-	case "computer_not_enabled", "run_closed", "inaccessible", "invalid_handle", "operation_not_found", "owner_unavailable", "invalid_request", "unauthenticated", "forbidden", "runtime_unavailable", "start_failed", "computer_limit", "request_conflict", "run_conflict", "evidence_conflict", "evidence_unavailable", "authentication_unavailable", "operation_limit", "screen_starting", "screen_unavailable", "screen_control_held", "screen_control_lost", "screen_input_unavailable", "screen_input_uncertain", "screen_key_unsupported", "screen_text_unsupported", "screen_target_not_found", "screen_target_unavailable":
+	case "computer_not_enabled", "run_closed", "inaccessible", "invalid_handle", "operation_not_found", "owner_unavailable", "invalid_request", "unauthenticated", "forbidden", "runtime_unavailable", "start_failed", "computer_limit", "request_conflict", "run_conflict", "evidence_conflict", "evidence_unavailable", "authentication_unavailable", "operation_limit", "screen_starting", "screen_unavailable", "screen_control_held", "screen_control_lost", "screen_input_unavailable", "screen_input_uncertain", "screen_key_unsupported", "screen_text_unsupported", "screen_target_not_found", "screen_target_unavailable", "step_engine_unavailable", "step_engine_busy", "inference_unavailable", "inference_not_enabled":
 		reason = detail
 	}
 	next := computerRefusalNextSteps[code]

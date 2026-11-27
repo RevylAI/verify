@@ -20,12 +20,16 @@ type liveStep struct {
 		Reason     string `json:"status_reason"`
 		Reasoning  string `json:"reasoning"`
 		Validation *bool  `json:"validation_result"`
+		Extracted  *struct {
+			Information *string `json:"information"`
+		} `json:"extracted_data"`
+		Engine string `json:"engine"`
 	} `json:"step_output"`
 }
 
 func (s *Session) Instruction(ctx context.Context, text string, options ...StepOption) (StepResult, error) {
 	if s.platform.computer() {
-		return StepResult{}, s.computerAgentUnavailable("Instruction")
+		return StepResult{}, failure(ErrNotAvailableOnPlatform, "Instruction is not available on computers. To click one thing by its description, use Tap(ctx, verify.Element(\"the Save button\")); to type into a field, use Type(ctx, verify.Element(\"the search field\"), text). Validation and Extract do work on a Mac opened with Inference set to true. See "+s.viewer)
 	}
 	settings, agent, err := splitOptions[StepOptions](options, "Instruction")
 	if err != nil {
@@ -45,10 +49,9 @@ func (s *Session) Instruction(ctx context.Context, text string, options ...StepO
 	return result, err
 }
 
+// Validation asks whether something holds on screen, and returns ErrValidationFailed when it does not, unless Soft is
+// set. On a Mac computer it runs on the Mac's own vision model and needs one opened with Inference set to true.
 func (s *Session) Validation(ctx context.Context, text string, options ...ValidationOption) (StepResult, error) {
-	if s.platform.computer() {
-		return StepResult{}, s.computerAgentUnavailable("Validation")
-	}
 	settings, agent, err := splitOptions[ValidationOptions](options, "Validation")
 	if err != nil {
 		return StepResult{}, err
@@ -60,11 +63,44 @@ func (s *Session) Validation(ctx context.Context, text string, options ...Valida
 	if len(settings) == 1 {
 		opt = settings[0]
 	}
+	if s.platform.computer() {
+		result, err := s.computerStep(ctx, "validation", text, opt.Timeout, agent != nil)
+		if err == nil && !result.Passed && !opt.Soft {
+			err = failure(ErrValidationFailed, "Validation failed: \""+result.Text+"\". "+reasonPrefix(result.Reason)+"See "+s.viewer)
+		}
+		return result, err
+	}
 	result, err := s.step(ctx, "validation", text, opt.Timeout, agent)
 	if err == nil && !result.Passed && !opt.Soft {
 		err = failure(ErrValidationFailed, "Validation failed: \""+result.Text+"\". "+stepReason(result)+" See "+s.viewer)
 	}
 	return result, err
+}
+
+// Extract reads a value off the screen, such as "the order number", and returns the step with it in Value. It returns
+// ErrStepFailed when nothing could be read. On browsers and devices it runs on Revyl's agent, so a session opened with
+// your own model returns ErrInvalidArgument; on a Mac computer it runs on the Mac's own vision model and needs one
+// opened with Inference set to true.
+func (s *Session) Extract(ctx context.Context, text string, options ...ExtractOptions) (StepResult, error) {
+	if len(options) > 1 {
+		return StepResult{}, failure(ErrInvalidArgument, "Extract accepts at most one options value.")
+	}
+	var timeout time.Duration
+	if len(options) == 1 {
+		timeout = options[0].Timeout
+	}
+	if s.platform.computer() {
+		return s.computerStep(ctx, "extract", text, timeout, false)
+	}
+	return s.step(ctx, "extract", text, timeout, nil)
+}
+
+func reasonPrefix(reason string) string {
+	reason = strings.TrimRight(reason, ". \t\r\n")
+	if reason == "" {
+		return ""
+	}
+	return reason + ". "
 }
 
 func stepReason(result StepResult) string {
@@ -89,6 +125,9 @@ func (s *Session) step(ctx context.Context, kind, text string, timeout time.Dura
 	if strings.TrimSpace(text) == "" || textLength(text) > 4000 {
 		return StepResult{}, failure(ErrInvalidArgument, "Step description must contain 1–4000 characters.")
 	}
+	if kind == "extract" && s.agent != nil {
+		return StepResult{}, failure(ErrInvalidArgument, "Extract runs on Revyl's agent, and this session runs steps on your model because Open was passed WithModel, WithCustomModel or WithAgent. Read the value from Screenshot with your model, or open a session without them to use Extract.")
+	}
 	if timeout == 0 {
 		timeout = s.stepTimeout
 	}
@@ -98,7 +137,7 @@ func (s *Session) step(ctx context.Context, kind, text string, timeout time.Dura
 	s.mu.Lock()
 	if s.stepRunning {
 		s.mu.Unlock()
-		return StepResult{}, failure(ErrInvalidArgument, "Run one instruction or validation at a time on a session.")
+		return StepResult{}, failure(ErrInvalidArgument, "Run one instruction, validation or extract at a time on a session.")
 	}
 	s.stepRunning = true
 	s.mu.Unlock()
@@ -144,11 +183,29 @@ func (s *Session) step(ctx context.Context, kind, text string, timeout time.Dura
 	if kind == "validation" && (!success || outcome.Output.Validation == nil) {
 		return StepResult{}, failure(ErrStepFailed, "Validation did not reach a verdict. See "+s.viewer)
 	}
+	var value *string
+	if outcome.Output.Extracted != nil {
+		value = outcome.Output.Extracted.Information
+	}
+	if kind == "extract" && (!success || outcome.Output.Status == "failed" || value == nil) {
+		why := sentence(reason)
+		if success && outcome.Output.Status != "failed" {
+			why = "Revyl returned no value."
+		}
+		return StepResult{}, failure(ErrStepFailed, "Extract read nothing: \""+text+"\". "+why+" Describe one value that is on the screen now, such as \"the order number on the confirmation\". See "+s.viewer)
+	}
 	passed := success && outcome.Output.Status != "failed"
 	if kind == "validation" {
 		passed = *outcome.Output.Validation
 	}
-	return StepResult{Type: kind, Text: text, Passed: passed, Reason: reason, Duration: time.Since(started)}, nil
+	result := StepResult{Type: kind, Text: text, Passed: passed, Reason: reason, Duration: time.Since(started)}
+	if kind == "extract" {
+		result.Value = *value
+	}
+	if outcome.Output.Engine == "local" || outcome.Output.Engine == "hosted" {
+		result.Engine = outcome.Output.Engine
+	}
+	return result, nil
 }
 
 func (s *Session) runStep(ctx context.Context, kind, text string, timeout time.Duration) (out liveStep, err error) {

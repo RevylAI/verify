@@ -346,7 +346,13 @@ func operationResult(result map[string]any) map[string]any {
 }
 
 func TestComputerLifecycleAndExec(t *testing.T) {
-	f := newComputerFake(t, nil)
+	f := newComputerFake(t, func(f *fakeRevyl, w http.ResponseWriter, r *http.Request, body map[string]any) bool {
+		if r.Method != "POST" || !strings.HasSuffix(r.URL.Path, "/steps") {
+			return false
+		}
+		writeJSON(w, 409, map[string]any{"detail": "step_engine_unavailable"})
+		return true
+	})
 	s := f.open(verify.Target{Platform: verify.Mac})
 	create := f.calls("POST", computerPath)
 	if len(create) != 1 || !reflectMaps(create[0].Body, map[string]any{"computer_session_id": s.ID(), "os": "macos"}) {

@@ -47,6 +47,11 @@ const (
 	ReasonLifetimeUnsupported             RefusalReason = "lifetime_unsupported"
 	ReasonUpgradeRequired                 RefusalReason = "upgrade_required"
 	ReasonNoFocusedInput                  RefusalReason = "no_focused_input"
+
+	ReasonComputerLocalInferenceUnavailable RefusalReason = "computer_local_inference_unavailable"
+	ReasonInferenceNotEnabled               RefusalReason = "inference_not_enabled"
+	ReasonInferenceUnavailable              RefusalReason = "inference_unavailable"
+	ReasonStepEngineUnavailable             RefusalReason = "step_engine_unavailable"
 )
 
 func (c Code) Error() string { return string(c) }
@@ -134,7 +139,7 @@ func refusalReason(r response) RefusalReason {
 			ReasonComputerAtCapacity, ReasonComputerPlatformAtCapacity, ReasonComputerNotRunning, ReasonComputerCannotHostPlatform, ReasonComputerNotFound,
 			ReasonWebBuildRequired, ReasonWebBuildNotSupported, ReasonIOSBuildRequired, ReasonIOSBuildNotSupported,
 			ReasonAndroidBuildRequired, ReasonAndroidBuildNotSupported, ReasonWebSessionConflict, ReasonIOSSessionConflict,
-			ReasonAndroidSessionConflict, ReasonNotAvailableOnPlatform, ReasonRequestTimeout, ReasonProtocolError:
+			ReasonAndroidSessionConflict, ReasonNotAvailableOnPlatform, ReasonRequestTimeout, ReasonProtocolError, ReasonComputerLocalInferenceUnavailable:
 			return reason
 		}
 	}
