@@ -1,6 +1,6 @@
 {
   "name": "revyl-verify",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Teaches your coding agent to check web pages, iOS and Android apps, and Macs on real Revyl cloud browsers, simulators, emulators and computers by writing and running a short Verify script.",
   "author": {
     "name": "Revyl",

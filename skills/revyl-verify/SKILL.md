@@ -76,12 +76,30 @@ try {
 }
 ```
 
-A Mac runs commands with `exec()`, which takes an argument array rather than a shell string. It reads and writes files, takes screenshots, and clicks and types with `tap({ target })` and `type({ target }, text)`. `instruction()` is not available on a Mac. Mac computers need a paid Revyl plan: if Revyl refuses one, tell the user instead of retrying.
+A Mac runs commands with `exec()`, which takes an argument array rather than a shell string. It reads and writes files, takes screenshots, and clicks and types with `tap({ target })` and `type({ target }, text)`. `instruction()` is not available on a Mac.
+
+To check the screen in a sentence, open the Mac with `inference: true`. Its own vision model then answers `validation()` and `extract()`, with no per-check fee; on a Mac opened without `inference` they throw `NOT_AVAILABLE_ON_PLATFORM`.
+
+```ts
+const mac = await open({ platform: 'mac', inference: true });
+try {
+  await mac.writeFile('notes.txt', 'hello\n');
+  await mac.exec(['open', '-a', 'TextEdit', 'notes.txt']);
+  await mac.validation('A TextEdit window shows the text hello');
+} finally {
+  await mac.close();
+}
+```
+
+To keep a Mac's disk between runs, open it with `openPersistent('<name>')` instead of `open()`: `close()` stops it and keeps the disk, and `deletePersistent('<name>')` removes it.
+
+Mac computers, local inference and persistent computers come with paid Revyl plans. If Revyl refuses one (`upgrade_required`, `inference_not_enabled` or `persistent_computers_not_enabled`), tell the user their organization's plan needs an upgrade instead of retrying.
 
 ## Writing steps
 
 - Write each step as you would brief a person, in one sentence: what to do, or what should be true. Name what is visible ("the blue Save button"), not selectors or code.
 - Use `instruction()` to act and `validation()` to check. Don't ask an instruction to check something, or a validation to change anything.
+- Use `extract()` to read one value off the screen, such as `extract('the order number')`; the value is in the result's `value`.
 - Prefer several small steps to one long one. Each step stands alone, so put everything it needs into its own text.
 - Await every step. A session runs one step at a time.
 - When you know exactly what to press, act directly: `tap({ target: 'Sign in button' })`, `type({ target: 'Email field' }, 'demo@example.com')`, `pressKey('enter')`, `swipe('up')`. Type with `type({ target }, text)` on every platform.
@@ -131,5 +149,5 @@ if _, err := session.Validation(ctx, "The page shows a pricing table with at lea
 ## More
 
 - The docs for the installed version are in `node_modules/@revyl/verify/docs/`: `agents.md` for agents, `api.md` for every call, `errors.md` for every error.
-- Online: https://docs.revyl.com/verify, with guides to [check an iOS change](https://docs.revyl.com/verify/guides/check-an-ios-change), [run one script on iOS, Android and the web](https://docs.revyl.com/verify/guides/every-platform), [start signed in](https://docs.revyl.com/verify/guides/session-profiles), [use Playwright over CDP](https://docs.revyl.com/verify/guides/playwright-cdp) and [drive a cloud Mac](https://docs.revyl.com/verify/guides/mac-computer).
+- Online: https://docs.revyl.com/verify, with guides to [check an iOS change](https://docs.revyl.com/verify/guides/check-an-ios-change), [run one script on iOS, Android and the web](https://docs.revyl.com/verify/guides/every-platform), [start signed in](https://docs.revyl.com/verify/guides/session-profiles), [use Playwright over CDP](https://docs.revyl.com/verify/guides/playwright-cdp), [drive a cloud Mac](https://docs.revyl.com/verify/guides/mac-computer), [check a Mac's screen with its own model](https://docs.revyl.com/verify/guides/mac-model-checks), [check apps inside an inference Mac](https://docs.revyl.com/verify/guides/apps-inside-an-inference-mac) and [keep a Mac between runs](https://docs.revyl.com/verify/guides/persistent-computers).
 - Python: https://github.com/RevylAI/verify/blob/main/python/README.md. Go: https://github.com/RevylAI/verify/blob/main/go/README.md.
