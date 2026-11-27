@@ -1,0 +1,16 @@
+{
+  "name": "verify-guide-apps-inside-an-inference-mac",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Verify guide example: an iOS app on a simulator inside a cloud Mac with its own model",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env app-inside-mac.ts"
+  },
+  "devDependencies": {
+    "@revyl/verify": "0.8.0"
+  }
+}

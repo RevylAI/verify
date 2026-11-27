@@ -1,0 +1,16 @@
+{
+  "name": "verify-guide-persistent-computers-parallel-copies",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Verify guide example: parallel persistent Macs from one snapshot",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env macs-from-snapshot.ts"
+  },
+  "devDependencies": {
+    "@revyl/verify": "0.8.0"
+  }
+}

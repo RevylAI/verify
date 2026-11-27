@@ -1,0 +1,16 @@
+{
+  "name": "verify-guide-persistent-computers",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Verify guide example: a persistent cloud Mac that keeps its disk between runs",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env mac-remembers.ts"
+  },
+  "devDependencies": {
+    "@revyl/verify": "0.8.0"
+  }
+}
