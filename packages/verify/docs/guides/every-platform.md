@@ -129,6 +129,8 @@ with ThreadPoolExecutor() as pool:
     futures = {name: pool.submit(check, name) for name in checks}
 for name, future in futures.items():
     print(name, "passed" if future.exception() is None else f"failed: {future.exception()}")
+if any(future.exception() for future in futures.values()):
+    raise SystemExit(1)
 ```
 
 Each thread opens and closes its own session. `async_open` with `asyncio.gather(..., return_exceptions=True)` works the same way.
@@ -179,9 +181,14 @@ for name, c := range checks {
 	})
 }
 wg.Wait()
+var failed []error
 for name, err := range errs {
 	fmt.Println(name, err) // nil means passed
+	if err != nil {
+		failed = append(failed, fmt.Errorf("%s: %w", name, err))
+	}
 }
+return errors.Join(failed...) // non-nil when any platform failed
 ```
 
 ## Limits and errors

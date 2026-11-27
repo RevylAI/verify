@@ -115,6 +115,7 @@ mac, err := verify.Open(ctx, verify.Target{Platform: verify.Mac})
 if err != nil {
 	return err
 }
+defer mac.Close(context.Background()) // stops the Mac when a step fails; a no-op after the Close below
 fmt.Println("Live view:", mac.ViewerURL())
 if err := mac.WriteFile(ctx, "hello.swift", []byte("print(\"Hello from a cloud Mac\")\n")); err != nil {
 	return err
