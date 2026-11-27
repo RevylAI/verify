@@ -770,12 +770,16 @@ export class DeviceSession implements Session {
     return this.toScreenshot((await this.perform({ kind: 'type', at: location, text, clear: options.clear !== false }, undefined, undefined, settle))!);
   }
 
-  /** Types into the field that already has focus, without tapping, replacing its content unless clear is false. Web only. */
+  /** Types into the field that already has focus, without tapping, replacing its content unless clear is false. Throws ACTION_FAILED with reason no_focused_input when nothing has focus. */
   async typeFocused(text: string, options: { clear?: boolean } & ActionOptions = {}): Promise<void> {
-    if (this.platform !== 'web') throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', "typeFocused() isn't available on iOS and Android sessions. Use type({ target: 'the email field' }, text), which taps the field and types into it.");
     if (typeof text !== 'string' || text.length > 16_384) throw new VerifyError('INVALID_ARGUMENT', 'typeFocused() takes text of at most 16384 characters.');
     const settle = checkSettle(options.settle);
-    await this.perform({ kind: 'type_focused', text, clear: options.clear !== false }, undefined, undefined, settle);
+    try {
+      await this.perform({ kind: 'type_focused', text, clear: options.clear !== false }, undefined, undefined, settle);
+    } catch (error) {
+      if (this.platform !== 'web' && isVerifyError(error) && error.httpStatus === 422) throw new VerifyError('NOT_AVAILABLE_ON_PLATFORM', "typeFocused() isn't available on iOS and Android sessions. Use type({ target: 'the email field' }, text), which taps the field and types into it.", { cause: error, httpStatus: 422 });
+      throw error;
+    }
   }
 
   /** Double-taps a point in screenshot pixels, or an element Revyl locates from a description. Returns the point, in screenshot pixels. */
@@ -1098,8 +1102,15 @@ export class DeviceSession implements Session {
       }
       return new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `${baseAction} is not available on ${this.platform} sessions (${reason}).`);
     }
-    if (code === 'no_focused_input') {
+    let focusCode = code;
+    try {
+      focusCode ??= (JSON.parse(new TextDecoder().decode(response.body)) as { code?: string }).code;
+    } catch {}
+    if (focusCode === 'no_focused_input') {
       return new VerifyError('ACTION_FAILED', `Nothing was typed: no text field has focus (no_focused_input). Use type({ target: 'the email field' }, text), which taps the field and types into it, or tap the field first. See ${this.viewerUrl}`, { reason: 'no_focused_input', httpStatus: response.status });
+    }
+    if (focusCode === 'focused_input_unavailable') {
+      return new VerifyError('NOT_AVAILABLE_ON_PLATFORM', `Nothing was typed: this device can't tell which field has focus (focused_input_unavailable), so typeFocused() can't type on it. Use type({ target: 'the email field' }, text), which taps the field and types into it. See ${this.viewerUrl}`, { reason: 'focused_input_unavailable', httpStatus: response.status });
     }
     if (WEB_TARGET_ERRORS.has(code ?? detail ?? '')) {
       return new VerifyError('ACTION_FAILED', `${baseAction} could not act on the screen (${code ?? detail}). Take a fresh screenshot and try again. See ${this.viewerUrl}`);
@@ -1119,7 +1130,7 @@ export class DeviceSession implements Session {
         `${baseAction} may or may not have been applied (${reason}); Verify does not repeat it. Check the session at ${this.viewerUrl}`,
       );
     }
-    return new VerifyError('ACTION_FAILED', `${baseAction} failed on the ${this.target} session (HTTP ${response.status}): ${reason}`);
+    return new VerifyError('ACTION_FAILED', `${baseAction} failed on the ${this.target} session (HTTP ${response.status}): ${reason}`, { httpStatus: response.status });
   }
 
   private async untilReady(waitForReady: () => Promise<void>): Promise<void> {

@@ -520,6 +520,7 @@ var webTargetErrors = map[string]bool{"stale_target": true, "target_unstable": t
 func (s *Session) workerError(method, action string, r response) error {
 	var detail struct {
 		Error     string          `json:"error"`
+		Code      string          `json:"code"`
 		Detail    json.RawMessage `json:"detail"`
 		Message   string          `json:"message"`
 		Uncertain bool            `json:"execution_uncertain"`
@@ -534,14 +535,20 @@ func (s *Session) workerError(method, action string, r response) error {
 	if targetError == "" {
 		targetError = reason
 	}
+	focusCode := detail.Error
+	if focusCode == "" {
+		focusCode = detail.Code
+	}
 	code := ErrActionFailed
 	switch {
 	case r.status == 401 || r.status == 403:
 		return httpError(r)
 	case r.status == 501 || detail.Error == "not_available_on_platform" || detail.Error == "step_output_not_available":
 		code = ErrNotAvailableOnPlatform
-	case detail.Error == "no_focused_input":
+	case focusCode == "no_focused_input":
 		return &Error{Code: ErrActionFailed, Reason: ReasonNoFocusedInput, HTTPStatus: r.status, Message: "Nothing was typed: no text field has focus (no_focused_input). Use session.Type(ctx, verify.Element(\"the email field\"), text), which taps the field and types into it, or tap the field first. See " + s.viewer}
+	case focusCode == "focused_input_unavailable":
+		return &Error{Code: ErrNotAvailableOnPlatform, Reason: ReasonFocusedInputUnavailable, HTTPStatus: r.status, Message: "Nothing was typed: this device can't tell which field has focus (focused_input_unavailable), so TypeFocused can't type on it. Use session.Type(ctx, verify.Element(\"the email field\"), text), which taps the field and types into it. See " + s.viewer}
 	case webTargetErrors[targetError]:
 		return responseFailure(r, ErrActionFailed, fmt.Sprintf("%s could not act on the screen (%s). Take a fresh screenshot and try again. See %s", strings.Split(action, "/")[0], targetError, s.viewer))
 	case r.status == 404 || r.status == 410:

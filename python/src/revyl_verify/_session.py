@@ -638,6 +638,7 @@ class Session:
         except VerifyError:
             raw = {}
         error, reason = raw.get("error"), raw.get("detail", raw.get("message", ""))
+        focus_code = error if isinstance(error, str) else raw.get("code")
         screen_error = (
             error if isinstance(error, str) else reason if isinstance(reason, str) else ""
         )
@@ -649,13 +650,23 @@ class Session:
             "step_output_not_available",
         ):
             code = "NOT_AVAILABLE_ON_PLATFORM"
-        elif error == "no_focused_input":
+        elif focus_code == "no_focused_input":
             return VerifyError(
                 "ACTION_FAILED",
                 "Nothing was typed: no text field has focus (no_focused_input). Use "
                 'type("the email field", text), which taps the field and types into it, or tap '
                 f"the field first. See {self.viewer_url}",
                 reason="no_focused_input",
+                http_status=response.status,
+            )
+        elif focus_code == "focused_input_unavailable":
+            return VerifyError(
+                "NOT_AVAILABLE_ON_PLATFORM",
+                "Nothing was typed: this device can't tell which field has focus "
+                "(focused_input_unavailable), so type_focused() can't type on it. Use "
+                'type("the email field", text), which taps the field and types into it. '
+                f"See {self.viewer_url}",
+                reason="focused_input_unavailable",
                 http_status=response.status,
             )
         elif screen_error in _WEB_TARGET_ERRORS:
@@ -824,12 +835,9 @@ class Session:
         )
 
     def type_focused(self, text: str, *, clear: bool = True, settle: bool = True) -> None:
-        if self.platform != "web":
-            raise VerifyError(
-                "NOT_AVAILABLE_ON_PLATFORM",
-                "type_focused() isn't available on iOS and Android sessions. Use "
-                'type("the email field", text), which taps the field and types into it.',
-            )
+        """Types into the field that already has focus, without tapping, replacing its content
+        unless clear is False. Raises ACTION_FAILED with reason no_focused_input when nothing
+        has focus."""
         if not isinstance(text, str) or text_length(text) > 16_384:
             raise VerifyError(
                 "INVALID_ARGUMENT", "type_focused() takes text of at most 16384 characters."
@@ -837,7 +845,17 @@ class Session:
         if not isinstance(clear, bool):
             raise VerifyError("INVALID_ARGUMENT", "clear must be a boolean.")
         _check_settle(settle)
-        self._perform(TypeFocused(text, clear), settle=settle)
+        try:
+            self._perform(TypeFocused(text, clear), settle=settle)
+        except VerifyError as error:
+            if self.platform == "web" or error.http_status != 422:
+                raise
+            raise VerifyError(
+                "NOT_AVAILABLE_ON_PLATFORM",
+                "type_focused() isn't available on iOS and Android sessions. Use "
+                'type("the email field", text), which taps the field and types into it.',
+                http_status=422,
+            ) from error
 
     def double_tap(self, at: Location, *, settle: bool = True) -> Point:
         _check_settle(settle)

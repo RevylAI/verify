@@ -3,7 +3,7 @@ module github.com/RevylAI/verify/go/examples/cdp
 go 1.26.9
 
 require (
-	github.com/RevylAI/verify/go v0.7.0
+	github.com/RevylAI/verify/go v0.7.1
 	github.com/chromedp/cdproto v0.160.1
 	github.com/chromedp/chromedp v0.24.0
 )

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.8.1 (unreleased)
+
+- iOS and Android: `typeFocused(text, { clear })` types into the field that already has focus, for example after `tap({ target })`, instead of throwing `NOT_AVAILABLE_ON_PLATFORM` before anything is sent. It posts `/input` with no point. When nothing has focus it throws `ACTION_FAILED` with reason `no_focused_input`, as on Web, and the message says to use `type({ target }, text)` or tap the field first. A device that can't tell which field has focus, such as a real iPhone, throws `NOT_AVAILABLE_ON_PLATFORM` with the new reason `focused_input_unavailable`, naming `type({ target }, text)`. A Revyl device too old to type without a point answers HTTP 422, and `typeFocused` throws the same `NOT_AVAILABLE_ON_PLATFORM` error and message as 0.8.0. Your own model's tools still offer `type_focused` on Web only.
+- A device action that fails with an unclassified HTTP error now carries `httpStatus` on its `VerifyError`.
+- Docs: the README, API, mobile, web, errors and agents pages and llms.txt say `typeFocused` works on iOS and Android, with both refusals.
+
+## Go 0.7.1 (unreleased)
+
+To be published as the `go/v0.7.1` tag.
+
+- iOS and Android: `TypeFocused` types into the field that already has focus instead of returning `ErrNotAvailableOnPlatform`, as in TypeScript 0.8.1. With nothing focused it returns `ErrActionFailed` with `Reason` `ReasonNoFocusedInput`; a device that can't tell which field has focus, such as a real iPhone, returns `ErrNotAvailableOnPlatform` with the new `ReasonFocusedInputUnavailable`; a Revyl device too old to type without a point (HTTP 422) returns the same `ErrNotAvailableOnPlatform` error and message as v0.7.0.
+- Docs: the README says `TypeFocused` works on iOS and Android, with both refusals.
+- `verify.Version` and the `User-Agent` report 0.7.1.
+
+## Python 0.6.1 (unreleased)
+
+- iOS and Android: `type_focused(text, clear=...)` types into the field that already has focus instead of raising `NOT_AVAILABLE_ON_PLATFORM`, as in TypeScript 0.8.1, also on `AsyncSession`. With nothing focused it raises `ACTION_FAILED` with `reason="no_focused_input"`; a device that can't tell which field has focus, such as a real iPhone, raises `NOT_AVAILABLE_ON_PLATFORM` with the new `reason="focused_input_unavailable"`; a Revyl device too old to type without a point (HTTP 422) raises the same `NOT_AVAILABLE_ON_PLATFORM` error and message as 0.6.0.
+- Docs: the README says `type_focused` works on iOS and Android, with both refusals.
+- `revyl_verify.__version__` and the `User-Agent` report 0.6.1.
+
 ## 0.8.0 (unreleased)
 
 - Mac computers: `validation()` and `extract()` run on a Mac opened with `open({ platform: 'mac', inference: true })`, answered by that Mac's own vision model next to the computer, usually in 2 to 3 seconds, with `engine: 'local'` on the result. They post the computer's `/steps`. They carry no inference charge: you pay the Mac's minutes. A false validation throws `VALIDATION_FAILED` unless `soft`, an answer the model can't confirm or an `extract()` that finds nothing throws `STEP_FAILED` with the model's reason, a Mac without its model answering throws `NOT_AVAILABLE_ON_PLATFORM` (`step_engine_unavailable`) naming the fix, a model busy with another step `SESSION_BUSY` (`step_engine_busy`), and a Linux computer `NOT_AVAILABLE_ON_PLATFORM` before anything is sent. `instruction()` on computers still throws `NOT_AVAILABLE_ON_PLATFORM`, now naming `tap({ target })` and `type({ target }, text)`.
