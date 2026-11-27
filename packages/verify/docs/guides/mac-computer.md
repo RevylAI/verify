@@ -159,6 +159,7 @@ if recording != nil && recording.Duration != nil {
 | No Mac was free, or your organization runs as many as it may | `COMPUTER_LIMIT` | Try again later; Verify doesn't retry creation |
 | A command exited non-zero | `COMMAND_FAILED` | Read the reason, or pass `{ check: false }` and read `exitCode`, `stdout`, `stderr` |
 | Someone controls the screen in the Revyl viewer | `SESSION_BUSY` | Try again after they release it |
+| Revyl couldn't confirm a screen action, for example `screen_unavailable` | `ACTION_UNCERTAIN`; Verify doesn't repeat it | Take a `screenshot()` to see whether it happened, then repeat it only if it didn't |
 | `recording()` before `close()` | `SESSION_BUSY` | Close the computer first |
 
 A Mac runs at most its lifetime from create: 2 hours by default, up to 24 hours with `timeoutMs`, and `extend()` keeps a running one longer. [computers.md](../computers.md) covers everything else.
