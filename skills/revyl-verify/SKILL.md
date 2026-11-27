@@ -36,7 +36,12 @@ try {
 }
 ```
 
-`open('web')` opens the `web` target from `verify.config.ts` as it is. To check another page in the same session, call `await session.navigate('https://example.com/other-page')`.
+Paste the id into the script as a string; don't import `verify.config.ts` from a script. Or open the configured target and go to the page, which needs no id in the script:
+
+```ts
+const session = await open('web'); // the web target in verify.config.ts
+await session.navigate('https://example.com/pricing');
+```
 
 ## Check an iOS or Android app
 
