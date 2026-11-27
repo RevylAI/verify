@@ -1,5 +1,5 @@
 # Checks on the Mac's own model
-> Needs `@revyl/verify` 0.8.0, which isn't on npm yet.
+> Needs `@revyl/verify` 0.8.0 or later.
 
 Opens a cloud Mac with its own model, opens a document in TextEdit, then runs a validation and an extract on the Mac and prints which engine answered. Local inference is enabled per organization; ask support@revyl.ai. Needs Node.js 22.18 or later.
 

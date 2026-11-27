@@ -1,5 +1,5 @@
 # Your iOS app, checked on the Mac's model
-> Needs `@revyl/verify` 0.8.0, which isn't on npm yet.
+> Needs `@revyl/verify` 0.8.0 or later.
 
 Opens your iOS app on a simulator inside a cloud Mac with its own model, then prints which engine answered a validation and an extract. Local inference is enabled per organization; ask support@revyl.ai. Needs Node.js 22.18 or later.
 
