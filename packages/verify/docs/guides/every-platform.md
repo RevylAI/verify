@@ -55,9 +55,8 @@ const results = await Promise.allSettled(
     console.log(`${name}: ${session.viewerUrl}`);
     try {
       if (instruction) await session.instruction(instruction);
-      const check = await session.validation(validation);
+      await session.validation(validation);
       await session.screenshot({ path: `${name}.png` });
-      return check.passed;
     } finally {
       await session.close();
     }
@@ -96,6 +95,7 @@ The web check usually finishes first, in under a minute. The whole run takes as 
 ## How it works
 
 - **One `open()` per platform.** Only the target changes: `platform` and `app`. `instruction()`, `validation()`, `screenshot()` and `close()` are the same calls everywhere.
+- **A failed step throws.** `validation()` throws `VALIDATION_FAILED` when the statement doesn't hold, and `instruction()` throws `INSTRUCTION_FAILED` when Revyl's agent can't do it, so that platform's promise rejects and the script reports it as failed. The steps after it, including the screenshot, don't run; the session link keeps the recording. Pass `{ soft: true }` to `validation()` to get `passed: false` back instead.
 - **`Promise.allSettled`, not `Promise.all`.** `allSettled` waits for every session, so one failed platform doesn't leave the others running unchecked, and each `finally` closes its own session.
 - **Your apps.** Use `{ appId: '<your app id>' }` for an iOS or Android app's newest build, or `{ buildId }` for an exact one, and `url` or `buildId` for a web app. Keep the same steps when the app behaves the same on each platform, and give a platform its own steps when its screens differ.
 - **Exact actions.** When you know the element, `tap({ target: 'Login button' })` and `type({ target: 'Username field' }, text)` skip the agent and work on all three platforms; see [api.md](../api.md#exact-actions).
@@ -115,15 +115,14 @@ checks = {
 }
 
 
-def check(name: str) -> bool:
+def check(name: str) -> None:
     target, instruction, validation = checks[name]
     with open(target) as session:
         print(f"{name}: {session.viewer_url}")
         if instruction:
             session.instruction(instruction)
-        passed = session.validation(validation).passed
+        session.validation(validation)  # raises VALIDATION_FAILED when it doesn't hold
         session.screenshot(path=f"{name}.png")
-        return passed
 
 
 with ThreadPoolExecutor() as pool:
