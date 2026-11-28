@@ -1720,53 +1720,52 @@ def _web_app_id(
     key = (client.base, client._token, host)
     with _WEB_APP_LOCK:
         cached = _WEB_APP_IDS.get(key)
-        if cached:
-            return cached
-        name = f"Verify: {host}"
-        response = client.request(
-            "POST",
-            "/api/v1/apps/",
-            {"name": name, "platform": "web"},
-            deadline=deadline,
-            retry=True,
-        )
-        created = 200 <= response.status < 300
-        if created:
-            app_id = obj(response.json()).get("id")
-        elif response.status == 409:
-            try:
-                conflict = obj(response.json())
-            except VerifyError:
-                conflict = {}
-            app_id = (
-                conflict.get("existing_app_id") if conflict.get("code") == "app_exists" else None
-            )
-            if not isinstance(app_id, str) or not app_id:
-                raise http_error(response)
-        elif response.status == 403 and edge_blocked_error(response) is None:
-            raise VerifyError(
-                "AUTH_REJECTED",
-                f'Revyl refused to create the web app "{name}" (HTTP 403): this API key\'s role '
-                "can't create apps. Pass app_id with the id of an existing Web app in Revyl, "
-                'such as Target(platform="web", url=..., app_id="<id>"), or use a key whose role '
-                "can create apps.",
-                reason=refusal_reason(response),
-                http_status=403,
-            )
-        else:
-            raise http_error(response)
+    if cached:
+        return cached
+    name = f"Verify: {host}"
+    response = client.request(
+        "POST",
+        "/api/v1/apps/",
+        {"name": name, "platform": "web"},
+        deadline=deadline,
+        retry=True,
+    )
+    created = 200 <= response.status < 300
+    if created:
+        app_id = obj(response.json()).get("id")
+    elif response.status == 409:
+        try:
+            conflict = obj(response.json())
+        except VerifyError:
+            conflict = {}
+        app_id = conflict.get("existing_app_id") if conflict.get("code") == "app_exists" else None
         if not isinstance(app_id, str) or not app_id:
-            raise VerifyError("API_ERROR", f'Revyl created the web app "{name}" without its id.')
-        if not created:
-            platform = client.json(
-                "GET", "/api/v1/apps/" + quote(app_id, safe=""), deadline=deadline, retry=True
-            ).get("platform")
-            if isinstance(platform, str) and platform.lower() != "web":
-                raise VerifyError(
-                    "INVALID_ARGUMENT",
-                    f'Revyl app "{name}" ({app_id}) is for {platform}, not web, so Verify can\'t '
-                    f"open https://{host} with it. Pass app_id with the id of a Web app in Revyl.",
-                )
+            raise http_error(response)
+    elif response.status == 403 and edge_blocked_error(response) is None:
+        raise VerifyError(
+            "AUTH_REJECTED",
+            f'Revyl refused to create the web app "{name}" (HTTP 403): this API key\'s role '
+            "can't create apps. Pass app_id with the id of an existing Web app in Revyl, "
+            'such as Target(platform="web", url=..., app_id="<id>"), or use a key whose role '
+            "can create apps.",
+            reason=refusal_reason(response),
+            http_status=403,
+        )
+    else:
+        raise http_error(response)
+    if not isinstance(app_id, str) or not app_id:
+        raise VerifyError("API_ERROR", f'Revyl created the web app "{name}" without its id.')
+    if not created:
+        platform = client.json(
+            "GET", "/api/v1/apps/" + quote(app_id, safe=""), deadline=deadline, retry=True
+        ).get("platform")
+        if isinstance(platform, str) and platform.lower() != "web":
+            raise VerifyError(
+                "INVALID_ARGUMENT",
+                f'Revyl app "{name}" ({app_id}) is for {platform}, not web, so Verify can\'t '
+                f"open https://{host} with it. Pass app_id with the id of a Web app in Revyl.",
+            )
+    with _WEB_APP_LOCK:
         _WEB_APP_IDS[key] = app_id
     if log:
         try:

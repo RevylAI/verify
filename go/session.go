@@ -281,8 +281,9 @@ func (c *client) webAppID(ctx context.Context, t Target, log func(string)) (stri
 	}
 	key := [3]string{c.base, c.token, host}
 	webAppsMu.Lock()
-	defer webAppsMu.Unlock()
-	if id, ok := webApps[key]; ok {
+	id, ok := webApps[key]
+	webAppsMu.Unlock()
+	if ok {
 		return id, nil
 	}
 	name := "Verify: " + host
@@ -296,7 +297,6 @@ func (c *client) webAppID(ctx context.Context, t Target, log func(string)) (stri
 		Code          string `json:"code"`
 		ExistingAppID string `json:"existing_app_id"`
 	}
-	var id string
 	switch {
 	case created:
 		if err := decode(r, &app); err != nil {
@@ -323,7 +323,9 @@ func (c *client) webAppID(ctx context.Context, t Target, log func(string)) (stri
 			return "", failure(ErrInvalidArgument, fmt.Sprintf("Revyl app %q (%s) is for %s, not web, so Verify can't open https://%s with it. Pass AppID with the ID of a Web app in Revyl.", name, id, existing.Platform, host))
 		}
 	}
+	webAppsMu.Lock()
 	webApps[key] = id
+	webAppsMu.Unlock()
 	if log != nil {
 		state := ""
 		if created {
