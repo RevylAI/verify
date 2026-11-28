@@ -93,6 +93,12 @@ async function checkLink(url, places) {
     }
     return;
   }
+  const onMain = parsed.hostname === 'github.com' ? parsed.pathname.match(/^\/RevylAI\/verify\/(?:blob|tree)\/main(\/.*)?$/) : null;
+  if (onMain) {
+    notes.add('Links to this repository\'s main branch are checked against this checkout, which becomes main when it merges.');
+    checkLocal(url, decodeURIComponent((onMain[1] ?? '/').slice(1)), parsed.hash, where);
+    return;
+  }
   const npmPackage = parsed.hostname === 'www.npmjs.com' ? parsed.pathname.match(/^\/package\/((?:@[^/]+\/)?[^/]+)\/?$/)?.[1] : undefined;
   if (npmPackage) notes.add('www.npmjs.com refuses scripted requests, so npm package pages are checked through registry.npmjs.org.');
   const code = await status(npmPackage ? `https://registry.npmjs.org/${npmPackage.replace('/', '%2F')}` : url);
