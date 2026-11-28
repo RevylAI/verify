@@ -22,14 +22,6 @@ const CONFIG_FILE = 'verify.config.ts';
 const EXAMPLE_SCRIPT = join('verify', 'example.mts');
 const SETTINGS_BUNDLE_ID = { ios: 'com.apple.Preferences', android: 'com.android.settings' } as const;
 
-export function webAppIdMissingMessage(url: string | undefined): string {
-  return [
-    'A Web target needs the id of a Web app in Revyl, so init wrote no files.',
-    'Create one at https://app.revyl.ai: click Create app, keep Web selected, and enter your site\'s public HTTPS URL. Then copy the app id from the app\'s page.',
-    `Then run: npx ${PACKAGE_NAME} init --platform web --app-id <app-id> --url ${url ?? 'https://example.com'}`,
-  ].join('\n');
-}
-
 export function validateInitAnswers(answers: InitAnswers): InitAnswers {
   if (!['web', 'ios', 'android', 'mac'].includes(answers.platform)) {
     throw new VerifyError('INVALID_ARGUMENT', "--platform must be 'web', 'ios', 'android', or 'mac'. Linux init is unavailable; use open({ platform: 'linux' }) or a Linux config target.");
@@ -45,9 +37,6 @@ export function validateInitAnswers(answers: InitAnswers): InitAnswers {
     if (!/^https:\/\/[^/?#@\s]+(\/[^?#\s]*)?$/.test(answers.url)) {
       throw new VerifyError('INVALID_ARGUMENT', '--url must be a public HTTPS URL without credentials, query, or fragment.');
     }
-  }
-  if (answers.platform === 'web' && answers.appId === undefined) {
-    throw new VerifyError('INVALID_ARGUMENT', webAppIdMissingMessage(answers.url));
   }
   return answers;
 }
@@ -91,10 +80,12 @@ function configTemplate({ platform, appId, url }: InitAnswers): string {
       ? `    web: {
       platform: 'web',
       app: {
-        // The Revyl Web app to open.
-        appId: '${appId}',
-        // A public HTTPS URL, such as a preview deployment. Remove it to open the app's newest Revyl build.
+${appId ? `        // A public HTTPS URL, such as a preview deployment, opened as a build of the Revyl web app below.
         url: '${url ?? 'https://example.com'}',
+        // The Revyl web app to open the URL in.
+        appId: '${appId}',` : `        // A public HTTPS URL, such as a preview deployment. Verify finds or creates one Revyl web app for its origin
+        // and prints the app's id the first time; to pin that app, add appId: '<the id Verify printed>'.
+        url: '${url ?? 'https://example.com'}',`}
       },
       viewport: { width: 1280, height: 800 },
     },`

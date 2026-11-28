@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.9.0 (unreleased)
+
+Released together with Python 0.7.0 and Go v0.8.0: the three are the same release, with the same features.
+
+- Web targets need only a URL: `open({ platform: 'web', app: { url: 'https://www.revyl.com/pricing' } })`, and the same in `verify.config.ts` targets. Without `appId`, Verify finds or creates one Revyl web app per URL origin, named `Verify: <host>` (the lowercase host, with the port when it isn't 443), through Revyl's app API, then registers the URL as a build and starts the session as before. It does this once per origin in a process, and logs the id once, before the start line: `web: Revyl web app <id> for https://www.revyl.com (created; pin it with app: { appId: '<id>' })`, without `created;` when the app already existed.
+- `appId` is optional on web and pins a Revyl web app, unchanged. `buildId` and `branch` need `appId`; without it the error says to pass `appId`, or `url` alone. A web target with neither `url` nor `appId` says `web needs app: { url: 'https://example.com' }, a public HTTPS URL; add appId to pin a Revyl web app.`
+- An API key whose role can't create apps gets `AUTH_REJECTED` with a message saying so and to pass `appId` of an existing Web app. When the app named `Verify: <host>` exists but isn't a web app, `open()` throws `INVALID_ARGUMENT` naming it and saying to pass the `appId` of a Web app.
+- Web sessions inside a cloud Mac (`computer.open()`) still take `app: { appId, buildId }`.
+- `init --platform web` needs no `--app-id`: it writes a web target with `app: { url }` (`--url`, default `https://example.com`) and the example script; `--app-id` still pins an app. Interactive `init` asks only for the URL for web.
+- Docs, examples and the `revyl-verify` skill open web targets by URL alone; the skill no longer asks the user to create a Web app. web.md's "Create the Web app" section is now "Pin a Web app (optional)". Every example pins `@revyl/verify` 0.9.0.
+
+## Go 0.8.0 (unreleased)
+
+To be published as the `go/v0.8.0` tag. Same release as TypeScript 0.9.0.
+
+- `verify.Open(ctx, verify.Target{Platform: verify.Web, URL: "https://…"})` needs no `AppID`: Verify finds or creates one Revyl web app per URL origin, named `Verify: <host>`, once per process, and the `Log` callback gets `web: Revyl web app <id> for <origin> (… pin it with AppID: "<id>")`, as in TypeScript 0.9.0. `AppID` still pins an app; `BuildID` and `Branch` need it. A key that can't create apps returns `ErrAuthRejected`, and an existing app of that name that isn't a web app `ErrInvalidArgument`.
+- `verify.Version` and the `User-Agent` report 0.8.0.
+
+## Python 0.7.0 (unreleased)
+
+Same release as TypeScript 0.9.0.
+
+- `open(Target(platform="web", url="https://…"))` needs no `app_id`: Verify finds or creates one Revyl web app per URL origin, named `Verify: <host>`, once per process, and logs `web: Revyl web app <id> for <origin> (… pin it with app_id="<id>")`, as in TypeScript 0.9.0. `app_id` still pins an app; `build_id` and `branch` need it. A key that can't create apps raises `AUTH_REJECTED`, and an existing app of that name that isn't a web app `INVALID_ARGUMENT`.
+- `revyl_verify.__version__` and the `User-Agent` report 0.7.0.
+
 ## 0.8.2 (unreleased)
 
 Released together with Python 0.6.2 and Go v0.7.2: the three are the same release, with the same features.

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { VerifyError, errorMessage, type RefusalReason } from '../errors.js';
 import { VERSION } from '../version.js';
@@ -48,6 +49,8 @@ export interface RawResponse {
 
 export class RevylClient {
   readonly backendUrl: string;
+  /** Tells clients for different backends or keys apart, for per-process caches, without holding the key itself. */
+  readonly identity: string;
   private readonly token: string;
   private readonly fetchImpl: typeof fetch;
   private readonly requestTimeoutMs: number;
@@ -55,6 +58,7 @@ export class RevylClient {
   constructor(options: RevylClientOptions) {
     this.token = options.token;
     this.backendUrl = validateBackendUrl(options.backendUrl ?? (process.env.REVYL_BACKEND_URL?.trim() || DEFAULT_BACKEND_URL));
+    this.identity = createHash('sha256').update(`${this.backendUrl}\n${options.token}`).digest('hex');
     this.fetchImpl = options.fetch ?? fetch;
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   }
@@ -111,6 +115,37 @@ export class RevylClient {
 
   getApp(appId: string, signal?: AbortSignal): Promise<AppResponse> {
     return this.json('GET', `/api/v1/apps/${encodeURIComponent(appId)}`, { signal });
+  }
+
+  /**
+   * Creates a Revyl web app by name, or finds the one that already has that name in the organization. A retry after a
+   * lost response finds the app the first attempt created.
+   */
+  async createOrFindWebApp(name: string, signal?: AbortSignal): Promise<{ id: string; created: boolean }> {
+    const path = '/api/v1/apps/';
+    const response = await this.send('POST', path, { body: { name, platform: 'web' }, retry: true, signal });
+    const ok = response.status >= 200 && response.status < 300;
+    if (ok) {
+      const app = parseJson<{ id?: unknown }>(response, `POST ${path}`);
+      if (typeof app?.id !== 'string') throw new VerifyError('API_ERROR', `Revyl created the web app "${name}" without returning its id.`);
+      return { id: app.id, created: true };
+    }
+    if (response.status === 409) {
+      let conflict: { code?: unknown; existing_app_id?: unknown } | undefined;
+      try {
+        conflict = JSON.parse(new TextDecoder().decode(response.body)) as typeof conflict;
+      } catch {}
+      if (conflict?.code === 'app_exists' && typeof conflict.existing_app_id === 'string') return { id: conflict.existing_app_id, created: false };
+    }
+    if (response.status === 403 && !edgeBlockedError(response)) {
+      const detail = responseDetail(response)?.trim();
+      throw new VerifyError(
+        'AUTH_REJECTED',
+        `Revyl refused to create the web app "${name}" (HTTP 403)${detail ? `: ${detail}${/[.!?]$/.test(detail) ? '' : '.'}` : '.'} This API key's role can't create apps. Pass app: { url, appId: '<id>' } with the id of an existing Web app in Revyl instead, or use a key whose role can create apps.`,
+        { reason: responseRefusalReason(response), httpStatus: 403 },
+      );
+    }
+    throw apiError('POST', path, response);
   }
 
   registerWebUrlBuild(

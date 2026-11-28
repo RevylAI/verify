@@ -12,11 +12,12 @@ Mac computers are available to organizations on a current paid Revyl plan. On a 
 
 ```ts
 const web = await open('web');                                       // a target named in verify.config.ts
-const ios = await open({ platform: 'ios', app: { appId: '…' } });    // or a target object, no config needed
+const site = await open({ platform: 'web', app: { url: 'https://www.revyl.com/pricing' } });   // or a target object, no config needed
+const ios = await open({ platform: 'ios', app: { appId: '…' } });
 const mac = await open({ platform: 'mac' });                        // computer, no app needed
 ```
 
-- `target`: a target name from `verify.config.ts`, or a target object with the same shape as a config entry (see [configuration.md](configuration.md)). Verify reads the nearest `verify.config.ts` at or above the current folder.
+- `target`: a target name from `verify.config.ts`, or a target object with the same shape as a config entry (see [configuration.md](configuration.md)). Verify reads the nearest `verify.config.ts` at or above the current folder. A web target with `app: { url }` and no `appId` uses one Revyl web app per URL origin, named `Verify: <host>`: Verify finds or creates it on the first `open()` for that origin in the process and logs `web: Revyl web app <id> for <origin> (… pin it with app: { appId: '<id>' })` before the start line. Creating it needs an API key whose role can create apps; otherwise `open()` throws `AUTH_REJECTED` and you pass `appId` of an existing Web app. See [web.md](web.md).
 - `options.config`: the path of a config file to read instead.
 - `options.log`: where progress lines go. By default Verify writes the session link and each step's outcome to stderr, prefixed with `[verify]`. Pass a function to receive the lines yourself, or `false` to turn them off.
 - `options.model`: runs every instruction and validation on your own model instead of Revyl's agent; see [Your own model](#your-own-model). Browsers and devices only; computers throw `NOT_AVAILABLE_ON_PLATFORM`.
@@ -210,7 +211,7 @@ On iOS, Android and Mac computers `cdp()` throws `NOT_AVAILABLE_ON_PLATFORM` bef
 
 ## Exact actions
 
-**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. On a Mac computer's screen, `tap` (by point or by description), `screenSize`, `typeFocused` and `pressKey` are new in TypeScript 0.6.0, Python 0.4.0 and Go v0.5.0, and `type` in TypeScript 0.7.1, Python 0.5.1 and Go v0.6.1; `typeFocused` on iOS and Android is new in TypeScript 0.8.1, Python 0.6.1 and Go v0.7.1. The [Python](https://github.com/RevylAI/verify/blob/v0.8.2/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.8.2/go/README.md#exact-actions) READMEs show them with each language's names. Web, iOS and Android sessions, and a Mac computer's screen, take device actions that need no agent.
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. On a Mac computer's screen, `tap` (by point or by description), `screenSize`, `typeFocused` and `pressKey` are new in TypeScript 0.6.0, Python 0.4.0 and Go v0.5.0, and `type` in TypeScript 0.7.1, Python 0.5.1 and Go v0.6.1; `typeFocused` on iOS and Android is new in TypeScript 0.8.1, Python 0.6.1 and Go v0.7.1. The [Python](https://github.com/RevylAI/verify/blob/v0.9.0/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.9.0/go/README.md#exact-actions) READMEs show them with each language's names. Web, iOS and Android sessions, and a Mac computer's screen, take device actions that need no agent.
 
 **Typing: one rule on every platform.** To type, call `type({ target: 'Email field' }, text)`: it taps the field you describe and types into it, replacing its text unless you pass `{ clear: false }`. It works the same on Web, iOS, Android and a Mac computer. `typeFocused(text)` types wherever focus already is, without tapping, for example after `tap({ target })`, on every platform (iOS and Android since 0.8.1). When no field has focus it throws `ACTION_FAILED` with reason `no_focused_input` and types nothing. A device that can't tell which field has focus, such as a real iPhone, throws `NOT_AVAILABLE_ON_PLATFORM` with reason `focused_input_unavailable`; use `type({ target }, text)` there.
 
@@ -230,7 +231,7 @@ On iOS, Android and Mac computers `cdp()` throws `NOT_AVAILABLE_ON_PLATFORM` bef
 | `goHome()` | No, use `openUrl` or `navigate` | Yes, the home screen | Yes, the home screen | No | Same | Same |
 | `openUrl(url)` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No | Same | Same |
 | `launchApp(bundleId)` | No, use `openUrl` or `navigate` | Yes | Yes | No, use `exec(['open', '-a', 'Safari'])` | Same | Yes on iOS, such as `launchApp('com.apple.Preferences')` |
-| Target `app: { bundleId }` and `device: { model, osVersion }` | No, Web takes `app: { appId, url }` | Yes | Yes | No | Same | iOS: yes, or `app: { appId, buildId }`. Web takes `app: { appId, buildId }`. Android doesn't run inside a Mac |
+| Target `app: { bundleId }` and `device: { model, osVersion }` | No, Web takes `app: { url }` | Yes | Yes | No | Same | iOS: yes, or `app: { appId, buildId }`. Web takes `app: { appId, buildId }`. Android doesn't run inside a Mac |
 | `navigate(url)` | Yes | No, use `openUrl` | No, use `openUrl` | No | Same | Web: yes, and `http://localhost:<port>` reaches a service already listening on the Mac |
 | `cdp()`, for Playwright and Puppeteer | Yes, see [CDP](#cdp-playwright-puppeteer) | No | No | No | Same | Not verified yet |
 | `instruction` | Yes | Yes | Yes | No, use `tap({ target })`, `type({ target }, text)` and `exec()` | Yes, on your model | Yes; on a Mac opened with `inference: true`, a single tap runs on the Mac's model first |
@@ -369,7 +370,7 @@ When inspecting `revyl device report --session-id <id>`, read validation verdict
 
 ## Your own model
 
-**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0; the [Python](https://github.com/RevylAI/verify/blob/v0.8.2/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.8.2/go/README.md#your-own-model) READMEs show them with each language's names. Runs instructions and validations on a model you choose, in your process, instead of Revyl's agent. Revyl still provides the browser or device. Leave `model` out and Revyl's agent runs the step, as before.
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0; the [Python](https://github.com/RevylAI/verify/blob/v0.9.0/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.9.0/go/README.md#your-own-model) READMEs show them with each language's names. Runs instructions and validations on a model you choose, in your process, instead of Revyl's agent. Revyl still provides the browser or device. Leave `model` out and Revyl's agent runs the step, as before.
 
 ```ts
 const session = await open('ios', { model: 'anthropic/claude-sonnet-5-5' });  // every step on your model

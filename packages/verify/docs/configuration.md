@@ -7,7 +7,7 @@ import { defineConfig } from '@revyl/verify';
 
 export default defineConfig({
   targets: {
-    web: { platform: 'web', app: { appId: '…', url: 'https://example.com' }, viewport: { width: 1280, height: 800 } },
+    web: { platform: 'web', app: { url: 'https://example.com' }, viewport: { width: 1280, height: 800 } },
     ios: { platform: 'ios', app: { appId: '…' }, device: { model: 'iPhone 16', osVersion: 'iOS 18.5' } },
     pixel: { platform: 'android', app: { buildId: '…' }, device: { model: 'Pixel 7', osVersion: 'Android 14' } },
     mac: { platform: 'mac' },
@@ -32,10 +32,12 @@ Mac computers are available to organizations on a current paid Revyl plan. See [
 | Option | Meaning |
 | --- | --- |
 | `platform: 'web'` | |
-| `app.appId` | Required. The Revyl web app. |
-| `app.url` | A public HTTPS URL to open, registered as a build each time a session opens. |
-| `app.buildId` | An exact Revyl web build to open instead of a URL. |
-| `app.branch` | Branch to register the URL on, or to take the newest build from. |
+| `app.url` | A public HTTPS URL to open, registered as a build each time a session opens. Without `appId`, Verify finds or creates one Revyl web app for the URL's origin, named `Verify: <host>`, and prints its id. |
+| `app.appId` | Optional. Pins the Revyl web app, such as the id Verify printed. Required with `buildId` or `branch`. |
+| `app.buildId` | An exact Revyl web build to open instead of a URL. Needs `appId`. |
+| `app.branch` | Branch to register the URL on, or to take the newest build from. Needs `appId`. |
+
+Give `url`, or `appId` (alone, with `buildId`, or with `branch`). See [web.md](web.md).
 | `viewport` | `{ width, height, deviceScaleFactor? }` in CSS pixels. Screenshots, and so exact-action coordinates, are `deviceScaleFactor` times the CSS size |
 | `signIn` | `{ path, secret, persona? }`: a test-only sign-in route. See [web.md](web.md). |
 | `startTimeout` | Milliseconds to wait for the browser. Default 600000. |
@@ -90,7 +92,7 @@ npx @revyl/verify --version
 
 - `init` writes `verify.config.ts` and `verify/example.mts`, and adds `.verify/` and `node_modules/` to `.gitignore` when they aren't there yet, printing what it added. The example runs its steps in `try { … } finally { await session.close(); }`, so the session closes even when a step fails. Without `--platform` it asks its questions interactively, defaulting to iOS. When either file already exists, it keeps both and needs no `--platform`; `--force` overwrites them. `--no-config` skips them. `init --help` lists its options.
 - `init` sets up your coding agent at the repository root, the nearest folder above with a `.git`. It writes the `revyl-verify` skill to `.agents/skills/revyl-verify/SKILL.md` and `.claude/skills/revyl-verify/SKILL.md`: Cursor, Codex and Capy read `.agents/skills/`, and Claude Code reads `.claude/skills/`. It adds a Verify section between `<!-- verify:start` and `<!-- verify:end -->` to `AGENTS.md`, creating the file when it's missing. A repository with a `CLAUDE.md` (or `.claude/CLAUDE.md`) and no `AGENTS.md` gets the section in `CLAUDE.md` instead, because Claude Code reads only `CLAUDE.md` when one exists. Running `init` again replaces only that section and the skill, so it changes nothing until a new Verify version changes them. `--no-agents-md` skips the section and `--no-skill` skips the skill. `init` writes no MCP configuration: Verify runs in your scripts, so it needs no MCP server.
-- iOS and Android without `--app-id` target the device's built-in Settings app by bundle id (`com.apple.Preferences`, `com.android.settings`), so the example runs before you upload a build. Web requires `--app-id`; without it, `init` writes no files and explains how to create the Web app ([web.md](web.md#create-the-web-app)).
+- iOS and Android without `--app-id` target the device's built-in Settings app by bundle id (`com.apple.Preferences`, `com.android.settings`), so the example runs before you upload a build. Web needs no `--app-id`: it writes `app: { url }` (`--url`, default `https://example.com`), and the first run finds or creates one Revyl web app for that origin and prints its id. `--app-id` pins one ([web.md](web.md#pin-a-web-app-optional)).
 - `npx @revyl/verify init --platform mac` needs no app id and generates a command/file script. `--app-id` is rejected for Mac, and `--url` applies only to web.
 - `init` installs Verify from the project's lockfile when needed and signs in through Revyl's browser approval flow when no credentials are available. Use `--yes` or `--no-install` to control installation. Non-interactive runs do not prompt or open a browser and require `REVYL_API_KEY`.
 - `init` checks the sign-in after it writes the files. If it can't confirm one (no key, a rejected key, or Revyl unreachable), it prints `Could not confirm a Revyl sign-in:` with the reason, makes signing in step 1 under `Next:`, and exits 0: the files are written and need no change, so don't run `init` again. Sign in with `npx @revyl/verify login` or `REVYL_API_KEY`, check it with `whoami`, then run the example.

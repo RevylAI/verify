@@ -4,15 +4,14 @@
 //
 //	cd go/examples/cdp && go run .
 //
-// It needs REVYL_API_KEY (or a saved Revyl login) and REVYL_WEB_APP_ID, a web app you created in Revyl. It is its own
-// Go module, so chromedp is not a dependency of the Verify module. It starts a real, billable session.
+// It needs REVYL_API_KEY (or a saved Revyl login). Verify finds or creates the Revyl web app for the URL's origin and
+// logs its ID. It is its own Go module, so chromedp is not a dependency of the Verify module. It starts a real, billable session.
 package main
 
 import (
 	"context"
 	"errors"
 	"log"
-	"os"
 	"time"
 
 	verify "github.com/RevylAI/verify/go"
@@ -31,7 +30,7 @@ func main() {
 
 func run() (err error) {
 	ctx := context.Background()
-	s, err := verify.Open(ctx, verify.Target{Platform: verify.Web, AppID: os.Getenv("REVYL_WEB_APP_ID"), URL: "https://www.saucedemo.com"},
+	s, err := verify.Open(ctx, verify.Target{Platform: verify.Web, URL: "https://www.saucedemo.com"},
 		verify.OpenOptions{Log: func(line string) { log.Println(line) }})
 	if err != nil {
 		return err

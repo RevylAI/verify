@@ -33,9 +33,12 @@ type SignIn struct {
 }
 
 type Target struct {
-	Platform           Platform
-	AppID              string
-	BundleID           string
+	Platform Platform
+	// AppID is the Revyl app to open. On web it is optional and pins one Revyl web app; BuildID and Branch need it.
+	AppID    string
+	BundleID string
+	// URL is the public HTTPS URL a web target opens. Without AppID, Verify finds or creates one Revyl web app for the
+	// URL's origin, named "Verify: <host>", and logs its ID once per process.
 	URL                string
 	BuildID            string
 	ArtifactURL        string
@@ -125,8 +128,14 @@ func (t *Target) validate(hosted bool) error {
 		}
 	}
 	if t.Platform == Web {
-		if t.AppID == "" || t.BundleID != "" || t.ArtifactURL != "" || t.DeviceModel != "" || t.OSVersion != "" {
-			return bad("Web needs AppID and does not accept mobile app or device options.")
+		if t.BundleID != "" || t.ArtifactURL != "" || t.DeviceModel != "" || t.OSVersion != "" {
+			return bad("Web does not accept BundleID, ArtifactURL, DeviceModel or OSVersion; it opens a URL, such as verify.Target{Platform: verify.Web, URL: \"https://example.com\"}.")
+		}
+		if t.AppID == "" && (t.BuildID != "" || t.Branch != "") {
+			return bad("BuildID and Branch need AppID, the Revyl web app they belong to: pass AppID with them, or URL alone to open a URL.")
+		}
+		if t.AppID == "" && t.URL == "" {
+			return bad("Web needs URL, a public HTTPS URL, such as verify.Target{Platform: verify.Web, URL: \"https://example.com\"}; add AppID to pin a Revyl web app.")
 		}
 		if t.URL != "" {
 			parsed, err := url.Parse(t.URL)

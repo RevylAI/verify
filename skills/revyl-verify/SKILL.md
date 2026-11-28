@@ -11,23 +11,20 @@ Use it to check what a user would see: that a page renders, a flow works, or a c
 
 ## Before you start
 
-1. **Find the setup.** If the project has a `verify.config.ts`, read it: it names the targets (`web`, `ios`, `android`, `mac`) and holds their Revyl app ids. If `@revyl/verify` isn't in `package.json`, install it with the project's package manager, for example `npm install -D @revyl/verify`. It needs Node.js 22.18 or later. For Python or Go projects, see [Python and Go](#python-and-go).
+1. **Find the setup.** If the project has a `verify.config.ts`, read it: it names the targets (`web`, `ios`, `android`, `mac`), their URLs and any Revyl app ids. If `@revyl/verify` isn't in `package.json`, install it with the project's package manager, for example `npm install -D @revyl/verify`. It needs Node.js 22.18 or later. For Python or Go projects, see [Python and Go](#python-and-go).
 2. **Check the credentials** with `npx @revyl/verify whoami`. It starts nothing. If it fails, ask the user to run `npx @revyl/verify login` in a terminal, or to set `REVYL_API_KEY` to a key from Revyl (Settings → API keys). Never print, log or commit the key.
 3. **Sessions are billed.** When the user asked you to check something, that is the go-ahead for the sessions the check needs. Otherwise ask first. Open one session at a time unless you need several, and always close what you open.
 
 ## Check a web page
 
-A web session opens a Web app in Revyl, so it needs that app's id. Take `appId` from the `web` target in `verify.config.ts`. If there is none, ask the user to create a Web app at https://app.revyl.ai (Create app, keep Web selected) and give you its id. Revyl's browser runs in the cloud, so the URL must be public HTTPS, such as a preview deployment; it can't reach `localhost` on your machine.
+A web check needs only the page's URL. Revyl's browser runs in the cloud, so the URL must be public HTTPS, such as a preview deployment; it can't reach `localhost` on your machine.
 
 Save this as `verify/check-pricing.mts` and run it with `node verify/check-pricing.mts`:
 
 ```ts
 import { open } from '@revyl/verify';
 
-const session = await open({
-  platform: 'web',
-  app: { appId: '<the web app id from verify.config.ts>', url: 'https://example.com/pricing' },
-});
+const session = await open({ platform: 'web', app: { url: 'https://example.com/pricing' } });
 try {
   await session.validation('The page has loaded and shows a pricing table with at least two plans');
   await session.screenshot({ path: '.verify/pricing.png' });
@@ -36,7 +33,7 @@ try {
 }
 ```
 
-Paste the id into the script as a string; don't import `verify.config.ts` from a script. Or open the configured target and go to the page, which needs no id in the script:
+Every web session belongs to a web app in Revyl. Without an `appId`, Verify finds or creates one Revyl web app for the URL's origin, named `Verify: <host>`, and prints `web: Revyl web app <id> for <origin> (… pin it with app: { appId: '<id>' })`. To pin an app, add `appId: '<id>'` next to `url`, such as the `appId` of the `web` target in `verify.config.ts`; `buildId` and `branch` need it too. Paste the id as a string; don't import `verify.config.ts` from a script. If `open()` fails with `AUTH_REJECTED` because the API key's role can't create apps, ask the user for the id of an existing Web app and pass it as `appId`. Or open the configured target and go to the page:
 
 ```ts
 const session = await open('web'); // the web target in verify.config.ts
@@ -156,19 +153,19 @@ To read a finished session's result after the script exited, run `npx @revyl/ver
 
 ## Python and Go
 
-Use the SDK in the project's language; the steps and rules above are the same. TypeScript 0.8.2, Python 0.6.2 and Go v0.7.2 are the same release with the same features.
+Use the SDK in the project's language; the steps and rules above are the same, and a web app is pinned with `app_id=` in Python and `AppID:` in Go. TypeScript 0.9.0, Python 0.7.0 and Go v0.8.0 are the same release with the same features.
 
 ```python
 # pip install revyl-verify  (Python 3.10 or later)
 from revyl_verify import Target, open
 
-with open(Target(platform="web", app_id="<web app id>", url="https://example.com/pricing")) as session:
+with open(Target(platform="web", url="https://example.com/pricing")) as session:
     session.validation("The page shows a pricing table with at least two plans")
 ```
 
 ```go
-// go get github.com/RevylAI/verify/go@v0.7.2
-session, err := verify.Open(ctx, verify.Target{Platform: verify.Web, AppID: "<web app id>", URL: "https://example.com/pricing"})
+// go get github.com/RevylAI/verify/go@v0.8.0
+session, err := verify.Open(ctx, verify.Target{Platform: verify.Web, URL: "https://example.com/pricing"})
 if err != nil {
 	return err
 }
@@ -182,4 +179,4 @@ if _, err := session.Validation(ctx, "The page shows a pricing table with at lea
 
 - The docs for the installed version are in `node_modules/@revyl/verify/docs/`: `agents.md` for agents, `api.md` for every call, `errors.md` for every error.
 - Online: https://docs.revyl.com/verify, with guides to [check an iOS change](https://docs.revyl.com/verify/guides/check-an-ios-change), [run one script on iOS, Android and the web](https://docs.revyl.com/verify/guides/every-platform), [start signed in](https://docs.revyl.com/verify/guides/session-profiles), [use Playwright over CDP](https://docs.revyl.com/verify/guides/playwright-cdp), [drive a cloud Mac](https://docs.revyl.com/verify/guides/mac-computer), [check a Mac's screen with its own model](https://docs.revyl.com/verify/guides/mac-model-checks), [check apps inside an inference Mac](https://docs.revyl.com/verify/guides/apps-inside-an-inference-mac) and [keep a Mac between runs](https://docs.revyl.com/verify/guides/persistent-computers).
-- Python: https://github.com/RevylAI/verify/blob/py/v0.6.2/python/README.md. Go: https://github.com/RevylAI/verify/blob/go/v0.7.2/go/README.md. TypeScript docs for this version: https://github.com/RevylAI/verify/tree/v0.8.2/packages/verify/docs.
+- Python: https://github.com/RevylAI/verify/blob/py/v0.7.0/python/README.md. Go: https://github.com/RevylAI/verify/blob/go/v0.8.0/go/README.md. TypeScript docs for this version: https://github.com/RevylAI/verify/tree/v0.9.0/packages/verify/docs.

@@ -2,7 +2,7 @@
 
 <p align="center"><em>Cloud browsers, mobile devices and computers from Python.</em></p>
 
-**One release, three languages.** Python `revyl-verify` 0.6.2 = TypeScript `@revyl/verify` 0.8.2 = Go `github.com/RevylAI/verify/go` v0.7.2: the same release with the same features. Each language keeps its own version line, so "since" notes name the Python version.
+**One release, three languages.** Python `revyl-verify` 0.7.0 = TypeScript `@revyl/verify` 0.9.0 = Go `github.com/RevylAI/verify/go` v0.8.0: the same release with the same features. Each language keeps its own version line, so "since" notes name the Python version.
 
 Verify is a thin [Revyl](https://revyl.com) SDK, not a test runner. Open a web browser, iOS simulator or Android emulator for natural-language instructions and validations, or an early-access Mac computer for commands, files, processes, screenshots and, on a Mac opened with inference, validations and extracts.
 
@@ -333,7 +333,7 @@ The example starts billable Mac computers and takes several minutes: `save_snaps
 - **Limits.** 100 snapshots per organization by default.
 - **Cleanup.** `delete_persistent(name_or_id)` stops a running computer the normal way, which saves its disk, then deletes the computer and its saved disk for good. Its snapshots stay. `delete_snapshot(name_or_id)` deletes a snapshot; computers made from it keep their disks. Both raise `NOT_FOUND` when nothing has that name or ID, including one already deleted, so cleanup that may run twice catches it.
 - **Paths.** File calls take paths relative to the workspace, `/Users/computer/workspace`, which is also `$HOME` for commands, as the example's `$HOME/notes.txt` shows. They don't expand `~` and refuse absolute paths; reach other folders, such as `/Users/computer/Desktop`, through `exec()`.
-- **In CI, budget the waits.** `open_persistent()` waits up to 900 seconds, closing up to 600 for the save, `save_snapshot()` up to 900 and a copy's start another 900. A job killed by its timeout skips the `with` block's exit, so nothing closes. Pass `start_timeout`, `wait_timeout` and `timeout` (the run's lifetime, enforced by Revyl even when your job dies) so their sum fits the job; the [guide](https://github.com/RevylAI/verify/blob/py/v0.6.2/packages/verify/docs/guides/persistent-computers.md#in-ci-a-timeout-budget) has a recipe.
+- **In CI, budget the waits.** `open_persistent()` waits up to 900 seconds, closing up to 600 for the save, `save_snapshot()` up to 900 and a copy's start another 900. A job killed by its timeout skips the `with` block's exit, so nothing closes. Pass `start_timeout`, `wait_timeout` and `timeout` (the run's lifetime, enforced by Revyl even when your job dies) so their sum fits the job; the [guide](https://github.com/RevylAI/verify/blob/py/v0.7.0/packages/verify/docs/guides/persistent-computers.md#in-ci-a-timeout-budget) has a recipe.
 - **Lists.** `list_persistent()` returns a `PersistentComputer` for each of your organization's persistent computers, with `id`, `state`, `saved_at`, `saved_off_host`, `created_at` and `saved_disk_expires_at`. Revyl stores no names, so compare `id` with `mac.id`. `list_snapshots()` returns a `ComputerSnapshot` for each snapshot, with `id`, `name`, `computer_id`, `saved_at` and `saved_disk_expires_at`.
 
 Where the table shows no `reason`, the message names Revyl's code, shown here in parentheses.
@@ -358,9 +358,7 @@ A session profile is a script from your Revyl project that prepares a session be
 ```python
 from revyl_verify import Target, open
 
-web = Target(
-    platform="web", app_id="11111111-2222-4333-8444-555555555555", url="https://example.com"
-)
+web = Target(platform="web", url="https://example.com")
 
 # Run the "signed-in" profile from session.profiles in .revyl/config.yaml
 with open(web, profile="signed-in") as session:
@@ -456,11 +454,9 @@ with open(Target(platform="ios", bundle_id="com.apple.Preferences")) as session:
 On Web, type into a field, then where the focus moves, and press more keys:
 
 ```python
-import os
-
 from revyl_verify import Target, open
 
-web = Target(platform="web", app_id=os.environ["REVYL_WEB_APP_ID"], url="https://www.saucedemo.com")
+web = Target(platform="web", url="https://www.saucedemo.com")
 with open(web) as session:
     session.type("Username field", "standard_user")  # taps the field, then types
     session.press_key("tab")  # focus moves to the password field
@@ -529,7 +525,7 @@ size = session.screen_size()  # the screenshot's size: x is 0 to size.width - 1
 | `go_home()` | No, use `open_url` or `navigate` | Yes, the home screen | Yes, the home screen | No | Same | Same |
 | `open_url(url)` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No | Same | Same |
 | `launch_app(bundle_id)` | No, use `open_url` or `navigate` | Yes | Yes | No, use `exec(["open", "-a", "Safari"])` | Same | Yes on iOS, such as `launch_app("com.apple.Preferences")` |
-| `Target(bundle_id=...)`, `device_model`, `os_version` | No, Web takes `app_id` and `url` | Yes | Yes | No | Same | iOS: yes, or `app_id` with `build_id`. Web takes `app_id` with `build_id`. Android doesn't run inside a Mac |
+| `Target(bundle_id=...)`, `device_model`, `os_version` | No, Web takes `url` | Yes | Yes | No | Same | iOS: yes, or `app_id` with `build_id`. Web takes `app_id` with `build_id`. Android doesn't run inside a Mac |
 | `navigate(url)` | Yes | No, use `open_url` | No, use `open_url` | No | Same | Web: yes, and `http://localhost:<port>` reaches a service already listening on the Mac |
 | `cdp()`, for Playwright and Puppeteer | Yes, see [CDP](#cdp-playwright-puppeteer) | No | No | No | Same | Not verified yet |
 | `instruction` | Yes | Yes | Yes | No, use `tap("the Save button")` and `type("the search field", text)` | Yes, on your model | Yes; on a Mac opened with `inference=True`, a single tap runs on the Mac's model first |
@@ -553,7 +549,7 @@ from playwright.sync_api import sync_playwright  # pip install playwright; no br
 
 from revyl_verify import Target, open
 
-with open(Target(platform="web", app_id="<web app id>")) as session:
+with open(Target(platform="web", url="https://www.saucedemo.com")) as session:
     with sync_playwright() as playwright:
         endpoint = session.cdp()  # connect once, within 60 seconds
         browser = playwright.chromium.connect_over_cdp(endpoint.url)
@@ -563,7 +559,7 @@ with open(Target(platform="web", app_id="<web app id>")) as session:
         browser.close()  # only disconnects Playwright; leaving the with block ends the session
 ```
 
-It returns a `CDPEndpoint` with `url` (`str`) and `expires_at` (a timezone-aware `datetime`). [`examples/cdp_playwright.py`](examples/cdp_playwright.py) runs a full script: DOM, locators, a console message, network requests and a Verify validation while attached (`cd python && uv run python examples/cdp_playwright.py` with `REVYL_WEB_APP_ID` set).
+It returns a `CDPEndpoint` with `url` (`str`) and `expires_at` (a timezone-aware `datetime`). [`examples/cdp_playwright.py`](examples/cdp_playwright.py) runs a full script: DOM, locators, a console message, network requests and a Verify validation while attached (`cd python && uv run python examples/cdp_playwright.py`).
 
 - **The url is a single-use credential.** It accepts one connection and expires at `expires_at`, 60 seconds after `cdp()` returns it. Call `cdp()` again for each new connection. Don't log it, store it or pass it on; `repr()` of the endpoint leaves it out, but Playwright's connection errors can include it, so remove it before you log one. Any connection attempt uses the url up, even one that fails, so call `cdp()` again before you retry.
 - **One connection at a time.** A second connection to the same session is refused until the first disconnects. Once `browser.close()` has returned, the next url from `cdp()` connects.
@@ -687,7 +683,7 @@ cd python && uv run python examples/byo_model.py
 
 Construct a frozen `Target(platform=...)`:
 
-- **Web:** `app_id` (Revyl UUID) is required. Supply `url` for a public HTTPS site, `build_id` for a specific build, or `branch` for the selected app's latest build. `build_id` cannot be combined with `url` or `branch`. Optional `Viewport(width, height, device_scale_factor=...)` and `SignIn(path, secret, persona=...)` configure the browser and saved sign-in secret reference, not a raw credential.
+- **Web:** `Target(platform="web", url="https://…")` opens a public HTTPS site. Without `app_id`, Verify finds or creates one Revyl web app for the URL's origin, named `Verify: <host>`, once per process, and logs `web: Revyl web app <id> for <origin> (… pin it with app_id="<id>")` before the start line. Creating it needs an API key whose role can create apps; otherwise `open()` raises `AUTH_REJECTED` and you pass the `app_id` of an existing Web app. `app_id` (Revyl UUID) pins one web app; with it, supply `build_id` for a specific build, or `branch` for that app's latest build. `build_id` and `branch` need `app_id`, and `build_id` cannot be combined with `url` or `branch`. Optional `Viewport(width, height, device_scale_factor=...)` and `SignIn(path, secret, persona=...)` configure the browser and saved sign-in secret reference, not a raw credential.
 - **iOS / Android:** provide exactly one of `app_id`, `build_id`, HTTPS `artifact_url` or installed-app `bundle_id`. Optional `device_model` and `os_version` select the device, written as Revyl names them, such as `device_model="iPhone 16", os_version="iOS 18.5"` or `device_model="Pixel 7", os_version="Android 14"`. A value Revyl doesn't offer raises `INVALID_ARGUMENT` listing the values it accepts, and no session starts. An `app_id` or `build_id` Revyl can't find raises `INVALID_ARGUMENT` naming what wasn't found and how to fix it, and no session starts. A `bundle_id` that can't be launched raises `SESSION_START_FAILED` naming the bundle id, with the session link. Do not combine mobile app sources.
 - **Mac:** only `platform`, `start_timeout`, `timeout` (the lifetime in seconds) and `inference` (run on a Mac with its own vision model; see [validation() and extract() on a Mac](#validation-and-extract-on-a-mac)) are accepted; app/browser/device fields are unavailable.
 

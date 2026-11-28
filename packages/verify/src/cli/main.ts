@@ -9,7 +9,7 @@ import { VerifyError, errorMessage, isVerifyError } from '../errors.js';
 import { report, type SessionReport } from '../report.js';
 import { PACKAGE_NAME, VERSION } from '../version.js';
 import { SKILL_DIRECTORIES, SKILL_NAME, setUpAgents } from './agents.js';
-import { existingInitFiles, initProject, validateInitAnswers, webAppIdMissingMessage, type InitAnswers } from './init.js';
+import { existingInitFiles, initProject, validateInitAnswers, type InitAnswers } from './init.js';
 import { installVerify, packageHasVerify } from './install.js';
 import { signIn } from './login.js';
 
@@ -53,7 +53,8 @@ Coding agent setup, at the repository root:
 
   --platform    ios, android, web, or mac. Without it, init asks. iOS and Android without --app-id
                 open the device's built-in Settings app, so the example runs before you upload anything.
-  --app-id      The Revyl app to open. Required for web; create a Web app at https://app.revyl.ai first.
+  --app-id      The Revyl app to open. Optional for web: without it, Verify finds or creates one Revyl
+                web app for the URL's origin and prints its id, which --app-id pins.
   --url         The public HTTPS URL a web target opens (default https://example.com).
   --force         Overwrite verify.config.ts and verify/example.mts if they exist. Without it, init
                   keeps them and needs no --platform.
@@ -175,7 +176,7 @@ async function initCommand(args: string[]): Promise<number> {
   const steps = [
     ...(signedIn ? [] : [`Sign in: run npx ${PACKAGE_NAME} login in a terminal, or set REVYL_API_KEY to a key from Revyl (Settings → API keys). Check it with npx ${PACKAGE_NAME} whoami.`]),
     ...(existingInitFiles(process.cwd()).length === 2 ? ['Run: node verify/example.mts'] : []),
-    ...(!answers || answers.platform === 'mac' || answers.appId ? [] : ['To test your own app, put its Revyl app id in verify.config.ts in place of the Settings bundle id.']),
+    ...(!answers || answers.platform === 'mac' || answers.platform === 'web' || answers.appId ? [] : ['To test your own app, put its Revyl app id in verify.config.ts in place of the Settings bundle id.']),
     ...(values['no-agents-md'] && values['no-skill'] ? [] : ['Ask your coding agent to check something, such as "check that the home page loads": it now uses Verify.']),
   ];
   process.stdout.write(
@@ -208,12 +209,12 @@ async function askInitQuestions(appId: string | undefined, url: string | undefin
   try {
     const platform = ((await readline.question('What do you want to open? [ios/android/web/mac] (ios): ')).trim().toLowerCase() || 'ios') as Platform;
     if (platform === 'mac') return validateInitAnswers({ platform, ...(appId ? { appId } : {}), ...(url ? { url } : {}) });
-    const question = platform === 'web' ? 'Revyl Web app id (Enter if you have none yet): ' : 'Revyl app id (Enter to use the built-in Settings app): ';
-    const id = appId ?? ((await readline.question(question)).trim() || undefined);
-    if (platform === 'web' && !id) throw new VerifyError('INVALID_ARGUMENT', webAppIdMissingMessage(url));
-    const webUrl =
-      platform === 'web' ? (url ?? ((await readline.question('HTTPS URL to open (Enter for https://example.com): ')).trim() || undefined)) : undefined;
-    return validateInitAnswers({ platform, ...(id ? { appId: id } : {}), ...(webUrl ? { url: webUrl } : {}) });
+    if (platform === 'web') {
+      const webUrl = url ?? ((await readline.question('HTTPS URL to open (Enter for https://example.com): ')).trim() || undefined);
+      return validateInitAnswers({ platform, ...(appId ? { appId } : {}), ...(webUrl ? { url: webUrl } : {}) });
+    }
+    const id = appId ?? ((await readline.question('Revyl app id (Enter to use the built-in Settings app): ')).trim() || undefined);
+    return validateInitAnswers({ platform, ...(id ? { appId: id } : {}), ...(url ? { url } : {}) });
   } finally {
     readline.close();
   }

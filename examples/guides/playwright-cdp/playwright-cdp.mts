@@ -1,7 +1,7 @@
 import { open } from '@revyl/verify';
 import { chromium } from 'playwright-core';
 
-const session = await open({ platform: 'web', app: { appId: process.env.WEB_APP_ID ?? '', url: 'https://www.saucedemo.com' } });
+const session = await open({ platform: 'web', app: { url: 'https://www.saucedemo.com' } });
 console.log(`Live view: ${session.viewerUrl}`);
 try {
   const { url } = await session.cdp();

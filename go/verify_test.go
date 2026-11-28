@@ -532,7 +532,7 @@ func TestInvalidTargetsBeforeNetwork(t *testing.T) {
 		{Platform: verify.Android, AppID: appID, BundleID: "com.example.app"},
 		{Platform: verify.Android, ArtifactURL: "http://example.test/app.zip"},
 		{Platform: verify.Android, AppID: appID, URL: "https://example.test"},
-		{Platform: verify.Web, URL: "https://example.test"},
+		{Platform: verify.Web, Branch: "main"},
 		{Platform: verify.Web, AppID: appID, URL: "http://example.test"},
 		{Platform: verify.Web, AppID: appID, URL: "https://example.test", BuildID: buildID},
 		{Platform: verify.Android, AppID: appID, IdleTimeoutSeconds: -1},

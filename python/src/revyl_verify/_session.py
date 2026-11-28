@@ -79,6 +79,7 @@ from ._transport import (
     Response,
     VerifyError,
     edge_blocked_error,
+    http_error,
     obj,
     refusal_reason,
     seconds,
@@ -308,10 +309,11 @@ class Session:
                 if target.sign_in.persona:
                     sign_in["persona"] = target.sign_in.persona
                 web["sign_in"] = sign_in
+            app_id = _web_app_id(client, target, deadline, log)
             body.update(
                 session_id=proposed_id,
-                app_id=target.app_id,
-                build_id=_web_build(client, target, deadline),
+                app_id=app_id,
+                build_id=_web_build(client, target, app_id, deadline),
                 web=web,
             )
         else:
@@ -1700,10 +1702,86 @@ class Session:
         self._computer_only()
 
 
-def _web_build(client: Client, target: Target, deadline: Deadline) -> str:
+_WEB_APP_IDS: dict[tuple[str, str, str], str] = {}
+_WEB_APP_LOCK = threading.Lock()
+
+
+def _web_app_id(
+    client: Client, target: Target, deadline: Deadline, log: Callable[[str], None] | None
+) -> str:
+    """The target's app_id, or the Revyl web app for its url's origin, found or created once
+    per process and named "Verify: <host>"."""
+    if target.app_id:
+        return target.app_id
+    parts = urlsplit(target.url or "")
+    hostname = parts.hostname or ""
+    hostname = f"[{hostname}]" if ":" in hostname else hostname
+    host = hostname if parts.port in (None, 443) else f"{hostname}:{parts.port}"
+    key = (client.base, client._token, host)
+    with _WEB_APP_LOCK:
+        cached = _WEB_APP_IDS.get(key)
+    if cached:
+        return cached
+    name = f"Verify: {host}"
+    response = client.request(
+        "POST",
+        "/api/v1/apps/",
+        {"name": name, "platform": "web"},
+        deadline=deadline,
+        retry=True,
+    )
+    created = 200 <= response.status < 300
+    if created:
+        app_id = obj(response.json()).get("id")
+    elif response.status == 409:
+        try:
+            conflict = obj(response.json())
+        except VerifyError:
+            conflict = {}
+        app_id = conflict.get("existing_app_id") if conflict.get("code") == "app_exists" else None
+        if not isinstance(app_id, str) or not app_id:
+            raise http_error(response)
+    elif response.status == 403 and edge_blocked_error(response) is None:
+        raise VerifyError(
+            "AUTH_REJECTED",
+            f'Revyl refused to create the web app "{name}" (HTTP 403): this API key\'s role '
+            "can't create apps. Pass app_id with the id of an existing Web app in Revyl, "
+            'such as Target(platform="web", url=..., app_id="<id>"), or use a key whose role '
+            "can create apps.",
+            reason=refusal_reason(response),
+            http_status=403,
+        )
+    else:
+        raise http_error(response)
+    if not isinstance(app_id, str) or not app_id:
+        raise VerifyError("API_ERROR", f'Revyl created the web app "{name}" without its id.')
+    if not created:
+        platform = client.json(
+            "GET", "/api/v1/apps/" + quote(app_id, safe=""), deadline=deadline, retry=True
+        ).get("platform")
+        if isinstance(platform, str) and platform.lower() != "web":
+            raise VerifyError(
+                "INVALID_ARGUMENT",
+                f'Revyl app "{name}" ({app_id}) is for {platform}, not web, so Verify can\'t '
+                f"open https://{host} with it. Pass app_id with the id of a Web app in Revyl.",
+            )
+    with _WEB_APP_LOCK:
+        _WEB_APP_IDS[key] = app_id
+    if log:
+        try:
+            log(
+                f"web: Revyl web app {app_id} for https://{host} "
+                f'({"created; " if created else ""}pin it with app_id="{app_id}")'
+            )
+        except Exception:
+            pass
+    return app_id
+
+
+def _web_build(client: Client, target: Target, app_id: str, deadline: Deadline) -> str:
     if target.build_id:
         return target.build_id
-    path = "/api/v1/apps/" + quote(target.app_id or "", safe="")
+    path = "/api/v1/apps/" + quote(app_id, safe="")
     if target.url:
         body: dict[str, Json] = {"url": target.url}
         if target.branch:

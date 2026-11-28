@@ -6,13 +6,16 @@ import type { ComputerPlatform, MobilePlatform } from './api/types.js';
 import { PACKAGE_NAME } from './version.js';
 
 export interface WebAppConfig {
-  /** The Revyl web app this target belongs to. */
-  appId: string;
-  /** A public HTTPS URL to open, such as a preview deployment. Registered as a build each time a session opens. */
+  /**
+   * A public HTTPS URL to open, such as a preview deployment. Registered as a build each time a session opens. Without
+   * appId, Verify finds or creates one Revyl web app for the URL's origin and prints its id.
+   */
   url?: string;
-  /** An exact Revyl build to open instead of a URL. */
+  /** The Revyl web app to use, to pin one. Required with buildId or branch. */
+  appId?: string;
+  /** An exact Revyl build to open instead of a URL. Needs appId. */
   buildId?: string;
-  /** Revyl branch to register the URL on, or to take the newest build from. */
+  /** Revyl branch to register the URL on, or to take the newest build from. Needs appId. */
   branch?: string;
 }
 
@@ -212,7 +215,7 @@ function parseTarget(raw: unknown, name: string, path: string, fail: Fail, hoste
       hosted
         ? `is required: computer.open() takes app: { appId: '<Revyl app id>', buildId: '<Revyl build id>' } of an existing Revyl build${platform === 'ios' ? ", or app: { bundleId: 'com.apple.Preferences' } for an app already on the simulator" : ''}.`
         : platform === 'web'
-        ? "is required: web needs app: { appId: '<Revyl web app id>' }, plus an optional url, buildId or branch."
+        ? `is required: ${WEB_APP_RULE}`
         : `is required and ${mobileAppProblem(platform)}`,
     );
   }
@@ -231,8 +234,13 @@ function parseTarget(raw: unknown, name: string, path: string, fail: Fail, hoste
   }
 
   if (platform === 'web') {
-    rejectUnknownKeys(app, ['appId', 'url', 'buildId', 'branch'], `${path}.app`, fail, 'web app');
-    uuid(app.appId, `${path}.app.appId`, true, fail);
+    rejectUnknownKeys(app, ['url', 'appId', 'buildId', 'branch'], `${path}.app`, fail, 'web app');
+    if (app.appId === undefined) {
+      const pinned = app.buildId !== undefined ? 'buildId' : app.branch !== undefined ? 'branch' : undefined;
+      if (pinned) fail(`${path}.app.${pinned}`, `needs appId, the Revyl web app the ${pinned === 'buildId' ? 'build' : 'branch'} belongs to: pass app: { appId: '<Revyl web app id>', ${pinned}: ... }, or app: { url } alone to open a URL.`);
+      if (app.url === undefined) fail(`${path}.app`, `is missing url: ${WEB_APP_RULE}`);
+    }
+    uuid(app.appId, `${path}.app.appId`, false, fail);
     uuid(app.buildId, `${path}.app.buildId`, false, fail);
     if (app.url !== undefined && (typeof app.url !== 'string' || app.url.length > 2048 || !WEB_URL.test(app.url))) {
       fail(`${path}.app.url`, 'must be a public HTTPS URL without credentials, query, or fragment. Revyl cannot reach localhost.');
@@ -273,8 +281,8 @@ function parseTarget(raw: unknown, name: string, path: string, fail: Fail, hoste
       ...common,
       platform: 'web',
       app: {
-        appId: app.appId as string,
         ...(app.url !== undefined ? { url: app.url as string } : {}),
+        ...(app.appId !== undefined ? { appId: app.appId as string } : {}),
         ...(app.buildId !== undefined ? { buildId: app.buildId as string } : {}),
         ...(app.branch !== undefined ? { branch: app.branch as string } : {}),
       },
@@ -328,6 +336,8 @@ function asRecord(raw: unknown, path: string, fail: Fail): Record<string, unknow
 function mobileAppProblem(platform: unknown): string {
   return `takes exactly one of appId, buildId, or artifactUrl to install an app, or bundleId to open one already on the device, such as app: { bundleId: '${platform === 'android' ? 'com.android.settings' : 'com.apple.Preferences'}' }.`;
 }
+
+const WEB_APP_RULE = "web needs app: { url: 'https://example.com' }, a public HTTPS URL; add appId to pin a Revyl web app.";
 
 const COMPUTER_INSTEAD = "a computer runs commands with exec() and opens iOS and Web sessions inside a Mac with computer.open()";
 

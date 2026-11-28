@@ -5,8 +5,7 @@ export default defineConfig({
     web: {
       platform: 'web',
       app: {
-        // A web app you created in Revyl.
-        appId: process.env.REVYL_WEB_APP_ID ?? '',
+        // Verify finds or creates the Revyl web app for this URL's origin and prints its id; add appId: '<id>' to pin it.
         url: 'https://www.saucedemo.com',
       },
       viewport: { width: 1280, height: 800 },

@@ -6,7 +6,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
-import { collectEvidence, webAppId } from './evidence.ts';
+import { collectEvidence } from './evidence.ts';
 
 const { values, positionals } = parseArgs({ options: { mock: { type: 'boolean' }, android: { type: 'boolean' }, 'no-open': { type: 'boolean' } }, allowPositionals: true });
 const mock = values.mock === true;
@@ -84,7 +84,7 @@ function plans(target: Run['target']): [string, string][] {
   ];
 }
 
-async function runTarget(run: Run, appId?: string): Promise<void> {
+async function runTarget(run: Run): Promise<void> {
   const directory = join(root, run.target);
   await mkdir(directory, { mode: 0o700 });
   let session: Session | undefined;
@@ -93,7 +93,7 @@ async function runTarget(run: Run, appId?: string): Promise<void> {
     console.log(`→ ${run.label}: opening`);
     if (!mock) {
       const target: TargetConfig = run.target === 'web'
-        ? { platform: 'web', app: { appId: appId!, url: 'https://demo.playwright.dev/todomvc' }, viewport: { width: 1280, height: 800 } }
+        ? { platform: 'web', app: { url: 'https://demo.playwright.dev/todomvc' }, viewport: { width: 1280, height: 800 } }
         : { platform: run.target, app: { bundleId: run.target === 'ios' ? 'com.apple.Preferences' : 'com.android.settings' } };
       session = await open(target, { log: line => {
         const link = line.match(/https:\/\/app\.revyl\.ai\/sessions\/[0-9a-f-]+/i)?.[0];
@@ -149,15 +149,14 @@ async function runTarget(run: Run, appId?: string): Promise<void> {
 }
 
 try {
-  const appId = mock ? undefined : await webAppId();
   state.status = 'running';
-  await Promise.all(runs.map(run => runTarget(run, appId)));
+  await Promise.all(runs.map(run => runTarget(run)));
   state.status = 'completed';
   console.log(`\n${runs.filter(run => run.status === 'passed').length}/${runs.length} targets passed. Results: ${address}`);
   console.log('Results remain available until Ctrl+C. Any stop failure is shown on the page.');
   await writeFile(join(root, 'results.json'), JSON.stringify(state, null, 2), { mode: 0o600 });
 } catch {
   server.close();
-  console.error('Could not prepare the demo web app. Install the Revyl CLI and check your account/key has web access. No sessions started.');
+  console.error('The demo stopped before writing its results. See the lines above for each session.');
   process.exitCode = 1;
 }
