@@ -5,11 +5,11 @@
   "description": "Verify example: Playwright attached to a Revyl cloud browser over CDP",
   "type": "module",
   "scripts": {
-    "playwright": "node verify/playwright.ts",
+    "playwright": "node verify/playwright.mts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
-    "@revyl/verify": "0.8.1",
+    "@revyl/verify": "0.8.2",
     "@types/node": "^22.10.0",
     "playwright-core": "^1.65.1",
     "typescript": "^5.9.0"

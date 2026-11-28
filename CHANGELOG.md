@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.8.2 (unreleased)
+
+Released together with Python 0.6.2 and Go v0.7.2: the three are the same release, with the same features.
+
+- `report(sessionId)` reads a finished session's outcome after the process that ran it has exited: `{ id, viewerUrl, platform, status, finished, error, startedAt, endedAt, steps }`, each step with `type`, `description`, `status`, `passed`, `reasoning` and `error`. It works for Web, iOS, Android and computer sessions (a computer has no steps). An id that isn't a UUID throws `INVALID_ARGUMENT` before any request; a session the API key's organization doesn't have throws `NOT_FOUND`. `SessionReport`, `SessionReportStep` and `ReportOptions` are exported.
+- `npx @revyl/verify report <session-id> [--json]` prints the same report: the status, the session link and each step with its verdict and reasoning, or JSON with `--json`. It exits 0 whenever it read the report, whatever the session's outcome.
+- iOS sessions inside a cloud Mac: `computer.open({ platform: 'ios', app: { bundleId: 'com.apple.Preferences' } })` opens an app already on the simulator, as on a standalone iOS simulator, so the Settings quick start runs inside a Mac unchanged. A bundle id the simulator doesn't have throws `SESSION_START_FAILED` with Revyl's list of installed apps. `launchApp()` works there too. iOS sessions inside a Mac also take `device: { model, osVersion }`; Revyl refuses a pair it can't run inside a computer with a message naming the fix. `url`, `branch` and `artifactUrl` stay refused inside a computer, and so does `bundleId` for Android.
+- `deleteSnapshot(idOrName)` throws `NOT_FOUND` for a snapshot that's already deleted, as documented, by ID as well as by name. It reads the snapshot first and then deletes it by the ID it read; before, deleting an already-deleted ID by ID succeeded.
+- Session profiles: the `project_not_found` refusal says the project must already exist in Revyl, that the id `revyl init` writes isn't known until the project is published, and how to publish it (`revyl github connect`, then `revyl config push`), or to pass `profile: 'none'`. It used to suggest only a different API key or fixing `project.id`.
+- Clearer target errors, matching Python and Go: a target without `app` says what goes there for its platform (web: `app: { appId }` plus an optional `url`, `buildId` or `branch`; iOS and Android: exactly one of `appId`, `buildId`, `artifactUrl` or `bundleId`, with the Settings bundle id as an example). An option that belongs to another platform, such as `device` on a web target, `viewport` on iOS or `inference` on a target passed to `open()`, says which platform takes it and what to use instead.
+- `whoami` adds a `Revyl API: <origin>` line when it asked a Revyl API other than the default.
+- `init`: `verify/example.mts` closes the session in a `finally` block, and `.gitignore` gains `node_modules/` as well as `.verify/` when they are missing.
+- Docs: a version map at the top of each README; one "which call works where" table per language with "your own model" and "inside a cloud Mac" columns (`extract()` is refused with your own model; inside a Mac, `bundleId` and `launchApp` on iOS, no session profiles); `.mts` wherever a guide runs a TypeScript file with `node`; the persistent-computers guide has a timeout budget for CI and says where the workspace is relative to `$HOME`; the session-profiles guide says a deep link must answer 200 (single-page apps on static hosts) and when a cookie needs `httpOnly: false`; the apps-inside-an-inference-Mac guide opens Settings by `bundleId`. Guides and examples no longer say they work with 0.7.1, and every example pins `@revyl/verify` 0.8.2.
+- The `revyl-verify` skill links the docs of its own version instead of `main`, adds a session-profile section, and covers `report()` and iOS inside a Mac; the plugin version is 1.2.0.
+- Release gate: `npm run check:links` fails when a link in the skill, the READMEs, llms.txt or the docs index doesn't answer 200, or when a version-pinned link names an older version than its package. CI and both release workflows run it.
+
+## Go 0.7.2 (unreleased)
+
+To be published as the `go/v0.7.2` tag. Same release as TypeScript 0.8.2.
+
+- `verify.Report(ctx, sessionID, verify.ReportOptions{})` returns a finished session's `*SessionReport` after the process that ran it has exited, as in TypeScript 0.8.2. A non-UUID id returns `ErrInvalidArgument`; an unknown session `ErrNotFound`.
+- iOS inside a Mac: `computer.Open` takes `verify.Target{Platform: verify.IOS, BundleID: "com.apple.Preferences"}` with no `AppID` or `BuildID`, and `DeviceModel`/`OSVersion`, as in TypeScript 0.8.2. `LaunchApp` works there.
+- `DeleteSnapshot` returns `ErrNotFound` for an already-deleted snapshot by ID, as documented.
+- "Could not reach Revyl" names the origin it tried and the cause: `Could not reach Revyl at https://backend.revyl.ai: connection refused; …`.
+- `project_not_found` says how to get a project, as in TypeScript 0.8.2.
+- `verify.Version` and the `User-Agent` report 0.7.2.
+
+## Python 0.6.2 (unreleased)
+
+Same release as TypeScript 0.8.2.
+
+- `report(session_id)` and `async_report(session_id)` return a finished session's `SessionReport` after the process that ran it has exited, as in TypeScript 0.8.2. `SessionReport` and `SessionReportStep` are exported.
+- iOS inside a Mac: `computer.open(Target(platform="ios", bundle_id="com.apple.Preferences"))` and `device_model`/`os_version`, as in TypeScript 0.8.2. `launch_app()` works there.
+- `delete_snapshot()` raises `NOT_FOUND` for an already-deleted snapshot by ID, as documented.
+- "Could not reach Revyl" names the origin it tried, also when signing in.
+- `project_not_found` says how to get a project, as in TypeScript 0.8.2.
+- `revyl_verify.__version__` and the `User-Agent` report 0.6.2.
+
 ## 0.8.1 (2026-11-27)
 
 - iOS and Android: `typeFocused(text, { clear })` types into the field that already has focus, for example after `tap({ target })`, instead of throwing `NOT_AVAILABLE_ON_PLATFORM` before anything is sent. It posts `/input` with no point. When nothing has focus it throws `ACTION_FAILED` with reason `no_focused_input`, as on Web, and the message says to use `type({ target }, text)` or tap the field first. A device that can't tell which field has focus, such as a real iPhone, throws `NOT_AVAILABLE_ON_PLATFORM` with the new reason `focused_input_unavailable`, naming `type({ target }, text)`. A Revyl device too old to type without a point answers HTTP 422, and `typeFocused` throws the same `NOT_AVAILABLE_ON_PLATFORM` error and message as 0.8.0. Your own model's tools still offer `type_focused` on Web only.

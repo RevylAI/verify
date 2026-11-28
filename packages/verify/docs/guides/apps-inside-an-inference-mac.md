@@ -8,9 +8,9 @@ Local inference comes with paid Revyl plans. Without one, opening the Mac with `
 
 App sessions inside a computer add no device minutes of their own: you pay the Mac's minutes. Steps the Mac's model answers carry no inference charge. Steps that go to Revyl's hosted model, listed below, are billed as they are on any session.
 
-## Open the app inside the Mac
+## Open an app inside the Mac
 
-You need an app and build in Revyl, as for any hosted session: its `appId` and `buildId`.
+The built-in Settings app is on every simulator and needs nothing uploaded to Revyl, so this runs as written for any organization with Mac computers and local inference.
 
 TypeScript:
 
@@ -19,16 +19,17 @@ import { open } from '@revyl/verify';
 
 const mac = await open({ platform: 'mac', inference: true });
 try {
-  const app = await mac.open({ platform: 'ios', app: { appId: process.env.IOS_APP_ID!, buildId: process.env.IOS_BUILD_ID! } });
+  const settings = await mac.open({ platform: 'ios', app: { bundleId: 'com.apple.Preferences' } });
   try {
-    const check = await app.validation('The sign-in screen is showing');
-    console.log(check.passed, check.engine);                              // true 'local'
-    await app.instruction('Tap the Sign in button');                        // one tap: the Mac's model first
-    await app.type({ target: 'the email field' }, 'user@example.com');      // exact actions work as usual
-    const greeting = await app.extract('the greeting at the top');          // extract: Revyl's hosted model
-    console.log(greeting.value, greeting.engine);                           // ... 'hosted'
+    const check = await settings.validation('The Settings app is showing its list of settings');
+    console.log(check.passed, check.engine);                       // true 'local'
+    await settings.instruction('Tap General');                      // one tap: the Mac's model first
+    await settings.instruction('Tap About');
+    const version = await settings.extract('the iOS version');      // extract: Revyl's hosted model
+    console.log(version.value, version.engine);                     // e.g. '18.5' 'hosted'
+    await settings.launchApp('com.apple.mobilesafari');             // open another installed app
   } finally {
-    await app.close();
+    await settings.close();
   }
 } finally {
   await mac.close();
@@ -38,20 +39,20 @@ try {
 Python:
 
 ```python
-import os
-
 from revyl_verify import Target, open
 
 with open(Target(platform="mac", inference=True)) as mac:
-    app = mac.open(Target(platform="ios", app_id=os.environ["IOS_APP_ID"], build_id=os.environ["IOS_BUILD_ID"]))
+    settings = mac.open(Target(platform="ios", bundle_id="com.apple.Preferences"))
     try:
-        check = app.validation("The sign-in screen is showing")
+        check = settings.validation("The Settings app is showing its list of settings")
         print(check.passed, check.engine)  # True local
-        app.instruction("Tap the Sign in button")
-        greeting = app.extract("the greeting at the top")
-        print(greeting.value, greeting.engine)  # ... hosted
+        settings.instruction("Tap General")
+        settings.instruction("Tap About")
+        version = settings.extract("the iOS version")
+        print(version.value, version.engine)  # e.g. 18.5 hosted
+        settings.launch_app("com.apple.mobilesafari")
     finally:
-        app.close()
+        settings.close()
 ```
 
 Go:
@@ -62,17 +63,26 @@ if err != nil {
 	return err
 }
 defer mac.Close(context.Background())
-app, err := mac.Open(ctx, verify.Target{Platform: verify.IOS, AppID: os.Getenv("IOS_APP_ID"), BuildID: os.Getenv("IOS_BUILD_ID")})
+settings, err := mac.Open(ctx, verify.Target{Platform: verify.IOS, BundleID: "com.apple.Preferences"})
 if err != nil {
 	return err
 }
-defer app.Close(context.Background())
-check, err := app.Validation(ctx, "The sign-in screen is showing")
+defer settings.Close(context.Background())
+check, err := settings.Validation(ctx, "The Settings app is showing its list of settings")
 if err != nil {
 	return err
 }
 fmt.Println(check.Passed, check.Engine) // true local
+if err := settings.LaunchApp(ctx, "com.apple.mobilesafari"); err != nil {
+	return err
+}
 ```
+
+**Your own app.** Pass its Revyl app and an exact build instead of the bundle id: `app: { appId, buildId }` (Python `app_id=..., build_id=...`, Go `AppID`, `BuildID`). A Web session inside a Mac always takes that pair. Any other app already on the simulator opens by its bundle id, and a bundle id that can't be launched throws `SESSION_START_FAILED` with a message listing the installed apps.
+
+**The simulator.** `device: { model: 'iPhone 16', osVersion: 'iOS 18.5' }` (Python `device_model`, `os_version`; Go `DeviceModel`, `OSVersion`) picks it, written as Revyl names them. A pair the Mac can't run throws `NOT_AVAILABLE_ON_PLATFORM`, and Revyl's message says what to pick instead. Leave both out for the Mac's default.
+
+**Not inside a Mac:** `url`, `branch` and `artifactUrl`, Android sessions, session profiles and your own model; `computer.open()` takes only a target. Since TypeScript 0.8.2, Python 0.6.2 and Go v0.7.2, `bundleId` and `device` work for iOS inside a Mac; earlier versions needed an app and build.
 
 Close the app session before the Mac, or just close the Mac: closing it closes the sessions inside it.
 

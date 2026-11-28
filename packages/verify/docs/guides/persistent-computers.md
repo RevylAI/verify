@@ -48,6 +48,8 @@ try {
 
 `mac.created` is `true` when this call created the computer, but a marker file is the safer test. One command runs for at most 5 minutes (`timeout` up to 300000 ms), so split long setup into several commands.
 
+The marker, the clone and everything else above land in the computer's workspace, `/Users/computer/workspace`, which is also `$HOME` for commands: `~/app` in a shell command is the `app` folder `git clone` made. File calls take paths relative to the workspace (`.setup-done`, not `~/.setup-done`) and refuse absolute ones, so reach other folders, such as `/Users/computer/Desktop`, through `exec()`.
+
 Python:
 
 ```python
@@ -152,6 +154,45 @@ await mac.validation('The Dock is visible at the bottom of the screen');
 - A copy from a snapshot doesn't take the source computer's setting: pass `inference: true` with `fromSnapshot` when you want the model on it.
 - When no Mac with a model is up, starting the computer throws `NOT_AVAILABLE_ON_PLATFORM` (`inference_unavailable`) and nothing starts. To start that one run without the model, pass `withoutInference: true` (Python `without_inference=True`, Go `WithoutInference: true`); later starts ask for the model again. A Revyl backend that doesn't offer it yet throws `INVALID_ARGUMENT` saying so.
 
+## In CI: a timeout budget
+
+Every wait has a default sized for a slow start, and they add up: `openPersistent()` waits up to 15 minutes (`startTimeout`), `close()` up to 10 minutes for the disk to save, `saveSnapshot()` up to 15 minutes (`waitTimeout`), and opening a copy from a snapshot another 15. That is close to an hour before your own commands, longer than many CI jobs. When the job's timeout kills the process first, `finally` never runs, so the computer isn't closed and keeps running and billing until its lifetime ends.
+
+So give the job a timeout, and set each wait so that their sum plus your commands fits inside it, with room to spare. Set the run's `timeoutMs` too: it is enforced on Revyl's side, so even a killed job leaves a computer that stops itself, and keeps its disk, when that time is up.
+
+```yaml
+jobs:
+  mac:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45          # the budget: 10 open + 10 work + 10 close + 10 snapshot, with 5 to spare
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: node verify/mac-ci.mts
+        env:
+          REVYL_API_KEY: ${{ secrets.REVYL_API_KEY }}
+```
+
+```ts
+import { openPersistent, saveSnapshot } from '@revyl/verify';
+
+const mac = await openPersistent('ci-cache', {
+  startTimeout: 10 * 60_000,     // fail after 10 minutes instead of 15
+  timeoutMs: 30 * 60_000,        // Revyl stops this run after 30 minutes, keeping the disk, even if the job is killed
+});
+try {
+  await mac.exec(['/bin/zsh', '-lc', 'cd app && ./build.sh'], { timeout: 300_000 });
+} finally {
+  await mac.close();             // waits up to 10 minutes for the disk to save
+}
+await saveSnapshot('ci-cache', 'ci-cache-base', { waitTimeout: 10 * 60_000 });
+```
+
+A wait that runs out throws `TIMEOUT`, and the two differ. `openPersistent()` stops a computer it started but couldn't get ready in time, keeping its disk, so calling it again starts the computer again: raise `startTimeout` for a slow start rather than retrying with the same value. `saveSnapshot()` saves nothing until the stopped computer's disk is copied off its Mac, and that copy goes on in Revyl, so calling it again keeps waiting; `close()` likewise leaves a disk save it couldn't confirm running. Python takes seconds (`open_persistent(name, start_timeout=600, timeout=1800)`, `save_snapshot(computer, name, wait_timeout=600)`); Go takes durations (`OpenPersistentOptions{StartTimeout: 10 * time.Minute, Timeout: 30 * time.Minute}`, `SaveSnapshotOptions{WaitTimeout: 10 * time.Minute}`).
+
 ## Clean up
 
 ```ts
@@ -163,7 +204,7 @@ await deletePersistent('ios-dev');                // a running one stops first, 
 await deleteSnapshot('ios-dev-base');             // computers already started from it keep their disks
 ```
 
-Deleting a computer keeps its snapshots, and deleting a snapshot keeps the computers made from it. Both throw `NOT_FOUND` when there is nothing by that name or ID, so cleanup that runs twice should catch it. Python: `list_persistent()`, `list_snapshots()`, `delete_persistent()`, `delete_snapshot()`. Go: `ListPersistent`, `ListSnapshots`, `DeletePersistent`, `DeleteSnapshot`.
+Deleting a computer keeps its snapshots, and deleting a snapshot keeps the computers made from it. Both throw `NOT_FOUND` when there is nothing by that name or ID, including a computer or snapshot already deleted, so cleanup that runs twice should catch it. Python: `list_persistent()`, `list_snapshots()`, `delete_persistent()`, `delete_snapshot()`. Go: `ListPersistent`, `ListSnapshots`, `DeletePersistent`, `DeleteSnapshot`.
 
 ## Errors
 

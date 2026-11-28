@@ -572,7 +572,16 @@ func deleteSnapshot(ctx context.Context, snapshot string, options PersistentOpti
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	if _, err := persistentCall(ctx, c, "DELETE", persistentBase+"/snapshots/"+url.PathEscape(snapshot), nil, true, "There is no snapshot named or with the ID "+snapshot+". ListSnapshots shows your organization's snapshots."); err != nil {
+	notFound := "There is no snapshot named or with the ID " + snapshot + ". ListSnapshots shows your organization's snapshots."
+	r, err := persistentCall(ctx, c, "GET", persistentBase+"/snapshots/"+url.PathEscape(snapshot), nil, true, notFound)
+	if err != nil {
+		return err
+	}
+	saved, err := decodeSnapshot(r.body)
+	if err != nil {
+		return err
+	}
+	if _, err := persistentCall(ctx, c, "DELETE", persistentBase+"/snapshots/"+saved.ID, nil, true, notFound); err != nil {
 		return err
 	}
 	if options.Log != nil {

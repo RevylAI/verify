@@ -429,7 +429,8 @@ func (s *Session) OpenURL(ctx context.Context, rawURL string) error {
 
 var bundleIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,255}$`)
 
-// LaunchApp launches an installed app by bundle ID or package name. Devices only.
+// LaunchApp launches an installed app by bundle ID or package name on an iOS or Android session, including an iOS
+// session opened inside a cloud Mac with computer.Open, for example LaunchApp(ctx, "com.apple.Preferences").
 func (s *Session) LaunchApp(ctx context.Context, bundleID string) error {
 	if s.platform.computer() {
 		return s.computerAgentUnavailable("LaunchApp")

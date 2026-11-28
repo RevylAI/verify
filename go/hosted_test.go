@@ -220,6 +220,9 @@ func TestHostedValidationBeforeStart(t *testing.T) {
 			} {
 				target := verify.Target{Platform: platform, AppID: appID, BuildID: buildID}
 				change(&target)
+				if platform == verify.IOS && (target.DeviceModel != "" || target.OSVersion != "") {
+					continue
+				}
 				_, err := parent.Open(context.Background(), target)
 				requireCode(t, err, verify.ErrInvalidArgument)
 			}

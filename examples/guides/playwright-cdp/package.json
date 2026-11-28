@@ -8,10 +8,10 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "start": "node --env-file-if-exists=.env playwright-cdp.ts"
+    "start": "node --env-file-if-exists=.env playwright-cdp.mts"
   },
   "devDependencies": {
-    "@revyl/verify": "0.7.1",
+    "@revyl/verify": "0.8.2",
     "playwright-core": "^1.65.1"
   }
 }

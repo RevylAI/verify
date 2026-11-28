@@ -1,7 +1,7 @@
 # API
 
 ```ts
-import { attach, open, defineConfig, VerifyError, isVerifyError } from '@revyl/verify';
+import { attach, open, report, defineConfig, VerifyError, isVerifyError } from '@revyl/verify';
 ```
 
 ## open(target, options?)
@@ -115,7 +115,7 @@ This helper is included in the TypeScript 0.3.1 release and requires a runner co
     JS
 ```
 
-The helper accepts the same options as `attach`, including explicit `backendUrl` and `appUrl`; it does not read URL environment variables. `stopOnClose: true` explicitly takes ownership and can end the job's computer when closed. Use `computer.open(target)` with an exact app/build pair for hosted app sessions.
+The helper accepts the same options as `attach`, including explicit `backendUrl` and `appUrl`. `stopOnClose: true` explicitly takes ownership and can end the job's computer when closed. Use `computer.open(target)` for hosted app sessions: iOS by `app: { bundleId }` or an exact `app: { appId, buildId }` pair, Web by an exact pair.
 
 ## attach(computerId, options?)
 
@@ -129,7 +129,22 @@ When attaching to a computer you do not own, such as a CI runner, pass `attach(c
 
 ## computer.open(target)
 
-Starts a child app session inside this computer, returning the normal session API. It inherits the parent's authenticated client, logging and step timeout; callers cannot route a child to another backend. Both `target.app.appId` and `target.app.buildId` are required. Web accepts an existing external HTTPS build, plus optional viewport/sign-in settings; native builds use the computer's fixed device profile and accept no bundle, artifact or device override. Named targets and initial URL overrides are not supported here.
+Starts a child app session inside this computer, returning the normal session API. It inherits the parent's authenticated client, logging and step timeout; callers cannot route a child to another backend.
+
+- **iOS** takes `app: { bundleId }`, an app already on the simulator such as `'com.apple.Preferences'`, or `app: { appId, buildId }`, an exact build. A `bundleId` that can't be launched throws `SESSION_START_FAILED`, and the message lists the installed apps. Optional `device: { model, osVersion }` picks the simulator, written as Revyl names them; a pair the Mac can't run throws `NOT_AVAILABLE_ON_PLATFORM` with Revyl's message saying what to pick. Once it runs, `launchApp(bundleId)` opens another installed app, as on any iOS session.
+- **Web** takes `app: { appId, buildId }` with an existing external HTTPS build, plus optional viewport and sign-in settings.
+- Inside a computer, `url`, `branch` and `artifactUrl` are refused, and so is `bundleId` on Android. Named targets and initial URL overrides are not supported here, and a child runs no session profile.
+
+```ts
+const mac = await open({ platform: 'mac', inference: true });
+try {
+  const settings = await mac.open({ platform: 'ios', app: { bundleId: 'com.apple.Preferences' } });
+  await settings.validation('The Settings app is showing');
+  await settings.launchApp('com.apple.mobilesafari');
+} finally {
+  await mac.close();   // also closes the session inside it
+}
+```
 
 Mac supports Web and iOS children. The server remains authoritative for access, capability and capacity. Children require and share the parent's known deadline. Closing a child leaves the parent running; closing the parent cancels pending starts and gives child cleanup at most five seconds total before requesting confirmed computer release. The parent stop also stops any remaining children, so a slow child cannot prevent that request. A failed child start never closes the parent.
 
@@ -195,28 +210,38 @@ On iOS, Android and Mac computers `cdp()` throws `NOT_AVAILABLE_ON_PLATFORM` bef
 
 ## Exact actions
 
-**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. On a Mac computer's screen, `tap` (by point or by description), `screenSize`, `typeFocused` and `pressKey` are new in TypeScript 0.6.0, Python 0.4.0 and Go v0.5.0, and `type` in TypeScript 0.7.1, Python 0.5.1 and Go v0.6.1; `typeFocused` on iOS and Android is new in TypeScript 0.8.1, Python 0.6.1 and Go v0.7.1. The [Python](https://github.com/RevylAI/verify/blob/v0.8.1/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.8.1/go/README.md#exact-actions) READMEs show them with each language's names. Web, iOS and Android sessions, and a Mac computer's screen, take device actions that need no agent.
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. On a Mac computer's screen, `tap` (by point or by description), `screenSize`, `typeFocused` and `pressKey` are new in TypeScript 0.6.0, Python 0.4.0 and Go v0.5.0, and `type` in TypeScript 0.7.1, Python 0.5.1 and Go v0.6.1; `typeFocused` on iOS and Android is new in TypeScript 0.8.1, Python 0.6.1 and Go v0.7.1. The [Python](https://github.com/RevylAI/verify/blob/v0.8.2/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.8.2/go/README.md#exact-actions) READMEs show them with each language's names. Web, iOS and Android sessions, and a Mac computer's screen, take device actions that need no agent.
 
 **Typing: one rule on every platform.** To type, call `type({ target: 'Email field' }, text)`: it taps the field you describe and types into it, replacing its text unless you pass `{ clear: false }`. It works the same on Web, iOS, Android and a Mac computer. `typeFocused(text)` types wherever focus already is, without tapping, for example after `tap({ target })`, on every platform (iOS and Android since 0.8.1). When no field has focus it throws `ACTION_FAILED` with reason `no_focused_input` and types nothing. A device that can't tell which field has focus, such as a real iPhone, throws `NOT_AVAILABLE_ON_PLATFORM` with reason `focused_input_unavailable`; use `type({ target }, text)` there.
 
-| Call | Web | iOS | Android | Mac computer |
-| --- | --- | --- | --- | --- |
-| `tap({ x, y })`, `tap({ target })`, `screenSize` | Yes | Yes | Yes | Yes |
-| `locate` | Yes | Yes | Yes | No, use `tap({ target })`, which returns the point it clicked, or read the point off `screenshot()` |
-| `type({ target }, text)`, the way to type | Yes | Yes | Yes | Yes: clicks the field, selects its text unless `{ clear: false }`, then types |
-| `doubleTap`, `longPress`, `swipe`, `drag` | Yes | Yes | Yes | No |
-| `pressKey(key, { modifiers })` | Yes: `'enter'`, `'backspace'`, `'tab'`, `'escape'`, arrows and more, with modifiers | `'enter'` and `'backspace'` only | `'enter'` and `'backspace'` only | Yes: the Web keys and modifiers, where `'meta'` is Command |
-| `typeFocused(text, { clear })` | Yes, types into the focused field; `ACTION_FAILED` (`no_focused_input`) when none has focus | Yes since 0.8.1, the same; a real iPhone throws `NOT_AVAILABLE_ON_PLATFORM` (`focused_input_unavailable`) | Yes since 0.8.1, the same | Yes, with `{ clear: false }` |
-| `back()` | Yes, browser history | No, tap the on-screen back control | Yes, the system back button | No |
-| `goHome()` | No, use `openUrl` or `navigate` | Yes, the home screen | Yes, the home screen | No |
-| `openUrl(url)` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No |
-| `launchApp(bundleId)` | No, use `openUrl` or `navigate` | Yes | Yes | No |
-| `navigate(url)` | Yes | No, use `openUrl` | No, use `openUrl` | No |
-| `cdp()`, for Playwright and Puppeteer | Yes, see [CDP](#cdp-playwright-puppeteer) | No | No | No |
-| `instruction`, your own model | Yes | Yes | Yes | No, use `tap({ target })`, `type({ target }, text)` and `exec()` |
-| `validation`, `extract` | Yes | Yes | Yes | Yes, on a Mac opened with `inference: true`; see [computers.md](computers.md#checks-on-the-macs-own-model) |
-| `screenshot()` | Yes | Yes | Yes | Yes |
-| `exec`, files, processes | No, open a Mac computer | No, open a Mac computer | No, open a Mac computer | Yes |
+### Which call works where
+
+**Own model** is a Web, iOS or Android session opened with `model` or `agent`; **inside a cloud Mac** is an iOS or Web session that `computer.open(target)` starts on a Mac. "Same" means as on that session's platform.
+
+| Call | Web | iOS simulator | Android | Cloud Mac | Own model | Inside a cloud Mac |
+| --- | --- | --- | --- | --- | --- | --- |
+| `tap({ x, y })`, `tap({ target })`, `screenSize` | Yes | Yes | Yes | Yes | Same | Same |
+| `locate` | Yes | Yes | Yes | No, use `tap({ target })`, which returns the point it clicked, or read the point off `screenshot()` | Same | Same |
+| `type({ target }, text)`, the way to type | Yes | Yes | Yes | Yes: clicks the field, selects its text unless `{ clear: false }`, then types | Same | Same |
+| `doubleTap`, `longPress`, `swipe`, `drag` | Yes | Yes | Yes | No | Same | Same |
+| `pressKey(key, { modifiers })` | Yes: `'enter'`, `'backspace'`, `'tab'`, `'escape'`, arrows and more, with modifiers | `'enter'` and `'backspace'` only | `'enter'` and `'backspace'` only | Yes: the Web keys and modifiers, where `'meta'` is Command | Same | Same |
+| `typeFocused(text, { clear })` | Yes, types into the focused field; `ACTION_FAILED` (`no_focused_input`) when none has focus | Yes since 0.8.1, the same; a real iPhone throws `NOT_AVAILABLE_ON_PLATFORM` (`focused_input_unavailable`) | Yes since 0.8.1, the same | Yes, with `{ clear: false }` | Same | Same |
+| `back()` | Yes, browser history | No, tap the on-screen back control | Yes, the system back button | No | Same | Same |
+| `goHome()` | No, use `openUrl` or `navigate` | Yes, the home screen | Yes, the home screen | No | Same | Same |
+| `openUrl(url)` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No | Same | Same |
+| `launchApp(bundleId)` | No, use `openUrl` or `navigate` | Yes | Yes | No, use `exec(['open', '-a', 'Safari'])` | Same | Yes on iOS, such as `launchApp('com.apple.Preferences')` |
+| Target `app: { bundleId }` and `device: { model, osVersion }` | No, Web takes `app: { appId, url }` | Yes | Yes | No | Same | iOS: yes, or `app: { appId, buildId }`. Web takes `app: { appId, buildId }`. Android doesn't run inside a Mac |
+| `navigate(url)` | Yes | No, use `openUrl` | No, use `openUrl` | No | Same | Web: yes, and `http://localhost:<port>` reaches a service already listening on the Mac |
+| `cdp()`, for Playwright and Puppeteer | Yes, see [CDP](#cdp-playwright-puppeteer) | No | No | No | Same | Not verified yet |
+| `instruction` | Yes | Yes | Yes | No, use `tap({ target })`, `type({ target }, text)` and `exec()` | Yes, on your model | Yes; on a Mac opened with `inference: true`, a single tap runs on the Mac's model first |
+| `validation` | Yes | Yes | Yes | Yes, on a Mac opened with `inference: true`, answered by its own model; see [the guide](computers.md#checks-on-the-macs-own-model) | Yes, on your model | Yes; on a Mac opened with `inference: true`, on the Mac's model first |
+| `extract` | Yes | Yes | Yes | Yes, on a Mac opened with `inference: true` | No, throws `INVALID_ARGUMENT`: read `screenshot()` with your model | Yes, on Revyl's hosted model |
+| `open(target, { model })`, your own model | Yes | Yes | Yes | No, `NOT_AVAILABLE_ON_PLATFORM` | Yes | No, `computer.open()` takes only a target |
+| `open(target, { profile })`, a session profile | Yes | Yes | Yes | Yes | Same | No, `computer.open()` takes only a target |
+| `screenshot()` | Yes | Yes | Yes | Yes | Same | Same |
+| `exec`, files, processes | No, open a Mac computer | No, open a Mac computer | No, open a Mac computer | Yes | No | No; call them on the Mac |
+
+A persistent computer gets the Mac's model only when `openPersistent()` creates it: `inference` is fixed then and kept on every later open.
 
 A call a platform doesn't support throws `NOT_AVAILABLE_ON_PLATFORM`, and its message names the alternative.
 
@@ -235,7 +260,7 @@ A location is `{ x, y }` in screenshot pixels (see [Coordinates](#coordinates)) 
 | `back()` | Browser history on Web, the back button on Android; iOS throws `NOT_AVAILABLE_ON_PLATFORM` |
 | `goHome()` | Goes to the home screen on iOS and Android; Web throws `NOT_AVAILABLE_ON_PLATFORM` |
 | `openUrl(url)` | Opens a URL or deep link on a device, or loads a URL in a browser |
-| `launchApp(bundleId)` | Launches an installed app on a device |
+| `launchApp(bundleId)` | Launches an installed app on a device, including an iOS session inside a cloud Mac, such as `launchApp('com.apple.Preferences')` |
 | `locate(target)` | Resolves with Revyl's best match on the current screen, without acting |
 | `screenSize()` | Resolves with the screenshot's `{ width, height }` in pixels |
 
@@ -262,6 +287,22 @@ await session.screenshot({ path: '.verify/screen.png' });  // open it and find t
 await session.tap({ x: 660, y: 1500 });                    // the position as you read it, on every platform
 const { width, height } = await session.screenSize();      // the screenshot's size: x is 0 to width - 1
 ```
+
+## report(sessionId, options?)
+
+**Since 0.8.2.** Reads a session's outcome and steps from Revyl, including after the process that ran it exited, so a later script, CI step or agent can read the verdicts without signing in to Revyl's web app. Pass the session's id: `session.id`, or the UUID at the end of its link.
+
+```ts
+import { report } from '@revyl/verify';
+
+const result = await report('3f1c9a62-8d0e-4b7a-9c55-2e6f1d4a7b10');
+console.log(result.status, result.finished);              // 'completed' true
+for (const step of result.steps) console.log(step.status, step.type, step.description, step.reasoning);
+```
+
+It resolves with a `SessionReport`: `{ id, viewerUrl, platform, status, finished, error, startedAt, endedAt, steps }`. `platform` is `'web'`, `'ios'`, `'android'`, `'macos'` or `'linux'`; `finished` is `true` once `status` is final (`completed`, `failed`, `cancelled` or `timeout`); `error` is why the session failed, when Revyl recorded one. Each `SessionReportStep` is `{ type, description, status, passed, reasoning, error }`, in the order the steps ran: `status` is `'passed'`, `'failed'`, `'warning'`, `'pending'` or `'running'`, and `passed` is the verdict, or `null` when Revyl recorded none. Computers, and sessions with no Revyl report yet, have no steps.
+
+Credentials resolve as for `open()`. An id that isn't a UUID throws `INVALID_ARGUMENT` before any request; a session Revyl doesn't have in this API key's organization throws `NOT_FOUND`, naming the API origin it asked. From a terminal, `npx @revyl/verify report <session-id> [--json]` prints the same; see [configuration.md](configuration.md#command-line).
 
 ## session.report()
 
@@ -328,7 +369,7 @@ When inspecting `revyl device report --session-id <id>`, read validation verdict
 
 ## Your own model
 
-**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0; the [Python](https://github.com/RevylAI/verify/blob/v0.8.1/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.8.1/go/README.md#your-own-model) READMEs show them with each language's names. Runs instructions and validations on a model you choose, in your process, instead of Revyl's agent. Revyl still provides the browser or device. Leave `model` out and Revyl's agent runs the step, as before.
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0; the [Python](https://github.com/RevylAI/verify/blob/v0.8.2/python/README.md#your-own-model) and [Go](https://github.com/RevylAI/verify/blob/v0.8.2/go/README.md#your-own-model) READMEs show them with each language's names. Runs instructions and validations on a model you choose, in your process, instead of Revyl's agent. Revyl still provides the browser or device. Leave `model` out and Revyl's agent runs the step, as before.
 
 ```ts
 const session = await open('ios', { model: 'anthropic/claude-sonnet-5-5' });  // every step on your model
@@ -428,7 +469,7 @@ import { openPersistent, saveSnapshot, listPersistent, listSnapshots, deletePers
 | `deletePersistent(computer)` | Stops a running computer, which saves its disk, then deletes the computer and its disk for good; its snapshots stay |
 | `deleteSnapshot(snapshot)` | Deletes the snapshot; computers made from it keep their disks |
 
-`computer` and `snapshot` take a name or an ID. Every call also takes `log`, `backendUrl` and `appUrl`, as `open()` does. `savedDiskExpiresAt` (since 0.8.0) is when a save stops being able to start a computer, when Revyl reports one. `inference` (since 0.8.0) is used only when the call creates the computer; `withoutInference` (since 0.8.0) starts a stopped inference computer once without its model.
+`computer` and `snapshot` take a name or an ID. Every call also takes `log`, `backendUrl` and `appUrl`, as `open()` does. `deletePersistent()` and `deleteSnapshot()` throw `NOT_FOUND` when nothing has that name or ID, including one already deleted, so cleanup that may run twice catches it. `savedDiskExpiresAt` (since 0.8.0) is when a save stops being able to start a computer, when Revyl reports one. `inference` (since 0.8.0) is used only when the call creates the computer; `withoutInference` (since 0.8.0) starts a stopped inference computer once without its model.
 
 ## Rules worth knowing
 

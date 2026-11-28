@@ -179,7 +179,7 @@ def _call(
 ) -> dict[str, Json]:
     headers = {
         "Accept": "application/json",
-        "User-Agent": "revyl-verify/0.6.1 python",
+        "User-Agent": "revyl-verify/0.6.2 python",
         "X-Revyl-Client": "verify",
     }
     data = None
@@ -212,7 +212,7 @@ def _call(
         deadline.remaining()
         raise VerifyError(
             "AUTH_MISSING",
-            "Could not reach Revyl to sign in. "
+            f"Could not reach Revyl at {backend} to sign in. "
             "Run your script again, use revyl auth login, or set REVYL_API_KEY.",
         ) from None
     try:
@@ -237,7 +237,7 @@ def _call(
         deadline.remaining()
         raise VerifyError(
             "AUTH_MISSING",
-            "Could not reach Revyl to sign in. "
+            f"Could not reach Revyl at {backend} to sign in. "
             "Run your script again, use revyl auth login, or set REVYL_API_KEY.",
         ) from None
     try:

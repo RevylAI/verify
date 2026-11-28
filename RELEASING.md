@@ -12,6 +12,7 @@ npm run build
 npm run typecheck
 npm test
 npm run check:package
+npm run check:links
 npm pack --dry-run --workspace ./packages/verify
 npm pack --dry-run --workspace ./packages/revyl-verify
 ```
@@ -30,11 +31,13 @@ uv run --frozen python -m twine check --strict dist/*
 uv run --frozen python scripts/check_package.py
 ```
 
+`check:links` fetches every http(s) link in the skill, the three READMEs, `llms.txt` and the docs index and fails unless each answers 200, and fails when a pinned link or install command names an older version than the package it belongs to (`vX.Y.Z` against `packages/verify/package.json`, `py/vX.Y.Z` against `python/pyproject.toml`, `go/vX.Y.Z` against `Version` in `go/client.go`). Its few exceptions are explicit in `scripts/check-links.mjs` and print a note: links to the version being released are checked against the checkout, because its tag doesn't exist yet; docs.revyl.com guides listed in `UNPROMOTED_GUIDES` are checked through their copy under `packages/verify/docs/guides/` until docs.revyl.com publishes them (remove each one then); and npm package pages are checked through registry.npmjs.org, because www.npmjs.com refuses scripted requests. The release and Python release workflows run it too.
+
 Review both npm archives and the Python wheel and source distribution. Package checks validate archive contents and local fake-server behavior; they do not prove publication permissions or live service behavior.
 
 ## Prepare a version
 
-Set the same version in `packages/verify/package.json`, `packages/revyl-verify/package.json` (its version and its exact `@revyl/verify` dependency), the alias README's versioned links, and the `@revyl/verify` pin of every example, then run `npm install` to update `package-lock.json`. Add a `## X.Y.Z (unreleased)` section to `CHANGELOG.md` and replace `unreleased` with the release date just before tagging. Docs pages for the release ship in the same change; the docs.revyl.com update merges right after the release is published.
+Set the same version in `packages/verify/package.json`, `packages/revyl-verify/package.json` (its version and its exact `@revyl/verify` dependency), the alias README's versioned links, the version links in the skill and the version map at the top of the three READMEs, and the `@revyl/verify` pin of every example, including `examples/guides/*`, then run `npm install` to update `package-lock.json`. Add a `## X.Y.Z (unreleased)` section to `CHANGELOG.md` and replace `unreleased` with the release date just before tagging. Docs pages for the release ship in the same change; the docs.revyl.com update merges right after the release is published.
 
 ## Agent plugin
 

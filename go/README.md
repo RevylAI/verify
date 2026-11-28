@@ -1,5 +1,7 @@
 # Verify for Go
 
+**One release, three languages.** Go `github.com/RevylAI/verify/go` v0.7.2 = TypeScript `@revyl/verify` 0.8.2 = Python `revyl-verify` 0.6.2: the same release with the same features. Each language keeps its own version line, so "since" notes name the Go version.
+
 Open a Revyl cloud browser or mobile device for instruction and validation steps, or a Mac computer for commands and files. This Go SDK uses the standard library plus `gopkg.in/yaml.v3`, which reads `.revyl/config.yaml` for session profiles. It is not a test runner. It does not provide `test`, `describe`, or `expect`.
 
 ## Install
@@ -9,10 +11,10 @@ Use Go 1.26.9 or later and a Revyl account. Set `REVYL_API_KEY` through your she
 The module lives in the repository's `go/` subdirectory. Install the tagged release with:
 
 ```sh
-go get github.com/RevylAI/verify/go@v0.7.1
+go get github.com/RevylAI/verify/go@v0.7.2
 ```
 
-Go releases use independent repository tags such as `go/v0.7.1`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
+Go releases use independent repository tags such as `go/v0.7.2`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
 
 ## Set up your coding agent
 
@@ -40,7 +42,7 @@ This program opens the iOS Settings app on a cloud simulator, which every accoun
 ```sh
 mkdir verify-go && cd verify-go
 go mod init example.com/verify-go
-go get github.com/RevylAI/verify/go@v0.7.1
+go get github.com/RevylAI/verify/go@v0.7.2
 ```
 
 Save this as `main.go`:
@@ -257,25 +259,32 @@ Neither errors nor logs contain the script's content or output. Check the code w
 
 ## Which call works where
 
-| Call | Web | iOS | Android | Mac computer |
-| --- | --- | --- | --- | --- |
-| `Tap` with a `verify.Point` or a `verify.Element`, `ScreenSize` | Yes | Yes | Yes | Yes |
-| `Locate` | Yes | Yes | Yes | No, tap a `verify.Element`, which returns the point it clicked, or read the point off `Screenshot` |
-| `Type(ctx, verify.Element("…"), text)`, the way to type | Yes | Yes | Yes | Yes: clicks the field, selects its text unless `Clear` points to `false`, then types |
-| `DoubleTap`, `LongPress`, `Swipe`, `Drag` | Yes | Yes | Yes | No |
-| `PressKey(ctx, key, KeyOptions{Modifiers})` | Yes: `KeyEnter`, `KeyBackspace`, `KeyTab`, `KeyEscape`, arrows and more, with modifiers | `KeyEnter` and `KeyBackspace` only | `KeyEnter` and `KeyBackspace` only | Yes: the Web keys and modifiers, where `ModifierMeta` is Command |
-| `TypeFocused` | Yes, types into the focused field; `ErrActionFailed` (`no_focused_input`) when none has focus | Yes since `v0.7.1`, the same; a real iPhone returns `ErrNotAvailableOnPlatform` (`focused_input_unavailable`) | Yes since `v0.7.1`, the same | Yes, with `Clear` pointing to `false` |
-| `Back` | Yes, browser history | No, tap the on-screen back control | Yes, the system back button | No |
-| `GoHome` | No, use `OpenURL` or `Navigate` | Yes, the home screen | Yes, the home screen | No |
-| `OpenURL` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No |
-| `LaunchApp` | No, use `OpenURL` or `Navigate` | Yes | Yes | No |
-| `Navigate` | Yes | No, use `OpenURL` | No, use `OpenURL` | No |
-| `CDP`, for chromedp, Playwright and Puppeteer | Yes, see [CDP](#cdp-playwright-puppeteer) | No | No | No |
-| `Instruction` | Yes | Yes | Yes | No, use `Tap(ctx, verify.Element("the Save button"))` and `Type(ctx, verify.Element("the search field"), text)` |
-| `Validation`, `Extract` | Yes | Yes | Yes | Yes, on a Mac opened with `Inference: new(true)`; see [Validation and Extract on a Mac](#validation-and-extract-on-a-mac) |
-| Your own model (`WithModel`, `WithCustomModel`, `WithAgent`) | Yes, except `Extract` | Yes, except `Extract` | Yes, except `Extract` | No |
-| `Screenshot` | Yes | Yes | Yes | Yes |
-| `Exec`, files, processes | No, open a Mac computer | No, open a Mac computer | No, open a Mac computer | Yes |
+**Own model** is a Web, iOS or Android session opened with `WithModel`, `WithCustomModel` or `WithAgent`; **inside a cloud Mac** is an iOS or Web session that `mac.Open(ctx, target)` starts on a Mac. "Same" means as on that session's platform.
+
+| Call | Web | iOS simulator | Android | Cloud Mac | Own model | Inside a cloud Mac |
+| --- | --- | --- | --- | --- | --- | --- |
+| `Tap` with a `verify.Point` or a `verify.Element`, `ScreenSize` | Yes | Yes | Yes | Yes | Same | Same |
+| `Locate` | Yes | Yes | Yes | No, tap a `verify.Element`, which returns the point it clicked, or read the point off `Screenshot` | Same | Same |
+| `Type(ctx, verify.Element("…"), text)`, the way to type | Yes | Yes | Yes | Yes: clicks the field, selects its text unless `Clear` points to `false`, then types | Same | Same |
+| `DoubleTap`, `LongPress`, `Swipe`, `Drag` | Yes | Yes | Yes | No | Same | Same |
+| `PressKey(ctx, key, KeyOptions{Modifiers})` | Yes: `KeyEnter`, `KeyBackspace`, `KeyTab`, `KeyEscape`, arrows and more, with modifiers | `KeyEnter` and `KeyBackspace` only | `KeyEnter` and `KeyBackspace` only | Yes: the Web keys and modifiers, where `ModifierMeta` is Command | Same | Same |
+| `TypeFocused` | Yes, types into the focused field; `ErrActionFailed` (`no_focused_input`) when none has focus | Yes since `v0.7.1`, the same; a real iPhone returns `ErrNotAvailableOnPlatform` (`focused_input_unavailable`) | Yes since `v0.7.1`, the same | Yes, with `Clear` pointing to `false` | Same | Same |
+| `Back` | Yes, browser history | No, tap the on-screen back control | Yes, the system back button | No | Same | Same |
+| `GoHome` | No, use `OpenURL` or `Navigate` | Yes, the home screen | Yes, the home screen | No | Same | Same |
+| `OpenURL` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No | Same | Same |
+| `LaunchApp` | No, use `OpenURL` or `Navigate` | Yes | Yes | No, use `Exec(ctx, []string{"open", "-a", "Safari"})` | Same | Yes on iOS, such as `LaunchApp(ctx, "com.apple.Preferences")` |
+| `Target{BundleID}`, `DeviceModel`, `OSVersion` | No, Web takes `AppID` and `URL` | Yes | Yes | No | Same | iOS: yes, or `AppID` with `BuildID`. Web takes `AppID` with `BuildID`. Android doesn't run inside a Mac |
+| `Navigate` | Yes | No, use `OpenURL` | No, use `OpenURL` | No | Same | Web: yes, and `http://localhost:<port>` reaches a service already listening on the Mac |
+| `CDP`, for chromedp, Playwright and Puppeteer | Yes, see [CDP](#cdp-playwright-puppeteer) | No | No | No | Same | Not verified yet |
+| `Instruction` | Yes | Yes | Yes | No, use `Tap(ctx, verify.Element("the Save button"))` and `Type(ctx, verify.Element("the search field"), text)` | Yes, on your model | Yes; on a Mac opened with `Inference: new(true)`, a single tap runs on the Mac's model first |
+| `Validation` | Yes | Yes | Yes | Yes, on a Mac opened with `Inference: new(true)`; see [Validation and Extract on a Mac](#validation-and-extract-on-a-mac) | Yes, on your model | Yes; on a Mac opened with `Inference: new(true)`, on the Mac's model first |
+| `Extract` | Yes | Yes | Yes | Yes, on a Mac opened with `Inference: new(true)` | No, returns `ErrInvalidArgument`: read `Screenshot` with your model | Yes, on Revyl's hosted model |
+| Your own model (`WithModel`, `WithCustomModel`, `WithAgent`) | Yes | Yes | Yes | No | Yes | No, `mac.Open` takes only a target |
+| `OpenOptions{Profile}`, a session profile | Yes | Yes | Yes | Yes | Same | No, `mac.Open` takes only a target |
+| `Screenshot` | Yes | Yes | Yes | Yes | Same | Same |
+| `Exec`, files, processes | No, open a Mac computer | No, open a Mac computer | No, open a Mac computer | Yes | No | No; call them on the Mac |
+
+A persistent computer gets the Mac's model only when `OpenPersistent` creates it: `Inference` is fixed then and kept on every later open.
 
 Coordinates follow the rule in [Exact actions](#exact-actions). A call a platform doesn't support returns `ErrNotAvailableOnPlatform`, and its message names the alternative.
 
@@ -521,6 +530,8 @@ s, err := verify.Open(ctx, target, verify.WithAgent(verify.LocalAgent{
 
 The `Attach`, hosted `Open`, `Navigate`, `Report`, and `CurrentComputer` APIs are included in Go `v0.2.0`. The release also uses the encoded computer-operation wire format required by the production backend.
 
+`mac.Open(ctx, target)` starts an iOS or Web session inside a Mac. iOS takes `BundleID` alone, an app already on the simulator such as `"com.apple.Preferences"`, or both `AppID` and `BuildID` UUIDs; a `BundleID` that can't be launched returns `ErrSessionStartFailed` listing the installed apps. `DeviceModel` and `OSVersion` pick the simulator, and a pair the Mac can't run returns `ErrNotAvailableOnPlatform` with Revyl's message saying what to pick. `LaunchApp` works in that session as on any iOS session. Web takes both `AppID` and `BuildID`. `URL`, `Branch` and `ArtifactURL` are refused inside a computer, and so is `BundleID` on Android. `BundleID`, `DeviceModel` and `OSVersion` inside a Mac are new in `v0.7.2`.
+
 ## Inside a revyl-macos GitHub Actions job
 
 `verify.CurrentComputer(ctx, options...)` attaches to `REVYL_COMPUTER_ID` using normal credential resolution, non-owning by default. It never creates a computer and returns `ErrComputerIDMissing` when the ID is unset or blank. Invalid IDs return `ErrInvalidArgument`. The job's owner releases the computer; closing the attachment only cleans up hosted children.
@@ -555,7 +566,7 @@ Use Go `v0.2.0` or later and a runner configured to inject `REVYL_COMPUTER_ID` a
     go run "$RUNNER_TEMP/verify_current.go"
 ```
 
-The helper accepts explicit `BackendURL` and `AppURL` through `OpenOptions` and never reads URL environment variables. Set `own := true` and `StopOnClose: &own` only to take ownership deliberately: closing it can end the job's computer. `nil` defaults to non-owning for `CurrentComputer`; it still defaults to owning for `Attach`. Use `computer.Open(ctx, target)` with an exact app/build pair for hosted app sessions.
+The helper accepts explicit `BackendURL` and `AppURL` through `OpenOptions`. Set `own := true` and `StopOnClose: &own` only to take ownership deliberately: closing it can end the job's computer. `nil` defaults to non-owning for `CurrentComputer`; it still defaults to owning for `Attach`. Use `computer.Open(ctx, target)` for hosted app sessions; see [Attach and hosted app sessions](#attach-and-hosted-app-sessions).
 
 ### Attach to a specified computer
 
@@ -563,7 +574,7 @@ The helper accepts explicit `BackendURL` and `AppURL` through `OpenOptions` and 
 
 To attach without taking ownership, set `stop := false` and pass `verify.OpenOptions{StopOnClose: &stop}` to `Attach`. `nil` and a pointer to `true` preserve owning behavior. For a computer owned by another caller, such as a CI runner, this lets `Close` cancel pending child starts and close children within the existing five-second phase without stopping the computer. Its owner remains responsible for releasing it, and child-cleanup failures are returned. Ownership is never inferred from environment variables. The Go SDK does not register automatic process-exit cleanup.
 
-Call `computer.Open(ctx, target)` to start a web, iOS, or Android app session inside that computer, rather than on an unrelated worker. It reuses the computer's credentials, backend, viewer, HTTP client, step timeout, and log callback. Both `AppID` and `BuildID` must be exact Revyl UUIDs. Hosted targets cannot select `URL`, `Branch`, `ArtifactURL`, `BundleID`, `DeviceModel`, or `OSVersion`. Web targets allow `Viewport`, `SignIn`, `IdleTimeoutSeconds`, and `StartTimeout`; native targets allow the two timeouts and always request simulation.
+Call `computer.Open(ctx, target)` to start a web, iOS, or Android app session inside that computer, rather than on an unrelated worker. It reuses the computer's credentials, backend, viewer, HTTP client, step timeout, and log callback. iOS takes `BundleID` alone, such as `"com.apple.Preferences"`, or both `AppID` and `BuildID` as exact Revyl UUIDs, plus optional `DeviceModel` and `OSVersion`; web and Android take both `AppID` and `BuildID`. Hosted targets cannot select `URL`, `Branch` or `ArtifactURL`, and Android takes no `BundleID`, `DeviceModel` or `OSVersion`. Web targets allow `Viewport`, `SignIn`, `IdleTimeoutSeconds`, and `StartTimeout`; native targets allow the two timeouts and always request simulation. `LaunchApp` works in a hosted iOS session.
 
 Mac computers can host web and iOS. This is a client-side compatibility limit, not a capacity guarantee: the server can refuse any hosted start. Inside a Mac opened with inference, the session's steps run on the Mac's model first; see [iOS and Web sessions inside an inference Mac](#ios-and-web-sessions-inside-an-inference-mac).
 
@@ -750,11 +761,11 @@ log.Println(date.Value, date.Engine) // Engine is "local": the Mac's model answe
 `mac.Open(ctx, target)` with an iOS or Web target, inside a Mac opened with inference, runs that session's steps on the Mac's model first, with Revyl's hosted model as the fallback. This is the default for every iOS and Web session opened inside an inference Mac. To run a session's steps only on the hosted model, pass `Inference: new(false)` in its `Target`. Macs host iOS and Web sessions only, so `Inference: new(true)` on an Android target returns `ErrInvalidArgument`, as does `Inference` on a target passed to `verify.Open` for a browser or device.
 
 ```go
-app, err := mac.Open(ctx, verify.Target{Platform: verify.IOS, AppID: appID, BuildID: buildID}) // local inference by default
+app, err := mac.Open(ctx, verify.Target{Platform: verify.IOS, BundleID: "com.apple.Preferences"}) // or AppID and BuildID; local inference by default
 if err != nil {
 	return err
 }
-step, err := app.Validation(ctx, "The app's first screen is showing", verify.ValidationOptions{Soft: true})
+step, err := app.Validation(ctx, "The Settings app is showing", verify.ValidationOptions{Soft: true})
 if err != nil {
 	return err
 }
@@ -833,7 +844,9 @@ func run() (err error) {
 - **Saved-disk expiry.** Saves are kept until you delete the computer or snapshot. Some saves have an end: `PersistentComputer.SavedDiskExpiresAt` and `ComputerSnapshot.SavedDiskExpiresAt` show it when Revyl reports one, and are zero otherwise. From then on it can't start, and `OpenPersistent` returns `ErrSessionStartFailed` (`saved_disk_expired` or `snapshot_expired`).
 - **Storage.** Saved disks and snapshots bill at $0.04 per GB-month while Revyl stores them, including while the computer is stopped.
 - **Limits.** 100 snapshots per organization by default. Past that, `ErrComputerLimit` (`snapshot_limit`): delete one you no longer need, then try again.
-- **Cleanup.** `DeletePersistent(ctx, nameOrID)` stops a running computer the normal way, which saves its disk, then deletes the computer and its saved disk for good; its snapshots stay. `DeleteSnapshot(ctx, nameOrID)` deletes a snapshot; computers made from it keep their disks.
+- **Cleanup.** `DeletePersistent(ctx, nameOrID)` stops a running computer the normal way, which saves its disk, then deletes the computer and its saved disk for good; its snapshots stay. `DeleteSnapshot(ctx, nameOrID)` deletes a snapshot; computers made from it keep their disks. Both return `ErrNotFound` when nothing has that name or ID, including one already deleted, so cleanup that may run twice checks `errors.Is(err, verify.ErrNotFound)`.
+- **Paths.** File calls take paths relative to the workspace, `/Users/computer/workspace`, which is also `$HOME` for commands. They don't expand `~` and refuse absolute paths; reach other folders, such as `/Users/computer/Desktop`, through `Exec`.
+- **In CI, budget the waits.** `OpenPersistent` waits up to 15 minutes, `Close` up to 10 for the save, `SaveSnapshot` up to 15 and a copy's start another 15. A job killed by its timeout never runs your deferred `Close`. Set `StartTimeout`, `WaitTimeout` and `Timeout` (the run's lifetime, enforced by Revyl even when your job dies) so their sum fits the job; the [guide](https://github.com/RevylAI/verify/blob/go/v0.7.2/packages/verify/docs/guides/persistent-computers.md#in-ci-a-timeout-budget) has a recipe.
 - **Lists.** `ListPersistent(ctx)` lists your organization's persistent computers by ID, because Revyl stores no names: compare with the `ID()` of a session `OpenPersistent` returned. `ListSnapshots(ctx)` lists snapshots.
 - **Busy or unavailable.** `ErrSessionBusy` (`run_conflict`) means the last run hasn't finished stopping: its disk is kept, so try again in a few minutes. `ErrSessionStartFailed` (`saved_disk_unavailable`) means the Mac holding the save is offline or no Mac can start it right now: the disk is kept, so try again later.
 
@@ -860,6 +873,25 @@ if err := verify.DeletePersistent(ctx, "build-cache-copy"); err != nil { // the 
 }
 return verify.DeleteSnapshot(ctx, "build-cache-v1")
 ```
+
+## Read a finished session: Report
+
+**Since `v0.7.2`.** `verify.Report(ctx, sessionID, verify.ReportOptions{})` reads a session's outcome and steps from Revyl, including after the process that ran it exited, so a later program, CI step or agent can read the verdicts without signing in to Revyl's web app. Pass `session.ID()`, or the UUID at the end of the session's link. Inside a function returning `error`:
+
+```go
+report, err := verify.Report(ctx, "3f1c9a62-8d0e-4b7a-9c55-2e6f1d4a7b10", verify.ReportOptions{})
+if err != nil {
+	return err
+}
+fmt.Println(report.Status, report.Finished, report.ViewerURL)
+for _, step := range report.Steps {
+	fmt.Println(step.Status, step.Type, step.Description, step.Reasoning)
+}
+```
+
+`*SessionReport` has `ID`, `ViewerURL`, `Platform` (`"web"`, `"ios"`, `"android"`, `"macos"` or `"linux"`), `Status`, `Finished` (`true` once the status is final: `completed`, `failed`, `cancelled` or `timeout`), `Error` (why the session failed), `StartedAt`, `EndedAt` and `Steps`, with JSON tags. Each `SessionReportStep` has `Type`, `Description`, `Status` (`"passed"`, `"failed"`, `"warning"`, `"pending"` or `"running"`), `Passed` (a `*bool` verdict, `nil` when Revyl recorded none), `Reasoning` and `Error`, in the order the steps ran. Computers, and sessions with no Revyl report yet, have no steps.
+
+Credentials resolve as for `Open`. An ID that isn't a UUID returns `ErrInvalidArgument` before any request; a session that isn't in this API key's organization returns `ErrNotFound`, naming the API origin it asked. From a terminal with Node.js, `npx @revyl/verify report <session-id> [--json]` prints the same.
 
 ## Results and errors
 

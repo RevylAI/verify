@@ -19,7 +19,7 @@ import (
 const (
 	backendURL = "https://backend.revyl.ai"
 	appURL     = "https://app.revyl.ai"
-	Version    = "0.7.1"
+	Version    = "0.7.2"
 )
 
 type client struct {
@@ -45,18 +45,11 @@ func newClient(options OpenOptions) (*client, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	base := options.BackendURL
-	if base == "" {
-		base = backendURL
-	}
-	base, err = validatedOrigin(base)
+	base, err := validatedOrigin(configuredOrigin(options.BackendURL, "REVYL_BACKEND_URL", backendURL))
 	if err != nil {
 		return nil, "", err
 	}
-	viewer := options.AppURL
-	if viewer == "" {
-		viewer = appURL
-	}
+	viewer := configuredOrigin(options.AppURL, "REVYL_APP_URL", appURL)
 	_, err = validatedOrigin(viewer)
 	if err != nil {
 		return nil, "", failure(ErrConfigInvalid, "App URL must use HTTPS without credentials, query, or fragment (HTTP is allowed on loopback).")
@@ -68,6 +61,16 @@ func newClient(options OpenOptions) (*client, string, error) {
 	}
 	h.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &client{base: base, token: token, http: &h}, viewer, nil
+}
+
+func configuredOrigin(explicit, variable, fallback string) string {
+	if explicit != "" {
+		return explicit
+	}
+	if value := strings.TrimSpace(os.Getenv(variable)); value != "" {
+		return value
+	}
+	return fallback
 }
 
 func validatedOrigin(raw string) (string, error) {
@@ -194,7 +197,11 @@ func (c *client) sendOnce(ctx context.Context, method, path string, body []byte,
 		if errors.Is(err, context.DeadlineExceeded) {
 			return response{}, &Error{Code: ErrTimeout, Message: "Revyl HTTP client timed out.", Cause: context.DeadlineExceeded}
 		}
-		return response{}, failure(ErrAPI, "Could not reach Revyl; the request was not replayed unless it is safe to retry.")
+		cause := err
+		for next := errors.Unwrap(cause); next != nil; next = errors.Unwrap(cause) {
+			cause = next
+		}
+		return response{}, &Error{Code: ErrAPI, Message: fmt.Sprintf("Could not reach Revyl at %s: %s; the request was not replayed unless it is safe to retry.", c.base, strings.TrimRight(cause.Error(), ".")), Cause: err}
 	}
 	defer r.Body.Close()
 	maxBytes := int64(16 * 1024 * 1024)

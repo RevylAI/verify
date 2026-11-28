@@ -54,7 +54,7 @@ export class RevylClient {
 
   constructor(options: RevylClientOptions) {
     this.token = options.token;
-    this.backendUrl = validateBackendUrl(options.backendUrl ?? DEFAULT_BACKEND_URL);
+    this.backendUrl = validateBackendUrl(options.backendUrl ?? (process.env.REVYL_BACKEND_URL?.trim() || DEFAULT_BACKEND_URL));
     this.fetchImpl = options.fetch ?? fetch;
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   }
@@ -191,7 +191,8 @@ export class RevylClient {
   }
 }
 
-export function appUrl(origin = DEFAULT_APP_URL): string {
+export function appUrl(explicit?: string): string {
+  const origin = explicit ?? (process.env.REVYL_APP_URL?.trim() || DEFAULT_APP_URL);
   validateBackendUrl(origin, 'viewer');
   return origin.replace(/\/+$/, '');
 }

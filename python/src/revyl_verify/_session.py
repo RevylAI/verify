@@ -389,6 +389,26 @@ class Session:
                         reason=error.reason,
                         http_status=response.status,
                     )
+                if (
+                    hosted
+                    and response.status == 422
+                    and error.reason == "not_available_on_platform"
+                ):
+                    try:
+                        detail = obj(response.json()).get("detail")
+                    except VerifyError:
+                        detail = None
+                    said = detail.get("message") if isinstance(detail, dict) else None
+                    if isinstance(said, str) and said.strip():
+                        said = " ".join(said.split())[:500]
+                        error = VerifyError(
+                            error.code,
+                            f"Revyl refused the {target.platform} session inside the computer "
+                            f"(not_available_on_platform): {said}"
+                            + ("" if said[-1] in ".!?" else "."),
+                            reason=error.reason,
+                            http_status=response.status,
+                        )
                 if profile_refusal is not None:
                     refused = True
                     if error.reason == "repository_unavailable" and attempt < len(
@@ -928,6 +948,10 @@ class Session:
         self._perform(OpenUrl(url))
 
     def launch_app(self, bundle_id: str) -> None:
+        """Opens an installed app by bundle ID (iOS) or package name (Android), bringing it to the
+        front. Works on iOS and Android sessions, also iOS sessions opened inside a cloud Mac with
+        computer.open(), e.g. launch_app("com.apple.Preferences"). Web sessions raise
+        NOT_AVAILABLE_ON_PLATFORM."""
         if self.platform == "web":
             raise VerifyError(
                 "NOT_AVAILABLE_ON_PLATFORM",
@@ -1540,6 +1564,8 @@ class Session:
         return save_screenshot(response.body, path)
 
     def report(self) -> dict[str, Json]:
+        """Revyl's raw detail for this session, as a dict. For its typed outcome and steps, also
+        after this process exits, use revyl_verify.report(session.id)."""
         if not self.id:
             raise VerifyError("NOT_FOUND", "No session ID is available to read its report.")
         closed = self._closed

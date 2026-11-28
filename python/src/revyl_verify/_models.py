@@ -65,22 +65,38 @@ class Target:
         if hosted:
             if self.platform not in ("web", "ios", "android"):
                 bad("Hosted targets must be web, ios, or android.")
-            if not self.app_id or not self.build_id:
-                bad("Hosted targets require both app_id and build_id UUIDs.")
-            if any(
-                value is not None
-                for value in (
-                    self.bundle_id,
-                    self.url,
-                    self.artifact_url,
-                    self.branch,
-                    self.device_model,
-                    self.os_version,
-                )
-            ):
+            ios = self.platform == "ios"
+            name = {"web": "Web", "ios": "iOS", "android": "Android"}[self.platform]
+            if self.bundle_id is not None and not ios:
                 bad(
-                    "Hosted targets accept existing app_id and build_id, "
-                    "not app or device overrides."
+                    "Inside a computer, bundle_id works only for iOS for now; "
+                    f"for {name}, pass app_id and build_id."
+                )
+            if ios and self.bundle_id is not None:
+                if self.app_id is not None or self.build_id is not None:
+                    bad(
+                        "Inside a computer, iOS takes either bundle_id alone or app_id with "
+                        "build_id, not both."
+                    )
+            elif not self.app_id or not self.build_id:
+                bad(
+                    f"Inside a computer, {name} needs both app_id and build_id UUIDs"
+                    + (
+                        ', or bundle_id alone, e.g. Target(platform="ios", '
+                        'bundle_id="com.apple.Preferences").'
+                        if ios
+                        else "."
+                    )
+                )
+            if any(value is not None for value in (self.url, self.artifact_url, self.branch)):
+                bad(
+                    "url, branch and artifact_url aren't available inside a computer; pass "
+                    "app_id and build_id" + (", or bundle_id." if ios else ".")
+                )
+            if not ios and (self.device_model is not None or self.os_version is not None):
+                bad(
+                    "Inside a computer, device_model and os_version work only for iOS; "
+                    f"leave them out for {name}."
                 )
         seconds(self.start_timeout, 10, 1800, "start_timeout")
         for name in (
@@ -294,3 +310,39 @@ class CDPEndpoint:
 
     url: str = field(repr=False)
     expires_at: datetime
+
+
+@dataclass(frozen=True)
+class SessionReportStep:
+    """One step in Revyl's report for a session, from report()."""
+
+    type: str
+    """Revyl's step type, such as "instruction" or "validation"."""
+    description: str | None
+    status: str
+    """One of "passed", "failed", "warning", "pending" or "running"."""
+    passed: bool | None
+    """Whether the validation held, or whether the step succeeded; None while Revyl doesn't say."""
+    reasoning: str | None
+    """Why Revyl judged a validation the way it did."""
+    error: str | None
+
+
+@dataclass(frozen=True)
+class SessionReport:
+    """A session's outcome and steps as Revyl recorded them, from report()."""
+
+    id: str
+    viewer_url: str
+    platform: str | None
+    """One of "web", "ios", "android", "macos" or "linux", as Revyl names them."""
+    status: str
+    """Revyl's session status: "completed", "failed", "cancelled" or "timeout" once finished."""
+    finished: bool
+    """Whether the status is final, so the outcome and steps won't change."""
+    error: str | None
+    """Why the session failed, when Revyl recorded a reason."""
+    started_at: datetime | None
+    ended_at: datetime | None
+    steps: list[SessionReportStep]
+    """In the order they ran. Empty for computers and for sessions Revyl has no report for yet."""

@@ -13,7 +13,8 @@ export interface InitAnswers {
 
 export interface InitResult {
   created: string[];
-  gitignoreUpdated: boolean;
+  /** The entries init appended to .gitignore, such as ['node_modules/', '.verify/']; empty when both were already there. */
+  gitignoreAdded: string[];
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -69,15 +70,17 @@ export async function initProject(cwd: string, answers: InitAnswers, options: { 
     await mkdir(join(cwd, path, '..'), { recursive: true });
     await writeFile(join(cwd, path), content);
   }
-  return { created: files.map(([path]) => relative(cwd, join(cwd, path))), gitignoreUpdated: await ignoreOutput(cwd) };
+  return { created: files.map(([path]) => relative(cwd, join(cwd, path))), gitignoreAdded: await ignoreOutput(cwd) };
 }
 
-async function ignoreOutput(cwd: string): Promise<boolean> {
+async function ignoreOutput(cwd: string): Promise<string[]> {
   const path = join(cwd, '.gitignore');
   const current = existsSync(path) ? await readFile(path, 'utf8') : '';
-  if (current.split(/\r?\n/).some((line) => ['.verify', '.verify/', '/.verify', '/.verify/'].includes(line.trim()))) return false;
-  await appendFile(path, `${current === '' || current.endsWith('\n') ? '' : '\n'}.verify/\n`);
-  return true;
+  const lines = current.split(/\r?\n/).map((line) => line.trim());
+  const added = ['node_modules', '.verify'].filter((name) => ![name, `${name}/`, `/${name}`, `/${name}/`].some((entry) => lines.includes(entry))).map((name) => `${name}/`);
+  if (added.length === 0) return [];
+  await appendFile(path, `${current === '' || current.endsWith('\n') ? '' : '\n'}${added.join('\n')}\n`);
+  return added;
 }
 
 function configTemplate({ platform, appId, url }: InitAnswers): string {
@@ -156,10 +159,13 @@ await session.validation('The app has opened and shows its first screen without 
   return `import { open } from '${PACKAGE_NAME}';
 
 // Opens the "${platform}" target from verify.config.ts on Revyl and prints a link to watch it live.
-// A failed instruction or validation throws, so this script exits non-zero, and Verify closes the session on the way out.
+// A failed instruction or validation throws, so this script exits non-zero; the finally block closes the session either way.
 const session = await open('${platform}');
-${steps}
-await session.screenshot({ path: '.verify/example.png' });
-await session.close();
+try {
+${steps.replace(/^/gm, '  ')}
+  await session.screenshot({ path: '.verify/example.png' });
+} finally {
+  await session.close();
+}
 `;
 }

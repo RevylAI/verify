@@ -5,8 +5,8 @@ Opens the Settings app that ships with iOS and Android on a Revyl cloud device, 
 ```bash
 export REVYL_API_KEY=...        # or: revyl auth login
 npm install
-node verify/about.ts ios
-node verify/about.ts android
+node verify/about.mts ios
+node verify/about.mts android
 ```
 
 The last step is a soft validation: it reports whether dark mode is on without failing the script either way.

@@ -2,7 +2,7 @@
 
 `open({ platform: 'mac' })` gives a script or a coding agent a whole cloud Mac: run commands, read and write files, click and type in macOS apps by describing what to click, take screenshots, and get the screen recording afterwards. This guide builds a Swift file on the Mac, then edits a document in TextEdit through its screen.
 
-Works with TypeScript `@revyl/verify` 0.7.1, Python `revyl-verify` 0.5.1 and Go `github.com/RevylAI/verify/go` v0.6.1. Mac computers come with Revyl Pro: they need an organization on a current paid plan.
+Mac computers come with Revyl Pro: they need an organization on a current paid plan.
 
 ## What you'll build
 
@@ -21,7 +21,7 @@ A script that:
 
 ## The script
 
-Save this as `mac-computer.ts`:
+Save this as `mac-computer.mts`:
 
 ```ts
 import { open } from '@revyl/verify';
@@ -54,7 +54,7 @@ const recording = await mac.recording();
 console.log(recording ? `Recording saved: ${recording.durationSeconds ?? '?'} s` : 'No recording was saved.');
 ```
 
-Run it with `node mac-computer.ts`:
+Run it with `node mac-computer.mts` (the `.mts` extension makes Node run it as an ES module in any project):
 
 ```text
 [verify] mac: starting computer https://app.revyl.ai/sessions/<id>?kind=computer
@@ -71,7 +71,7 @@ A run takes 2 to 4 minutes, most of it starting the Mac and saving the recording
 
 ## How it works
 
-- **Commands and files.** `exec(argv)` runs a program with its arguments, not a shell line, in the computer's workspace folder; it throws `COMMAND_FAILED` on a non-zero exit unless you pass `{ check: false }`. For a shell, run `['/bin/zsh', '-lc', '…']`. One command runs at most 5 minutes (`timeout` up to 300000 ms). `writeFile()` takes up to 64 KiB and `readFile()` returns up to the first 1 MiB, by paths relative to the workspace.
+- **Commands and files.** `exec(argv)` runs a program with its arguments, not a shell line, in the computer's workspace folder; it throws `COMMAND_FAILED` on a non-zero exit unless you pass `{ check: false }`. For a shell, run `['/bin/zsh', '-lc', '…']`. One command runs at most 5 minutes (`timeout` up to 300000 ms). `writeFile()` takes up to 64 KiB and `readFile()` returns up to the first 1 MiB, by paths relative to the workspace, `/Users/computer/workspace`, which is also `$HOME` for commands. File calls don't expand `~` and refuse absolute paths: write `notes.txt`, and move a file elsewhere with `exec(['mv', …])`.
 - **The screen, by description.** `tap({ target })` and `type({ target }, text)` find the element on a fresh screenshot and click it; `type` then selects the field's text and types, so the text replaces what was there; pass `{ clear: false }` to type at the click without selecting, for example to add to a document that already has text. Each takes several seconds and returns the point it clicked. They can click a look-alike, so check the result, as the script does by reading the file back.
 - **Keys.** `pressKey()` takes `'enter'`, `'escape'`, `'tab'`, arrows and more, and `modifiers`, where `'meta'` is Command and `'alt'` is Option.
 - **No `instruction()`.** On a Mac computer you drive the screen with the calls above; `instruction()` and your own model throw `NOT_AVAILABLE_ON_PLATFORM`. `validation()` and `extract()` throw it too unless the Mac was opened with `inference: true`; see [Check a Mac's screen with its own model](mac-model-checks.md).

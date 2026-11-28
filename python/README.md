@@ -2,6 +2,8 @@
 
 <p align="center"><em>Cloud browsers, mobile devices and computers from Python.</em></p>
 
+**One release, three languages.** Python `revyl-verify` 0.6.2 = TypeScript `@revyl/verify` 0.8.2 = Go `github.com/RevylAI/verify/go` v0.7.2: the same release with the same features. Each language keeps its own version line, so "since" notes name the Python version.
+
 Verify is a thin [Revyl](https://revyl.com) SDK, not a test runner. Open a web browser, iOS simulator or Android emulator for natural-language instructions and validations, or an early-access Mac computer for commands, files, processes, screenshots and, on a Mac opened with inference, validations and extracts.
 
 ## For coding agents
@@ -67,7 +69,7 @@ Use a release containing these helpers and a runner configured to inject `REVYL_
     PY
 ```
 
-Use `async with await async_current_computer() as computer` in asyncio jobs. Both helpers accept explicit `backend_url`, `app_url`, `step_timeout`, and `log` options; neither reads URL environment variables. `stop_on_close=True` explicitly takes ownership and can end the job's computer when closed. Use `computer.open(target)` with an exact app/build pair for hosted app sessions.
+Use `async with await async_current_computer() as computer` in asyncio jobs. Both helpers accept explicit `backend_url`, `app_url`, `step_timeout`, and `log` options. `stop_on_close=True` explicitly takes ownership and can end the job's computer when closed. Use `computer.open(target)` for hosted app sessions: iOS by `bundle_id` or an exact app/build pair, Web by an exact app/build pair.
 
 ## Quick Start
 
@@ -220,7 +222,7 @@ with attach("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", stop_on_close=False) as comp
 
 Use real IDs from the same authorized environment; these are placeholders. `stop_on_close=False` leaves a computer you don't own running when the context exits; leave it out only for a computer your script owns. To reach `http://localhost:<port>` on the computer, a service must already be listening there, such as one an earlier step of a `revyl-macos` job started: Verify has no call that starts one, and a process started through `exec()` ends when the command returns. The existing Web build must point to a supported HTTPS source. After startup, `navigate(url)` sends a single deterministic navigation request and accepts HTTP or HTTPS, including localhost, on every Web session. A cold development server may need a warm-up request before navigation succeeds. For hosted browsers localhost means the hosting computer; for ordinary cloud browsers it means that browser's runtime, not your own computer. If navigation times out uncertainly, it may still commit and the session remains usable; re-navigating is your choice. The server runtime owns navigation network policy. The SDK rejects credentials, control characters and backslashes; it never logs the URL. Navigation is unavailable on mobile and computer sessions and returns `None` after a confirmed response.
 
-`computer.open(target)` requires **both** `app_id` and `build_id` UUIDs. Hosted Web accepts `viewport`, `sign_in`, `idle_timeout_seconds` and `start_timeout`, but no `url` or `branch`; the server currently accepts external Web builds, not bundled Web artifacts. Hosted iOS/Android use the selected build and fixed simulator/emulator configuration, so `bundle_id`, `artifact_url`, `device_model`, `os_version`, `url`, `branch`, `viewport` and `sign_in` are unavailable. Mac hosts Web/iOS. Hosted iOS and Web also accept `inference`; see [Local inference for iOS and Web inside a Mac](#local-inference-for-ios-and-web-inside-a-mac). All hosting depends on server capability and capacity.
+`computer.open(target)` for iOS takes `bundle_id` alone, an app already on the simulator such as `"com.apple.Preferences"`, or both `app_id` and `build_id` UUIDs. A `bundle_id` that can't be launched raises `SESSION_START_FAILED` listing the installed apps. Optional `device_model` and `os_version` pick the simulator; a pair the Mac can't run raises `NOT_AVAILABLE_ON_PLATFORM` with Revyl's message saying what to pick. `launch_app(bundle_id)` works in that session as on any iOS session. Hosted Web requires both `app_id` and `build_id` and accepts `viewport`, `sign_in`, `idle_timeout_seconds` and `start_timeout`; the server currently accepts external Web builds, not bundled Web artifacts. `url`, `branch` and `artifact_url` are unavailable inside a computer, and so is `bundle_id` on Android. Mac hosts Web/iOS. Hosted iOS and Web also accept `inference`; see [Local inference for iOS and Web inside a Mac](#local-inference-for-ios-and-web-inside-a-mac). All hosting depends on server capability and capacity.
 
 Children reuse their parent's credentials, API/viewer origins, step timeout and log callback. They return normal sessions with instruction, validation, extract, screenshot, report and close methods. The parent's remaining lifetime bounds child startup and worker requests; report and close remain available after expiry. Closing a parent prevents new children, cancels in-flight starts, and gives pending starts and child closes one shared five-second cleanup budget before attempting the computer stop. Child startup failure never closes the parent. Confirmed physical parent release supersedes an earlier child-close uncertainty, which is logged safely. An ambiguous child start is cleaned up using its preallocated ID, without replaying creation. A definitive refusal does not issue a child stop.
 
@@ -233,16 +235,17 @@ For async code use `async with await async_attach(computer_id) as computer`, the
 **Since 0.6.0.** An iOS or Web session you open with `computer.open()` inside a Mac opened with `inference=True` runs its steps on the Mac's own vision model first, with Revyl's hosted model as the fallback. This is the default. To run one session's steps on the hosted model only, pass `inference=False` on its `Target`. Macs host iOS and Web sessions only, so leave `inference` out for Android.
 
 ```python
-import os
-
 from revyl_verify import Target, open
 
-app = Target(platform="ios", app_id=os.environ["IOS_APP_ID"], build_id=os.environ["IOS_BUILD_ID"])
+app = Target(
+    platform="ios", bundle_id="com.apple.Preferences"
+)  # or app_id= and build_id= for your own build
 
 with open(Target(platform="mac", inference=True)) as mac:
     with mac.open(app) as session:  # local inference by default
-        step = session.validation("The app's first screen is showing")
+        step = session.validation("The Settings app is showing")
         print(step.engine)  # "local" or "hosted"
+        session.launch_app("com.apple.mobilesafari")
 ```
 
 - **Runs on the Mac's model:** validations, and instructions that are a single plain tap on one thing.
@@ -272,6 +275,25 @@ In a small live comparison on one iOS app, 20 validations (10 true, 10 false), t
 - `model`: runs every instruction and validation on your own model instead of Revyl's agent; see [Your own model](#your-own-model). Browsers and devices only; computers raise `NOT_AVAILABLE_ON_PLATFORM`.
 - `agent`: the same with a custom agent from `local_agent()`. Pass `model` or `agent`, not both.
 - `profile`: a session profile from your project's `.revyl/config.yaml`, such as `"signed-in"`, that Revyl runs before `open()` returns, or `"none"` for no profile. Left out, the project's `session.default_profile` runs when it sets one. Web, iOS, Android and Mac computers. See [Session profiles](#session-profiles).
+
+## Read a finished session: report()
+
+**Since 0.6.2.** `report(session_id)` reads a session's outcome and steps from Revyl, including after the process that ran it exited, so a later script, CI step or agent can read the verdicts without signing in to Revyl's web app. Pass `session.id`, or the UUID at the end of the session's link. `await async_report(session_id)` is the asyncio form.
+
+```python
+from revyl_verify import report
+
+result = report("3f1c9a62-8d0e-4b7a-9c55-2e6f1d4a7b10")
+print(
+    result.status, result.finished, result.viewer_url
+)  # completed True https://app.revyl.ai/sessions/...
+for step in result.steps:
+    print(step.status, step.type, step.description, step.reasoning)
+```
+
+It returns a frozen `SessionReport` with `id`, `viewer_url`, `platform` (`"web"`, `"ios"`, `"android"`, `"macos"` or `"linux"`), `status`, `finished` (`True` once the status is final: `completed`, `failed`, `cancelled` or `timeout`), `error` (why the session failed, or `None`), `started_at` and `ended_at` (`datetime` or `None`) and `steps`. Each `SessionReportStep` has `type`, `description`, `status` (`"passed"`, `"failed"`, `"warning"`, `"pending"` or `"running"`), `passed` (the verdict, or `None` when Revyl recorded none), `reasoning` and `error`, in the order the steps ran. Computers, and sessions with no Revyl report yet, have no steps.
+
+Credentials resolve as for `open()`. An ID that isn't a UUID raises `INVALID_ARGUMENT` before any request; a session that isn't in this API key's organization raises `NOT_FOUND`, naming the API origin it asked. From a terminal with Node.js, `npx @revyl/verify report <session-id> [--json]` prints the same.
 
 ## Persistent computers and snapshots
 
@@ -309,7 +331,9 @@ The example starts billable Mac computers and takes several minutes: `save_snaps
 - **How long saves last.** Until you delete the computer or the snapshot. Some saves have an end: `saved_disk_expires_at` on `PersistentComputer` and `ComputerSnapshot` is a `datetime` when Revyl reports one, else `None`. From then on, that save can't start.
 - **Storage.** Saved disks and snapshots bill at $0.04 per GB-month while Revyl stores them, including while the computer is stopped.
 - **Limits.** 100 snapshots per organization by default.
-- **Cleanup.** `delete_persistent(name_or_id)` stops a running computer the normal way, which saves its disk, then deletes the computer and its saved disk for good. Its snapshots stay. `delete_snapshot(name_or_id)` deletes a snapshot; computers made from it keep their disks. Both raise `NOT_FOUND` when nothing has that name or ID.
+- **Cleanup.** `delete_persistent(name_or_id)` stops a running computer the normal way, which saves its disk, then deletes the computer and its saved disk for good. Its snapshots stay. `delete_snapshot(name_or_id)` deletes a snapshot; computers made from it keep their disks. Both raise `NOT_FOUND` when nothing has that name or ID, including one already deleted, so cleanup that may run twice catches it.
+- **Paths.** File calls take paths relative to the workspace, `/Users/computer/workspace`, which is also `$HOME` for commands, as the example's `$HOME/notes.txt` shows. They don't expand `~` and refuse absolute paths; reach other folders, such as `/Users/computer/Desktop`, through `exec()`.
+- **In CI, budget the waits.** `open_persistent()` waits up to 900 seconds, closing up to 600 for the save, `save_snapshot()` up to 900 and a copy's start another 900. A job killed by its timeout skips the `with` block's exit, so nothing closes. Pass `start_timeout`, `wait_timeout` and `timeout` (the run's lifetime, enforced by Revyl even when your job dies) so their sum fits the job; the [guide](https://github.com/RevylAI/verify/blob/py/v0.6.2/packages/verify/docs/guides/persistent-computers.md#in-ci-a-timeout-budget) has a recipe.
 - **Lists.** `list_persistent()` returns a `PersistentComputer` for each of your organization's persistent computers, with `id`, `state`, `saved_at`, `saved_off_host`, `created_at` and `saved_disk_expires_at`. Revyl stores no names, so compare `id` with `mac.id`. `list_snapshots()` returns a `ComputerSnapshot` for each snapshot, with `id`, `name`, `computer_id`, `saved_at` and `saved_disk_expires_at`.
 
 Where the table shows no `reason`, the message names Revyl's code, shown here in parentheses.
@@ -491,25 +515,32 @@ size = session.screen_size()  # the screenshot's size: x is 0 to size.width - 1
 
 ### Which call works where
 
-| Call | Web | iOS | Android | Mac computer |
-| --- | --- | --- | --- | --- |
-| `tap(Point(x, y))`, `tap("description")`, `screen_size` | Yes | Yes | Yes | Yes |
-| `locate` | Yes | Yes | Yes | No, use `tap("description")`, which returns the point it clicked, or read the point off `screenshot()` |
-| `type("description", text)`, the way to type | Yes | Yes | Yes | Yes: clicks the field, selects its text unless `clear=False`, then types |
-| `double_tap`, `long_press`, `swipe`, `drag` | Yes | Yes | Yes | No |
-| `press_key(key, modifiers)` | Yes: `"enter"`, `"backspace"`, `"tab"`, `"escape"`, arrows and more, with modifiers | `"enter"` and `"backspace"` only | `"enter"` and `"backspace"` only | Yes: the Web keys and modifiers, where `"meta"` is Command |
-| `type_focused(text, clear)` | Yes, types into the focused field; `ACTION_FAILED` (`no_focused_input`) when none has focus | Yes since 0.6.1, the same; a real iPhone raises `NOT_AVAILABLE_ON_PLATFORM` (`focused_input_unavailable`) | Yes since 0.6.1, the same | Yes, with `clear=False` |
-| `back()` | Yes, browser history | No, tap the on-screen back control | Yes, the system back button | No |
-| `go_home()` | No, use `open_url` or `navigate` | Yes, the home screen | Yes, the home screen | No |
-| `open_url(url)` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No |
-| `launch_app(bundle_id)` | No, use `open_url` or `navigate` | Yes | Yes | No |
-| `navigate(url)` | Yes | No, use `open_url` | No, use `open_url` | No |
-| `cdp()`, for Playwright and Puppeteer | Yes, see [CDP](#cdp-playwright-puppeteer) | No | No | No |
-| `instruction` | Yes | Yes | Yes | No, use `tap("the Save button")` and `type("the search field", text)` |
-| `validation`, `extract` | Yes | Yes | Yes | Yes, on a Mac opened with `inference=True`; see [validation() and extract() on a Mac](#validation-and-extract-on-a-mac) |
-| your own model (`model`, `agent`) | Yes | Yes | Yes | No |
-| `screenshot()` | Yes | Yes | Yes | Yes |
-| `exec`, files, processes | No, open a Mac computer | No, open a Mac computer | No, open a Mac computer | Yes |
+**Own model** is a Web, iOS or Android session opened with `model` or `agent`; **inside a cloud Mac** is an iOS or Web session that `computer.open(target)` starts on a Mac. "Same" means as on that session's platform.
+
+| Call | Web | iOS simulator | Android | Cloud Mac | Own model | Inside a cloud Mac |
+| --- | --- | --- | --- | --- | --- | --- |
+| `tap(Point(x, y))`, `tap("description")`, `screen_size` | Yes | Yes | Yes | Yes | Same | Same |
+| `locate` | Yes | Yes | Yes | No, use `tap("description")`, which returns the point it clicked, or read the point off `screenshot()` | Same | Same |
+| `type("description", text)`, the way to type | Yes | Yes | Yes | Yes: clicks the field, selects its text unless `clear=False`, then types | Same | Same |
+| `double_tap`, `long_press`, `swipe`, `drag` | Yes | Yes | Yes | No | Same | Same |
+| `press_key(key, modifiers)` | Yes: `"enter"`, `"backspace"`, `"tab"`, `"escape"`, arrows and more, with modifiers | `"enter"` and `"backspace"` only | `"enter"` and `"backspace"` only | Yes: the Web keys and modifiers, where `"meta"` is Command | Same | Same |
+| `type_focused(text, clear)` | Yes, types into the focused field; `ACTION_FAILED` (`no_focused_input`) when none has focus | Yes since 0.6.1, the same; a real iPhone raises `NOT_AVAILABLE_ON_PLATFORM` (`focused_input_unavailable`) | Yes since 0.6.1, the same | Yes, with `clear=False` | Same | Same |
+| `back()` | Yes, browser history | No, tap the on-screen back control | Yes, the system back button | No | Same | Same |
+| `go_home()` | No, use `open_url` or `navigate` | Yes, the home screen | Yes, the home screen | No | Same | Same |
+| `open_url(url)` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No | Same | Same |
+| `launch_app(bundle_id)` | No, use `open_url` or `navigate` | Yes | Yes | No, use `exec(["open", "-a", "Safari"])` | Same | Yes on iOS, such as `launch_app("com.apple.Preferences")` |
+| `Target(bundle_id=...)`, `device_model`, `os_version` | No, Web takes `app_id` and `url` | Yes | Yes | No | Same | iOS: yes, or `app_id` with `build_id`. Web takes `app_id` with `build_id`. Android doesn't run inside a Mac |
+| `navigate(url)` | Yes | No, use `open_url` | No, use `open_url` | No | Same | Web: yes, and `http://localhost:<port>` reaches a service already listening on the Mac |
+| `cdp()`, for Playwright and Puppeteer | Yes, see [CDP](#cdp-playwright-puppeteer) | No | No | No | Same | Not verified yet |
+| `instruction` | Yes | Yes | Yes | No, use `tap("the Save button")` and `type("the search field", text)` | Yes, on your model | Yes; on a Mac opened with `inference=True`, a single tap runs on the Mac's model first |
+| `validation` | Yes | Yes | Yes | Yes, on a Mac opened with `inference=True`; see [validation() and extract() on a Mac](#validation-and-extract-on-a-mac) | Yes, on your model | Yes; on a Mac opened with `inference=True`, on the Mac's model first |
+| `extract` | Yes | Yes | Yes | Yes, on a Mac opened with `inference=True` | No, raises `INVALID_ARGUMENT`: read `screenshot()` with your model | Yes, on Revyl's hosted model |
+| `open(target, model=...)`, your own model | Yes | Yes | Yes | No, `NOT_AVAILABLE_ON_PLATFORM` | Yes | No, `computer.open()` takes only a target |
+| `open(target, profile=...)`, a session profile | Yes | Yes | Yes | Yes | Same | No, `computer.open()` takes only a target |
+| `screenshot()` | Yes | Yes | Yes | Yes | Same | Same |
+| `exec`, files, processes | No, open a Mac computer | No, open a Mac computer | No, open a Mac computer | Yes | No | No; call them on the Mac |
+
+A persistent computer gets the Mac's model only when `open_persistent()` creates it: `inference` is fixed then and kept on every later open.
 
 Coordinates follow the rule in [Exact actions](#exact-actions). A call a platform doesn't support raises `NOT_AVAILABLE_ON_PLATFORM`, and its message names the alternative.
 

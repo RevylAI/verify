@@ -415,8 +415,12 @@ _REFUSALS: dict[str, tuple[str, Callable[[SessionProfilePlan], str]]] = {
     "project_not_found": (
         "CONFIG_INVALID",
         lambda plan: (
-            f"project.id in {_config_name(plan)} isn't a project in this API key's "
-            "organization. Use a key from that organization, or fix project.id."
+            f"project.id in {_config_name(plan)} must name a project that already exists in "
+            "Revyl, in this API key's organization. 'revyl init' writes a new id that Revyl "
+            "doesn't know until the project is published: connect the repository to Revyl "
+            "('revyl github connect'), then run 'revyl config push' from the checkout. Or put "
+            f"an existing project's id in project.id, or open with {_NONE_HINT} to start "
+            "without a session profile."
         ),
     ),
     "repository_unavailable": (

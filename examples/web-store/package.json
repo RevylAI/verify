@@ -5,11 +5,11 @@
   "description": "Verify example: a web store in a Revyl cloud browser",
   "type": "module",
   "scripts": {
-    "checkout": "node verify/checkout.ts",
+    "checkout": "node verify/checkout.mts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
-    "@revyl/verify": "0.8.1",
+    "@revyl/verify": "0.8.2",
     "@types/node": "^22.10.0",
     "typescript": "^5.9.0"
   }

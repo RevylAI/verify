@@ -73,6 +73,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run check:package
+      - name: Check the links the skill, READMEs and llms.txt hand an agent
+        run: npm run check:links
       - name: Pack the release artifacts
         run: |
           mkdir -p release-artifacts/scoped release-artifacts/alias

@@ -303,7 +303,10 @@ export async function deletePersistent(computer: string, options: PersistentOpti
 export async function deleteSnapshot(snapshot: string, options: PersistentOptions = {}): Promise<void> {
   checkSnapshotReference(snapshot, 'deleteSnapshot()');
   const { client, log } = await connect(options);
-  await call(client, 'DELETE', `${BASE}/snapshots/${encodeURIComponent(snapshot)}`, { signal: AbortSignal.timeout(60_000), retry: true, notFound: `There is no snapshot named or with the ID ${snapshot}. listSnapshots() shows your organization's snapshots.` });
+  const signal = AbortSignal.timeout(60_000);
+  const notFound = `There is no snapshot named or with the ID ${snapshot}. listSnapshots() shows your organization's snapshots.`;
+  const found = toSnapshot(json(await call(client, 'GET', `${BASE}/snapshots/${encodeURIComponent(snapshot)}`, { signal, notFound })));
+  await call(client, 'DELETE', `${BASE}/snapshots/${found.id}`, { signal, retry: true, notFound });
   log?.(`snapshot ${snapshot}: deleted`);
 }
 

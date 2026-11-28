@@ -60,8 +60,12 @@ export interface ComputerTargetConfig {
 
 export type TargetConfig = WebTargetConfig | MobileTargetConfig | ComputerTargetConfig;
 
-export type HostedTargetConfig = (Omit<WebTargetConfig, 'app'> | Omit<MobileTargetConfig, 'app' | 'device'>) & {
-  app: { appId: string; buildId: string };
+export type HostedTargetConfig = (Omit<WebTargetConfig, 'app'> | Omit<MobileTargetConfig, 'app'>) & {
+  /**
+   * An existing Revyl build, { appId, buildId }. iOS also takes { bundleId } of an app already on the simulator, such as
+   * { bundleId: 'com.apple.Preferences' }. iOS also takes device: { model, osVersion }; Android's device is fixed by the computer.
+   */
+  app: { appId: string; buildId: string } | { bundleId: string };
   /**
    * iOS and Web: run this session's steps on the hosting Mac's own vision model first, with Revyl's hosted model as the
    * fallback. Defaults to true inside a computer opened with { inference: true } and false otherwise; pass false to opt out.
@@ -178,7 +182,7 @@ function parseTarget(raw: unknown, name: string, path: string, fail: Fail, hoste
   }
   const startTimeout = integer(target.startTimeout, `${path}.startTimeout`, 10_000, 1_800_000, 600_000, fail);
   if (platform === 'mac' || platform === 'linux') {
-    rejectUnknownKeys(target, ['platform', 'startTimeout', 'timeoutMs', 'inference'], path, fail);
+    rejectUnknownKeys(target, ['platform', 'startTimeout', 'timeoutMs', 'inference'], path, fail, platform);
     if (target.inference !== undefined && typeof target.inference !== 'boolean') fail(`${path}.inference`, 'must be true or false.');
     if (target.inference === true && platform === 'linux') fail(`${path}.inference`, "is for Mac computers only; use { platform: 'mac', inference: true }.");
     const inference = target.inference === true ? { inference: true } : {};
@@ -192,7 +196,6 @@ function parseTarget(raw: unknown, name: string, path: string, fail: Fail, hoste
     startTimeout,
     idleTimeoutSeconds: integer(target.idleTimeoutSeconds, `${path}.idleTimeoutSeconds`, 60, 3_600, 600, fail),
   };
-  const app = asRecord(target.app, `${path}.app`, fail);
   let inference: { inference?: boolean } = {};
   if (hosted) {
     if (target.inference !== undefined && typeof target.inference !== 'boolean') fail(`${path}.inference`, 'must be true or false.');
@@ -200,15 +203,35 @@ function parseTarget(raw: unknown, name: string, path: string, fail: Fail, hoste
     if (target.inference !== undefined) inference = { inference: target.inference as boolean };
     const { inference: _ignored, ...rest } = target;
     target = rest;
+    if (target.device !== undefined && platform !== 'ios') fail(`${path}.device`, `is fixed by the hosting computer${platform === 'android' ? '; only iOS sessions inside a Mac take device: { model, osVersion }' : ''}.`);
+  }
+  rejectUnknownKeys(target, platform === 'web' ? ['platform', 'app', 'viewport', 'signIn', 'startTimeout', 'idleTimeoutSeconds'] : ['platform', 'app', 'device', 'startTimeout', 'idleTimeoutSeconds'], path, fail, platform);
+  if (typeof target.app !== 'object' || target.app === null || Array.isArray(target.app)) {
+    fail(
+      `${path}.app`,
+      hosted
+        ? `is required: computer.open() takes app: { appId: '<Revyl app id>', buildId: '<Revyl build id>' } of an existing Revyl build${platform === 'ios' ? ", or app: { bundleId: 'com.apple.Preferences' } for an app already on the simulator" : ''}.`
+        : platform === 'web'
+        ? "is required: web needs app: { appId: '<Revyl web app id>' }, plus an optional url, buildId or branch."
+        : `is required and ${mobileAppProblem(platform)}`,
+    );
+  }
+  const app = target.app as Record<string, unknown>;
+  if (hosted && platform === 'ios' && app.bundleId !== undefined) {
+    if (app.appId !== undefined || app.buildId !== undefined) fail(`${path}.app`, 'takes appId and buildId of an existing Revyl build, or bundleId of an app already on the simulator, not both.');
+    rejectUnknownKeys(app, ['bundleId'], `${path}.app`, fail, 'hosted app');
+  } else if (hosted) {
+    if (app.bundleId !== undefined) fail(`${path}.app.bundleId`, "works inside a computer only for iOS sessions for now; open this one with app: { appId, buildId } of an existing Revyl build.");
+    if (platform === 'ios' && app.appId === undefined && app.buildId === undefined) {
+      fail(`${path}.app`, "takes appId and buildId of an existing Revyl build, or bundleId of an app already on the simulator, such as app: { bundleId: 'com.apple.Preferences' }.");
+    }
     uuid(app.appId, `${path}.app.appId`, true, fail);
     uuid(app.buildId, `${path}.app.buildId`, true, fail);
-    rejectUnknownKeys(app, ['appId', 'buildId'], `${path}.app`, fail);
-    if (target.device !== undefined) fail(`${path}.device`, 'is fixed by the hosting computer.');
+    rejectUnknownKeys(app, ['appId', 'buildId'], `${path}.app`, fail, 'hosted app');
   }
 
   if (platform === 'web') {
-    rejectUnknownKeys(target, ['platform', 'app', 'viewport', 'signIn', 'startTimeout', 'idleTimeoutSeconds'], path, fail);
-    rejectUnknownKeys(app, ['appId', 'url', 'buildId', 'branch'], `${path}.app`, fail);
+    rejectUnknownKeys(app, ['appId', 'url', 'buildId', 'branch'], `${path}.app`, fail, 'web app');
     uuid(app.appId, `${path}.app.appId`, true, fail);
     uuid(app.buildId, `${path}.app.buildId`, false, fail);
     if (app.url !== undefined && (typeof app.url !== 'string' || app.url.length > 2048 || !WEB_URL.test(app.url))) {
@@ -261,8 +284,7 @@ function parseTarget(raw: unknown, name: string, path: string, fail: Fail, hoste
     };
   }
 
-  rejectUnknownKeys(target, ['platform', 'app', 'device', 'startTimeout', 'idleTimeoutSeconds'], path, fail);
-  rejectUnknownKeys(app, ['appId', 'buildId', 'artifactUrl', 'bundleId'], `${path}.app`, fail);
+  rejectUnknownKeys(app, ['appId', 'buildId', 'artifactUrl', 'bundleId'], `${path}.app`, fail, 'mobile app');
   uuid(app.appId, `${path}.app.appId`, false, fail);
   uuid(app.buildId, `${path}.app.buildId`, false, fail);
   optionalString(app.bundleId, `${path}.app.bundleId`, 255, fail);
@@ -271,7 +293,7 @@ function parseTarget(raw: unknown, name: string, path: string, fail: Fail, hoste
   }
   const sources = [app.appId, app.buildId, app.artifactUrl, app.bundleId].filter((value) => value !== undefined).length;
   if (!hosted && sources !== 1) {
-    fail(`${path}.app`, 'takes exactly one of appId, buildId, or artifactUrl to install an app, or bundleId to open one already on the device.');
+    fail(`${path}.app`, mobileAppProblem(platform));
   }
   let device: MobileTargetConfig['device'];
   if (target.device !== undefined) {
@@ -303,9 +325,50 @@ function asRecord(raw: unknown, path: string, fail: Fail): Record<string, unknow
   return raw as Record<string, unknown>;
 }
 
-function rejectUnknownKeys(record: Record<string, unknown>, allowed: string[], path: string, fail: Fail): void {
+function mobileAppProblem(platform: unknown): string {
+  return `takes exactly one of appId, buildId, or artifactUrl to install an app, or bundleId to open one already on the device, such as app: { bundleId: '${platform === 'android' ? 'com.android.settings' : 'com.apple.Preferences'}' }.`;
+}
+
+const COMPUTER_INSTEAD = "a computer runs commands with exec() and opens iOS and Web sessions inside a Mac with computer.open()";
+
+/** Where an option of another platform belongs, and what to use on this one instead. */
+const OTHER_PLATFORM_OPTIONS: Record<string, Record<string, string>> = {
+  web: {
+    device: 'device applies only to iOS and Android targets; size the browser with viewport: { width, height }',
+    timeoutMs: 'timeoutMs applies only to mac and linux targets; a web session stops after idleTimeoutSeconds without a step, or at close()',
+    inference: 'inference applies only to mac targets and to iOS and Web targets passed to computer.open()',
+  },
+  mobile: {
+    viewport: 'viewport applies only to web targets; pick the device with device: { model, osVersion }',
+    signIn: 'signIn applies only to web targets; on iOS and Android, sign in with instruction() steps or a session profile (the profile option)',
+    timeoutMs: 'timeoutMs applies only to mac and linux targets; a mobile session stops after idleTimeoutSeconds without a step, or at close()',
+    inference: 'inference applies only to mac targets and to iOS and Web targets passed to computer.open()',
+  },
+  computer: {
+    app: `app applies only to web, iOS and Android targets; ${COMPUTER_INSTEAD}`,
+    device: `device applies only to iOS and Android targets; ${COMPUTER_INSTEAD}`,
+    viewport: `viewport applies only to web targets; ${COMPUTER_INSTEAD}`,
+    signIn: `signIn applies only to web targets; ${COMPUTER_INSTEAD}`,
+    idleTimeoutSeconds: 'idleTimeoutSeconds applies only to web, iOS and Android targets; a computer runs for timeoutMs from create',
+  },
+  'web app': {
+    artifactUrl: "artifactUrl applies only to iOS and Android apps; a web app opens a url or a buildId",
+    bundleId: "bundleId applies only to iOS and Android apps; a web app opens a url or a buildId",
+  },
+  'hosted app': Object.fromEntries(['url', 'branch', 'artifactUrl'].map((key) => [key, `${key} isn't available inside a computer yet; pass app: { appId, buildId } of an existing Revyl build, or for iOS app: { bundleId } of an app already on the simulator`])),
+  'mobile app': {
+    url: 'url applies only to web apps; on iOS and Android, open a link with session.openUrl(url) after open()',
+    branch: 'branch applies only to web apps; pin an iOS or Android build with buildId',
+  },
+};
+
+function rejectUnknownKeys(record: Record<string, unknown>, allowed: string[], path: string, fail: Fail, kind?: unknown): void {
+  const group = kind === 'mac' || kind === 'linux' ? 'computer' : kind === 'ios' || kind === 'android' ? 'mobile' : String(kind);
+  const label = kind === 'hosted app' ? 'apps inside a computer' : kind === 'web app' || kind === 'mobile app' ? `${kind}s` : `${({ ios: 'iOS', android: 'Android' } as Record<string, string>)[String(kind)] ?? String(kind)} targets`;
   for (const key of Object.keys(record)) {
-    if (!allowed.includes(key)) fail(path ? `${path}.${key}` : key, `is not a known option. Known: ${allowed.join(', ')}.`);
+    if (allowed.includes(key)) continue;
+    const elsewhere = OTHER_PLATFORM_OPTIONS[group]?.[key];
+    fail(path ? `${path}.${key}` : key, `is not a known option${elsewhere ? ` on ${label}: ${elsewhere}` : ''}. Known: ${allowed.join(', ')}.`);
   }
 }
 

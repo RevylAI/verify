@@ -2,8 +2,6 @@
 
 The same Verify calls work on a cloud browser, an iOS simulator and an Android emulator. This guide runs one check on each, in parallel, from a single script, so one change is checked everywhere it ships in the time of the slowest platform.
 
-Works with TypeScript `@revyl/verify` 0.7.1, Python `revyl-verify` 0.5.1 and Go `github.com/RevylAI/verify/go` v0.6.1.
-
 ## What you'll build
 
 A script that opens three sessions at once, each with its own target and steps:
@@ -24,7 +22,7 @@ Each session prints its live link, runs its steps, saves a screenshot and closes
 
 ## The script
 
-Save this as `every-platform.ts`:
+Save this as `every-platform.mts`:
 
 ```ts
 import { open, type TargetConfig } from '@revyl/verify';
@@ -70,7 +68,7 @@ results.forEach((result, i) => {
 if (results.some((result) => result.status === 'rejected')) process.exitCode = 1;
 ```
 
-Run it with `WEB_APP_ID=<your web app id> node every-platform.ts`. `PLATFORMS=ios,android` runs a subset.
+Run it with `WEB_APP_ID=<your web app id> node every-platform.mts`. `PLATFORMS=ios,android` runs a subset. The `.mts` extension makes Node run it as an ES module in any project.
 
 ## What you'll see
 

@@ -32,6 +32,13 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           version: '0.13.4'
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Check the links the skill, READMEs and llms.txt hand an agent
+        working-directory: .
+        run: node scripts/check-links.mjs
       - run: uv sync --frozen
       - name: Validate release tag
         if: github.event_name == 'push'
