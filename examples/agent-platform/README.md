@@ -6,7 +6,7 @@ One task fans out to a cloud browser and an iOS simulator through `@revyl/verify
 
 You need Node.js **22.18+**, the [Revyl CLI](https://docs.revyl.com/cli), and a Revyl account with web and mobile session access. No Xcode, Android SDK, extra app IDs, or mobile builds are needed.
 
-This checkout uses the local workspace SDK (**0.8.2**). From the repository root, install and build once, before loading any API credentials:
+This checkout uses the local workspace SDK (**0.9.0**). From the repository root, install and build once, before loading any API credentials:
 
 ```sh
 npm ci
@@ -26,7 +26,7 @@ Finish login before recording and verify the selected organization with `revyl a
 
 Avoid `npm run demo` when the process inherits secrets: npm rewrites its process title, and macOS Terminal's argument display can expose inherited environment text after that rewrite. Direct Node launch avoids this observed trigger; it is not a guarantee that a secret-bearing process environment is safe to record. Keep credentials out of dependency installation and build processes too. For unattended use, Verify also accepts a securely injected `REVYL_API_KEY`; don't record that environment or dump process metadata.
 
-**This starts two billable cloud sessions.** The first run also creates a reusable web app named `Verify Agent Platform Demo` in your selected organization; later runs reuse it. Verify registers the public TodoMVC URL as a build. There is no automatic retry that starts another session. The built-in iOS Settings app needs no upload. Both targets close in `finally`; inspect any reported stop failure before starting again.
+**This starts two billable cloud sessions.** The web target is just the public TodoMVC URL: Verify finds or creates the Revyl web app for its origin (`Verify: demo.playwright.dev`), prints its id, and registers the URL as a build. There is no automatic retry that starts another session. The built-in iOS Settings app needs no upload. Both targets close in `finally`; inspect any reported stop failure before starting again.
 
 ```sh
 node demo.ts --android               # three sessions: web + iOS + Android
@@ -37,7 +37,7 @@ node quick-check.ts                  # one separate iOS session, the minimal SDK
 
 The default plan adds a task to Playwright's public TodoMVC app on web and checks the operating-system version in mobile Settings. Neither fixture requires credentials. These are **different smoke checks**, not the same flow across three apps. Edit `plans()` and the inline targets in `demo.ts` to use your own apps. An optional positional string changes the task's display label, not its plan; this example is an orchestrator, not a task-planning LLM.
 
-Web is available to every organization. Create the Web app first; see [Create the Web app](../../packages/verify/docs/web.md#create-the-web-app).
+Web is available to every organization, and the web target needs no Revyl app made first; see [web.md](../../packages/verify/docs/web.md).
 
 ## What to inspect
 
@@ -47,7 +47,7 @@ Web is available to every organization. Create the Web app first; see [Create th
 - A failed recording download preserves the collected report and JSON download, displays an evidence warning, and removes any partial video. It does not change a step's validation result or start another session.
 - Evidence lives under this example's ignored `.verify/agent-platform/` directory. The recording is downloaded without forwarding API credentials; signed storage URLs stay out of terminal output and the page's links. Raw reports can contain short-lived signed URLs: treat the directory as private, don't commit it, and don't publicly expose the local server.
 
-The page stays open until **Ctrl+C**. Rerun the command for another take; each live rerun starts fresh sessions. Delete the local `.verify/agent-platform/` folder when its evidence is no longer needed. The dedicated web app remains in Revyl for reuse.
+The page stays open until **Ctrl+C**. Rerun the command for another take; each live rerun starts fresh sessions. Delete the local `.verify/agent-platform/` folder when its evidence is no longer needed. The web app Verify found or created remains in Revyl for reuse.
 
 This is a loopback-only, single-task example, not a multi-tenant service. Before hosting it for customers, add authentication, per-customer authorization, budgets/concurrency limits, durable jobs, and an evidence-retention policy. Report links require Revyl access; they aren't anonymous customer share links. The local page demonstrates handing evidence back through your own UI.
 

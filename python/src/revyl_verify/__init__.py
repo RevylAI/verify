@@ -75,7 +75,7 @@ from ._transport import (
     timestamp,
 )
 
-__version__ = "0.6.2"
+__version__ = "0.7.0"
 __all__ = [
     "AsyncSession",
     "CDPEndpoint",

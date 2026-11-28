@@ -202,6 +202,7 @@ func TestHostedValidationBeforeStart(t *testing.T) {
 				host = verify.Linux
 			}
 			parent := f.open(verify.Target{Platform: host})
+			accepted := 0
 			for _, change := range []func(*verify.Target){
 				func(v *verify.Target) { v.AppID = "" },
 				func(v *verify.Target) { v.BuildID = "" },
@@ -221,12 +222,27 @@ func TestHostedValidationBeforeStart(t *testing.T) {
 				target := verify.Target{Platform: platform, AppID: appID, BuildID: buildID}
 				change(&target)
 				if platform == verify.IOS && (target.DeviceModel != "" || target.OSVersion != "") {
+					child, err := parent.Open(context.Background(), target)
+					if err != nil {
+						t.Fatal(err)
+					}
+					accepted++
+					calls := f.calls("POST", startPath)
+					body := calls[len(calls)-1].Body
+					for key, want := range map[string]string{"device_model": target.DeviceModel, "os_version": target.OSVersion} {
+						if got, _ := body[key].(string); got != want {
+							t.Fatalf("hosted iOS start %s = %q, want %q", key, got, want)
+						}
+					}
+					if err := child.Close(context.Background()); err != nil {
+						t.Fatal(err)
+					}
 					continue
 				}
 				_, err := parent.Open(context.Background(), target)
 				requireCode(t, err, verify.ErrInvalidArgument)
 			}
-			if len(f.calls("POST", startPath)) != 0 {
+			if len(f.calls("POST", startPath)) != accepted {
 				t.Fatal("invalid hosted target started a session")
 			}
 		})

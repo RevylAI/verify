@@ -2,11 +2,10 @@
 
 Attaches [Playwright](https://playwright.dev) to a Revyl cloud browser over the Chrome DevTools Protocol (CDP), next to Verify's steps. It opens [Sauce Demo](https://www.saucedemo.com), a public practice store, with Verify, then uses Playwright to listen for network requests and a console message, sign in with locators and read the page heading. While Playwright is attached it runs a Verify validation, then it disconnects Playwright and closes the session.
 
-Web is available to every organization. Create the Web app first; see [Create the Web app](../../packages/verify/docs/web.md#create-the-web-app).
+Web is available to every organization, and the target needs only the URL: on the first run Verify finds or creates one Revyl web app for its origin and prints its id, which `appId` in `verify.config.ts` pins. See [web.md](../../packages/verify/docs/web.md).
 
 ```bash
 export REVYL_API_KEY=...            # or: revyl auth login
-export REVYL_WEB_APP_ID=...         # a web app you created in Revyl
 npm install
 node verify/playwright.mts
 ```

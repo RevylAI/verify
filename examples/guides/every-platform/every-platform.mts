@@ -2,7 +2,7 @@ import { open, type TargetConfig } from '@revyl/verify';
 
 const checks: Record<string, { target: TargetConfig; instruction?: string; validation: string }> = {
   web: {
-    target: { platform: 'web', app: { appId: process.env.WEB_APP_ID ?? '', url: 'https://www.saucedemo.com' } },
+    target: { platform: 'web', app: { url: 'https://www.saucedemo.com' } },
     validation: 'The Swag Labs login form is shown.',
   },
   ios: {

@@ -109,7 +109,7 @@ _, err = s.Screenshot(ctx, "about.png")
 return err
 ```
 
-Install with `go get github.com/RevylAI/verify/go@v0.7.2`; the [Go README](https://github.com/RevylAI/verify/blob/go/v0.7.2/go/README.md#quick-start-ios-settings) has the whole program. Your app: `AppID: "<your app id>"` or `BuildID: "<build id>"`.
+Install with `go get github.com/RevylAI/verify/go@v0.8.0`; the [Go README](https://github.com/RevylAI/verify/blob/go/v0.8.0/go/README.md#quick-start-ios-settings) has the whole program. Your app: `AppID: "<your app id>"` or `BuildID: "<build id>"`.
 
 ## Limits and errors
 

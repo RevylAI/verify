@@ -98,7 +98,7 @@ jobs:
       - run: npm test
       - name: init writes a project that type-checks and runs
         run: |
-          for platform in android mac; do
+          for platform in android mac web; do
             project="$(mktemp -d)"
             cd "$project"
             echo '{ "type": "commonjs" }' > package.json
@@ -106,6 +106,8 @@ jobs:
             args=(--platform "$platform")
             if [ "$platform" = android ]; then
               args+=(--app-id 00000000-0000-4000-8000-000000000000)
+            elif [ "$platform" = web ]; then
+              args+=(--url https://www.revyl.com/pricing)
             fi
             set +e
             output="$(REVYL_API_KEY= HOME="$project" npx verify init "${args[@]}" --no-install 2>&1)"

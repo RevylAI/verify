@@ -150,11 +150,24 @@ class Target:
             if value is not None and not UUID_PATTERN.fullmatch(value):
                 bad("app_id and build_id must be Revyl UUIDs.")
         if self.platform == "web":
-            if not self.app_id or any(
+            if any(
                 value is not None
                 for value in (self.bundle_id, self.artifact_url, self.device_model, self.os_version)
             ):
-                bad("Web needs app_id and does not accept mobile app or device options.")
+                bad(
+                    "Web does not accept bundle_id, artifact_url, device_model or os_version; "
+                    'it opens a url, such as Target(platform="web", url="https://example.com").'
+                )
+            if not self.app_id and (self.build_id or self.branch):
+                bad(
+                    "build_id and branch need app_id, the Revyl web app they belong to: pass "
+                    "app_id with them, or url alone to open a URL."
+                )
+            if not self.app_id and not self.url:
+                bad(
+                    'Web needs url, a public HTTPS URL, such as Target(platform="web", '
+                    'url="https://example.com"); add app_id to pin a Revyl web app.'
+                )
             if self.url is not None:
                 try:
                     parsed = urlsplit(self.url)

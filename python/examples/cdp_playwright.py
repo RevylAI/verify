@@ -2,20 +2,17 @@
 
     cd python && uv run python examples/cdp_playwright.py
 
-Needs a Revyl sign-in (REVYL_API_KEY or 'revyl auth login') and REVYL_WEB_APP_ID, a web app
-you created in Revyl. Playwright connects to Revyl's browser, so it needs no browser download.
+Needs a Revyl sign-in (REVYL_API_KEY or 'revyl auth login'). Verify finds or creates the Revyl
+web app for the URL's origin and logs its id. Playwright connects to Revyl's browser, so it needs
+no browser download.
 It starts a real, billable session.
 """
-
-import os
 
 from playwright.sync_api import sync_playwright
 
 from revyl_verify import Target, open
 
-target = Target(
-    platform="web", app_id=os.environ["REVYL_WEB_APP_ID"], url="https://www.saucedemo.com"
-)
+target = Target(platform="web", url="https://www.saucedemo.com")
 
 with open(target) as session, sync_playwright() as playwright:
     endpoint = session.cdp()  # works for one connection, within 60 seconds

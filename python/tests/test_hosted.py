@@ -246,6 +246,11 @@ def test_hosted_target_requires_exact_build_without_overrides(
     parent = hosted.attach()
     target = change(Target(platform, app_id=APP_ID, build_id=BUILD_ID))
     if platform == "ios" and (target.device_model or target.os_version):
+        parent.open(target)
+        (start,) = hosted.fake.calls("POST", START)
+        assert start.body.get("device_model") == target.device_model
+        assert start.body.get("os_version") == target.os_version
+        parent.close()
         return
     with pytest.raises(VerifyError, match="INVALID_ARGUMENT"):
         parent.open(target)

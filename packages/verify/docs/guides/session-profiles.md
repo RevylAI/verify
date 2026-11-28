@@ -15,7 +15,6 @@ The demo site is [the-internet.herokuapp.com](https://the-internet.herokuapp.com
 ## Before you start
 
 - A Revyl account and a project that already exists in Revyl, in your API key's organization. Verify reads `.revyl/config.yaml` from the current folder or the nearest one above it, and its `project.id` must name that project. `revyl init` in your app's checkout writes the file with a new id, which Revyl doesn't know until the project is published: connect the repository to Revyl (`revyl github connect`), then run `revyl config push` from the checkout. Or put an existing project's id in `project.id`. With an id Revyl doesn't have, `open()` throws `CONFIG_INVALID` with reason `project_not_found`.
-- A Revyl web app id in `WEB_APP_ID` (see [every platform](every-platform.md#before-you-start)).
 - Node.js 22.18 or later and `npm install @revyl/verify` in an ESM project.
 
 ## 1. Name the profile
@@ -72,7 +71,7 @@ Save this as `signed-in.mts` in the same project:
 ```ts
 import { open } from '@revyl/verify';
 
-const target = { platform: 'web', app: { appId: process.env.WEB_APP_ID ?? '', url: 'https://the-internet.herokuapp.com' } } as const;
+const target = { platform: 'web', app: { url: 'https://the-internet.herokuapp.com' } } as const;
 
 const session = await open(target, { profile: 'signed-in' });
 console.log(`Live view: ${session.viewerUrl}`);
@@ -85,9 +84,10 @@ try {
 }
 ```
 
-Run it with `WEB_APP_ID=<your web app id> node signed-in.mts`. The `.mts` extension makes Node run it as an ES module in any project:
+Run it with `node signed-in.mts`. The `.mts` extension makes Node run it as an ES module in any project:
 
 ```text
+[verify] web: Revyl web app <app-id> for https://the-internet.herokuapp.com (pin it with app: { appId: '<app-id>' })
 [verify] web: starting web session https://app.revyl.ai/sessions/<id>
 [verify] web: waiting for session profile signed-in
 [verify] web: ready
@@ -102,17 +102,15 @@ Validation passed: true. The screenshot shows the 'Secure Area' page …
 ## Python and Go
 
 ```python
-import os
-
 from revyl_verify import Target, open
 
-web = Target(platform="web", app_id=os.environ["WEB_APP_ID"], url="https://the-internet.herokuapp.com")
+web = Target(platform="web", url="https://the-internet.herokuapp.com")
 with open(web, profile="signed-in") as session:
     session.validation("The Secure Area page is shown with a Logout button.")
 ```
 
 ```go
-s, err := verify.Open(ctx, verify.Target{Platform: verify.Web, AppID: os.Getenv("WEB_APP_ID"), URL: "https://the-internet.herokuapp.com"}, verify.OpenOptions{Profile: "signed-in"})
+s, err := verify.Open(ctx, verify.Target{Platform: verify.Web, URL: "https://the-internet.herokuapp.com"}, verify.OpenOptions{Profile: "signed-in"})
 if err != nil {
 	return err
 }

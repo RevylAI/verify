@@ -11,7 +11,6 @@ A script that opens a cloud browser on [Sauce Demo](https://www.saucedemo.com), 
 ## Before you start
 
 - A Revyl account, signed in with `npx @revyl/verify login` or with `REVYL_API_KEY` set.
-- A Revyl web app id in `WEB_APP_ID` (see [every platform](every-platform.md#before-you-start)).
 - Node.js 22.18 or later and, in an ESM project, `npm install @revyl/verify playwright-core`. `playwright-core` is enough: the browser runs in Revyl, so nothing is downloaded.
 
 ## The script
@@ -22,7 +21,7 @@ Save this as `playwright-cdp.mts`:
 import { open } from '@revyl/verify';
 import { chromium } from 'playwright-core';
 
-const target = { platform: 'web', app: { appId: process.env.WEB_APP_ID ?? '', url: 'https://www.saucedemo.com' } } as const;
+const target = { platform: 'web', app: { url: 'https://www.saucedemo.com' } } as const;
 
 const session = await open(target);
 console.log(`Live view: ${session.viewerUrl}`);
@@ -48,9 +47,10 @@ try {
 }
 ```
 
-Run it with `WEB_APP_ID=<your web app id> node playwright-cdp.mts` (the `.mts` extension makes Node run it as an ES module in any project):
+Run it with `node playwright-cdp.mts` (the `.mts` extension makes Node run it as an ES module in any project):
 
 ```text
+[verify] web: Revyl web app <app-id> for https://www.saucedemo.com (pin it with app: { appId: '<app-id>' })
 [verify] web: starting web session https://app.revyl.ai/sessions/<id>
 [verify] web: ready
 Live view: https://app.revyl.ai/sessions/<id>
@@ -74,13 +74,11 @@ Locators, DOM access, `evaluate`, console and network events, request intercepti
 ## Python
 
 ```python
-import os
-
 from playwright.sync_api import sync_playwright  # pip install playwright; no browser download
 
 from revyl_verify import Target, open
 
-web = Target(platform="web", app_id=os.environ["WEB_APP_ID"], url="https://www.saucedemo.com")
+web = Target(platform="web", url="https://www.saucedemo.com")
 with open(web) as session:
     with sync_playwright() as playwright:
         browser = playwright.chromium.connect_over_cdp(session.cdp().url)
@@ -95,7 +93,7 @@ with open(web) as session:
 
 ## Go
 
-`s.CDP(ctx)` returns the same single-use endpoint. Pass `endpoint.URL` to chromedp with `remote.NewAllocator(ctx, endpoint.URL, remote.NoModifyURL)` from `github.com/chromedp/chromedp/remote`, then attach to the session's tab. The [Go README](https://github.com/RevylAI/verify/blob/go/v0.7.2/go/README.md#cdp-playwright-puppeteer) has the complete chromedp program.
+`s.CDP(ctx)` returns the same single-use endpoint. Pass `endpoint.URL` to chromedp with `remote.NewAllocator(ctx, endpoint.URL, remote.NoModifyURL)` from `github.com/chromedp/chromedp/remote`, then attach to the session's tab. The [Go README](https://github.com/RevylAI/verify/blob/go/v0.8.0/go/README.md#cdp-playwright-puppeteer) has the complete chromedp program.
 
 ## Limits and errors
 

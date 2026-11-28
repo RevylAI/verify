@@ -316,12 +316,13 @@ export class DeviceSession implements Session {
     const deadline = Math.min(Date.now() + target.startTimeout, parent?.expiresAt?.getTime() ?? Infinity);
     if (parent) return DeviceSession.startHosted(client, target, options, parent, deadline);
     if (target.platform === 'web') {
-      const buildId = await resolveWebBuildId(client, target);
+      const appId = target.app.appId ?? (await resolveWebAppId(client, target.name, target.app.url as string, options.log));
+      const buildId = await resolveWebBuildId(client, target, appId);
       const sessionId = randomUUID();
       const request: StartDeviceRequest = {
         platform: 'web',
         session_id: sessionId,
-        app_id: target.app.appId,
+        app_id: appId,
         build_id: buildId,
         idle_timeout_seconds: target.idleTimeoutSeconds,
         web: {
@@ -1241,30 +1242,59 @@ export class DeviceSession implements Session {
   }
 }
 
+const webAppIds = new Map<string, Promise<string>>();
+
+/** The Revyl web app for a URL's origin, found or created once per process and named "Verify: <host>". */
+function resolveWebAppId(client: RevylClient, targetName: string, url: string, log: SessionOptions['log']): Promise<string> {
+  const { host, origin } = new URL(url);
+  const key = `${client.identity}\n${host}`;
+  const cached = webAppIds.get(key);
+  if (cached) return cached;
+  const name = `Verify: ${host}`;
+  const pending = (async () => {
+    const app = await client.createOrFindWebApp(name);
+    if (!app.created) {
+      const detail = await client.getApp(app.id);
+      if (detail.platform && detail.platform.toLowerCase() !== 'web') {
+        throw new VerifyError(
+          'INVALID_ARGUMENT',
+          `Revyl app "${name}" (${app.id}) is for ${detail.platform}, not web, so Verify can't open ${origin} with it. Pass app: { url, appId: '<id>' } with the id of a Web app in Revyl.`,
+        );
+      }
+    }
+    log?.(`${targetName}: Revyl web app ${app.id} for ${origin} (${app.created ? 'created; ' : ''}pin it with app: { appId: '${app.id}' })`);
+    return app.id;
+  })();
+  webAppIds.set(key, pending);
+  pending.catch(() => webAppIds.delete(key));
+  return pending;
+}
+
 async function resolveWebBuildId(
   client: RevylClient,
   target: Extract<ResolvedDeviceTarget, { platform: 'web' }>,
+  appId: string,
 ): Promise<string> {
   const { app } = target;
   if (app.buildId) return app.buildId;
   if (app.url) {
-    const build = await client.registerWebUrlBuild(app.appId, { url: app.url, ...(app.branch ? { branch_name: app.branch } : {}) });
+    const build = await client.registerWebUrlBuild(appId, { url: app.url, ...(app.branch ? { branch_name: app.branch } : {}) });
     if (!build.id) throw new VerifyError('API_ERROR', `Revyl registered ${app.url} without returning a build id.`);
     return build.id;
   }
   let branchId: string | undefined;
   if (!app.branch) {
-    const detail = await client.getApp(app.appId);
+    const detail = await client.getApp(appId);
     if (detail.platform && detail.platform.toLowerCase() !== 'web') {
-      throw new VerifyError('CONFIG_INVALID', `Target ${target.name}: Revyl app ${app.appId} is a ${detail.platform} app, not a web app.`);
+      throw new VerifyError('CONFIG_INVALID', `Target ${target.name}: Revyl app ${appId} is a ${detail.platform} app, not a web app.`);
     }
     branchId = detail.default_branch_id ?? undefined;
   }
-  const latest = await client.latestWebBuild(app.appId, { branchId, branchName: app.branch });
+  const latest = await client.latestWebBuild(appId, { branchId, branchName: app.branch });
   if (!latest?.id) {
     throw new VerifyError(
       'SESSION_START_FAILED',
-      `Target ${target.name}: Revyl app ${app.appId} has no web build${app.branch ? ` on branch ${app.branch}` : ''}. ` +
+      `Target ${target.name}: Revyl app ${appId} has no web build${app.branch ? ` on branch ${app.branch}` : ''}. ` +
         "Set app.url to a deployed HTTPS URL, or build one with 'revyl build --platform web'.",
     );
   }

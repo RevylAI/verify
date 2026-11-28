@@ -175,7 +175,11 @@ func openStart(callerCtx context.Context, c *client, viewer string, target Targe
 	request := map[string]any{"platform": target.Platform, "idle_timeout_seconds": target.IdleTimeoutSeconds}
 	var id string
 	if target.Platform == Web {
-		build, err := c.webBuild(ctx, target)
+		appID, err := c.webAppID(ctx, target, opt.Log)
+		if err != nil {
+			return nil, err
+		}
+		build, err := c.webBuild(ctx, target, appID)
 		if err != nil {
 			return nil, err
 		}
@@ -183,7 +187,7 @@ func openStart(callerCtx context.Context, c *client, viewer string, target Targe
 		if err != nil {
 			return nil, failure(ErrAPI, "Could not generate a session ID.")
 		}
-		request["session_id"], request["app_id"], request["build_id"] = id, target.AppID, build
+		request["session_id"], request["app_id"], request["build_id"] = id, appID, build
 		web := map[string]any{}
 		if target.Viewport != nil {
 			web["viewport"] = target.Viewport
@@ -253,11 +257,88 @@ func openStart(callerCtx context.Context, c *client, viewer string, target Targe
 	return s, nil
 }
 
-func (c *client) webBuild(ctx context.Context, t Target) (string, error) {
+var (
+	webAppsMu sync.Mutex
+	webApps   = map[[3]string]string{}
+)
+
+// webAppID returns the target's AppID, or the Revyl web app for its URL's origin, found or created once per process and
+// named "Verify: <host>".
+func (c *client) webAppID(ctx context.Context, t Target, log func(string)) (string, error) {
+	if t.AppID != "" {
+		return t.AppID, nil
+	}
+	parsed, err := url.Parse(t.URL)
+	if err != nil {
+		return "", failure(ErrInvalidArgument, "URL must be public HTTPS without credentials, query, or fragment.")
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if port := parsed.Port(); port != "" && port != "443" {
+		host += ":" + port
+	}
+	key := [3]string{c.base, c.token, host}
+	webAppsMu.Lock()
+	defer webAppsMu.Unlock()
+	if id, ok := webApps[key]; ok {
+		return id, nil
+	}
+	name := "Verify: " + host
+	r, err := c.send(ctx, http.MethodPost, "/api/v1/apps/", map[string]string{"name": name, "platform": "web"}, true, 30*time.Second, false)
+	if err != nil {
+		return "", err
+	}
+	created := r.status >= 200 && r.status < 300
+	var app struct {
+		ID            string `json:"id"`
+		Code          string `json:"code"`
+		ExistingAppID string `json:"existing_app_id"`
+	}
+	var id string
+	switch {
+	case created:
+		if err := decode(r, &app); err != nil {
+			return "", err
+		}
+		if id = app.ID; id == "" {
+			return "", failure(ErrAPI, "Revyl created the web app \""+name+"\" without its ID.")
+		}
+	case r.status == http.StatusConflict && json.Unmarshal(r.body, &app) == nil && app.Code == "app_exists" && app.ExistingAppID != "":
+		id = app.ExistingAppID
+	case r.status == http.StatusForbidden:
+		return "", responseFailure(r, ErrAuthRejected, "Revyl refused to create the web app \""+name+"\" (HTTP 403): this API key's role can't create apps. Pass AppID with the ID of an existing Web app in Revyl, such as verify.Target{Platform: verify.Web, URL: ..., AppID: \"<id>\"}, or use a key whose role can create apps.")
+	default:
+		return "", httpError(r)
+	}
+	if !created {
+		var existing struct {
+			Platform string `json:"platform"`
+		}
+		if err := c.json(ctx, "GET", "/api/v1/apps/"+url.PathEscape(id), nil, true, 30*time.Second, &existing); err != nil {
+			return "", err
+		}
+		if existing.Platform != "" && !strings.EqualFold(existing.Platform, "web") {
+			return "", failure(ErrInvalidArgument, fmt.Sprintf("Revyl app %q (%s) is for %s, not web, so Verify can't open https://%s with it. Pass AppID with the ID of a Web app in Revyl.", name, id, existing.Platform, host))
+		}
+	}
+	webApps[key] = id
+	if log != nil {
+		state := ""
+		if created {
+			state = "created; "
+		}
+		log(fmt.Sprintf("web: Revyl web app %s for https://%s (%spin it with AppID: %q)", id, host, state, id))
+	}
+	return id, nil
+}
+
+func (c *client) webBuild(ctx context.Context, t Target, appID string) (string, error) {
 	if t.BuildID != "" {
 		return t.BuildID, nil
 	}
-	path := "/api/v1/apps/" + url.PathEscape(t.AppID)
+	path := "/api/v1/apps/" + url.PathEscape(appID)
 	if t.URL != "" {
 		body := map[string]string{"url": t.URL}
 		if t.Branch != "" {

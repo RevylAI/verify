@@ -1,6 +1,6 @@
 # Verify for Go
 
-**One release, three languages.** Go `github.com/RevylAI/verify/go` v0.7.2 = TypeScript `@revyl/verify` 0.8.2 = Python `revyl-verify` 0.6.2: the same release with the same features. Each language keeps its own version line, so "since" notes name the Go version.
+**One release, three languages.** Go `github.com/RevylAI/verify/go` v0.8.0 = TypeScript `@revyl/verify` 0.9.0 = Python `revyl-verify` 0.7.0: the same release with the same features. Each language keeps its own version line, so "since" notes name the Go version.
 
 Open a Revyl cloud browser or mobile device for instruction and validation steps, or a Mac computer for commands and files. This Go SDK uses the standard library plus `gopkg.in/yaml.v3`, which reads `.revyl/config.yaml` for session profiles. It is not a test runner. It does not provide `test`, `describe`, or `expect`.
 
@@ -11,10 +11,10 @@ Use Go 1.26.9 or later and a Revyl account. Set `REVYL_API_KEY` through your she
 The module lives in the repository's `go/` subdirectory. Install the tagged release with:
 
 ```sh
-go get github.com/RevylAI/verify/go@v0.7.2
+go get github.com/RevylAI/verify/go@v0.8.0
 ```
 
-Go releases use independent repository tags such as `go/v0.7.2`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
+Go releases use independent repository tags such as `go/v0.8.0`; npm versions do not version this module. Commit the resulting `go.mod` and `go.sum` in your app to pin dependencies.
 
 ## Set up your coding agent
 
@@ -42,7 +42,7 @@ This program opens the iOS Settings app on a cloud simulator, which every accoun
 ```sh
 mkdir verify-go && cd verify-go
 go mod init example.com/verify-go
-go get github.com/RevylAI/verify/go@v0.7.2
+go get github.com/RevylAI/verify/go@v0.8.0
 ```
 
 Save this as `main.go`:
@@ -145,7 +145,6 @@ func TestCheckout(t *testing.T) {
 	defer cancel()
 	s, err := verify.Open(ctx, verify.Target{
 		Platform: verify.Web,
-		AppID:    "00000000-0000-4000-8000-000000000000",
 		URL:      "https://example.com",
 	})
 	if err != nil {
@@ -171,11 +170,11 @@ func TestCheckout(t *testing.T) {
 }
 ```
 
-Run with `go test -v -timeout 6m`. `t.Fatal` runs deferred cleanup. The URL and app ID above are placeholders, not a runnable store fixture.
+Run with `go test -v -timeout 6m`. `t.Fatal` runs deferred cleanup. The URL above is a placeholder, not a runnable store fixture.
 
 ## Targets and options
 
-- **Web:** `Target{Platform: verify.Web, AppID: "…", URL: "https://…"}` registers a deployed HTTPS URL as a web build. Alternatively supply `BuildID`, or omit URL and build ID to select the latest web build on `Branch` (the app's default branch if omitted). `Viewport` accepts `Width`, `Height`, and optional `DeviceScaleFactor`; `SignIn` accepts `Path`, `Secret` (the stored secret's name, never its value), and optional `Persona`.
+- **Web:** `Target{Platform: verify.Web, URL: "https://…"}` registers a deployed HTTPS URL as a web build. Without `AppID`, Verify finds or creates one Revyl web app for the URL's origin, named `Verify: <host>`, once per process, and logs `web: Revyl web app <id> for <origin> (… pin it with AppID: "<id>")` before the start line. Creating it needs an API key whose role can create apps; otherwise `Open` returns `ErrAuthRejected` and you pass the `AppID` of an existing Web app. `AppID` pins one Revyl web app; with it, supply `BuildID` for an exact build, or omit URL and build ID to select the latest web build on `Branch` (the app's default branch if omitted). `BuildID` and `Branch` need `AppID`. `Viewport` accepts `Width`, `Height`, and optional `DeviceScaleFactor`; `SignIn` accepts `Path`, `Secret` (the stored secret's name, never its value), and optional `Persona`.
 - **iOS and Android:** set `Platform` to `verify.IOS` or `verify.Android` and exactly one of `AppID`, `BuildID`, `ArtifactURL` (HTTPS), or `BundleID` (an app already installed). `DeviceModel` and `OSVersion` are optional and written as Revyl names them, such as `DeviceModel: "iPhone 16", OSVersion: "iOS 18.5"` or `DeviceModel: "Pixel 7", OSVersion: "Android 14"`. A value Revyl doesn't offer returns `ErrInvalidArgument` listing the values it accepts, and no session starts. An `AppID` or `BuildID` Revyl can't find returns `ErrInvalidArgument` naming what wasn't found and how to fix it, and no session starts. A `BundleID` that can't be launched returns `ErrSessionStartFailed` naming the bundle ID, with the session link. `URL`, `Branch`, `Viewport`, and `SignIn` are web-only.
 - **Mac computers:** `Target{Platform: verify.Mac}` creates a workspace; only `StartTimeout`, `Timeout` and `Inference` are accepted alongside the platform. `Inference: new(true)` runs it on a Mac whose own vision model is loaded, so `Validation` and `Extract` work on it; see [Validation and Extract on a Mac](#validation-and-extract-on-a-mac). Mac computers are available to organizations on a current paid Revyl plan. When Revyl says Pro would unlock Macs for a Free-plan organization (`computer_not_enabled` with `unlocks_with_card: true`), `Open` and `OpenPersistent` return `ErrNotAvailableOnPlatform` with `Reason` `ReasonUpgradeRequired`, and the message gives Revyl's upgrade offer and its HTTPS billing link, or says to add a card in Revyl's billing settings when Revyl sends no offer. A 429 `ErrComputerLimit` means queued work or a concurrency limit; Verify does not guess which cause applies or retry creation. See [computer availability](https://github.com/RevylAI/verify/blob/main/packages/verify/docs/computers.md#availability-and-errors).
 - `Target.StartTimeout` bounds startup (default 10 minutes); on web/mobile, `IdleTimeoutSeconds` sets the session's idle timeout (default 600 seconds). All methods also honor the caller's context.
@@ -194,10 +193,10 @@ A session profile is a script from your Revyl project that prepares a session be
 
 ```go
 // Run the "signed-in" profile from session.profiles in .revyl/config.yaml
-s, err := verify.Open(ctx, verify.Target{Platform: verify.Web, AppID: "…", BuildID: "…"}, verify.OpenOptions{Profile: "signed-in"})
+s, err := verify.Open(ctx, verify.Target{Platform: verify.Web, URL: "https://…"}, verify.OpenOptions{Profile: "signed-in"})
 
 // Start without any profile, not even the project's default
-bare, err := verify.Open(ctx, verify.Target{Platform: verify.Web, AppID: "…", BuildID: "…"}, verify.OpenOptions{Profile: "none"})
+bare, err := verify.Open(ctx, verify.Target{Platform: verify.Web, URL: "https://…"}, verify.OpenOptions{Profile: "none"})
 ```
 
 | `Profile` | What Verify sends |
@@ -273,7 +272,7 @@ Neither errors nor logs contain the script's content or output. Check the code w
 | `GoHome` | No, use `OpenURL` or `Navigate` | Yes, the home screen | Yes, the home screen | No | Same | Same |
 | `OpenURL` | Yes, loads an http(s) URL in the tab | Yes, a URL or deep link | Yes, a URL or deep link | No | Same | Same |
 | `LaunchApp` | No, use `OpenURL` or `Navigate` | Yes | Yes | No, use `Exec(ctx, []string{"open", "-a", "Safari"})` | Same | Yes on iOS, such as `LaunchApp(ctx, "com.apple.Preferences")` |
-| `Target{BundleID}`, `DeviceModel`, `OSVersion` | No, Web takes `AppID` and `URL` | Yes | Yes | No | Same | iOS: yes, or `AppID` with `BuildID`. Web takes `AppID` with `BuildID`. Android doesn't run inside a Mac |
+| `Target{BundleID}`, `DeviceModel`, `OSVersion` | No, Web takes `URL` | Yes | Yes | No | Same | iOS: yes, or `AppID` with `BuildID`. Web takes `AppID` with `BuildID`. Android doesn't run inside a Mac |
 | `Navigate` | Yes | No, use `OpenURL` | No, use `OpenURL` | No | Same | Web: yes, and `http://localhost:<port>` reaches a service already listening on the Mac |
 | `CDP`, for chromedp, Playwright and Puppeteer | Yes, see [CDP](#cdp-playwright-puppeteer) | No | No | No | Same | Not verified yet |
 | `Instruction` | Yes | Yes | Yes | No, use `Tap(ctx, verify.Element("the Save button"))` and `Type(ctx, verify.Element("the search field"), text)` | Yes, on your model | Yes; on a Mac opened with `Inference: new(true)`, a single tap runs on the Mac's model first |
@@ -417,7 +416,7 @@ heading, err := chromedp.Run(tabCtx, chromedp.Text(chromedp.CSS(".title")))
 _, err = s.Validation(ctx, "A list of products is shown")
 ```
 
-It returns a `verify.CDPEndpoint` with `URL` and `ExpiresAt` (`time.Time`). [examples/cdp](examples/cdp/main.go) runs the whole program with chromedp v0.24: DOM, a click, console and network events, and a Verify validation while attached. It is its own Go module, so chromedp is not a dependency of Verify: `cd go/examples/cdp && go run .` with `REVYL_WEB_APP_ID` set. Older chromedp versions name the allocator `chromedp.NewRemoteAllocator(ctx, url, chromedp.NoModifyURL)`.
+It returns a `verify.CDPEndpoint` with `URL` and `ExpiresAt` (`time.Time`). [examples/cdp](examples/cdp/main.go) runs the whole program with chromedp v0.24: DOM, a click, console and network events, and a Verify validation while attached. It is its own Go module, so chromedp is not a dependency of Verify: `cd go/examples/cdp && go run .`. Older chromedp versions name the allocator `chromedp.NewRemoteAllocator(ctx, url, chromedp.NoModifyURL)`.
 
 - **The URL is a single-use credential.** It accepts one connection and expires at `ExpiresAt`, 60 seconds after `CDP` returns it. Call `CDP` again for each new connection. Don't log it, store it or pass it on; `fmt` prints the endpoint with the URL as `[redacted]`, but a CDP client's connection errors can include it, so remove it before you log one. Any connection attempt uses the URL up, even one that fails, so call `CDP` again before you retry.
 - **One connection at a time.** A second connection to the same session is refused until the first disconnects. Once the allocator's cancel function (`disconnect` above) has returned, the next URL from `CDP` connects.
@@ -846,7 +845,7 @@ func run() (err error) {
 - **Limits.** 100 snapshots per organization by default. Past that, `ErrComputerLimit` (`snapshot_limit`): delete one you no longer need, then try again.
 - **Cleanup.** `DeletePersistent(ctx, nameOrID)` stops a running computer the normal way, which saves its disk, then deletes the computer and its saved disk for good; its snapshots stay. `DeleteSnapshot(ctx, nameOrID)` deletes a snapshot; computers made from it keep their disks. Both return `ErrNotFound` when nothing has that name or ID, including one already deleted, so cleanup that may run twice checks `errors.Is(err, verify.ErrNotFound)`.
 - **Paths.** File calls take paths relative to the workspace, `/Users/computer/workspace`, which is also `$HOME` for commands. They don't expand `~` and refuse absolute paths; reach other folders, such as `/Users/computer/Desktop`, through `Exec`.
-- **In CI, budget the waits.** `OpenPersistent` waits up to 15 minutes, `Close` up to 10 for the save, `SaveSnapshot` up to 15 and a copy's start another 15. A job killed by its timeout never runs your deferred `Close`. Set `StartTimeout`, `WaitTimeout` and `Timeout` (the run's lifetime, enforced by Revyl even when your job dies) so their sum fits the job; the [guide](https://github.com/RevylAI/verify/blob/go/v0.7.2/packages/verify/docs/guides/persistent-computers.md#in-ci-a-timeout-budget) has a recipe.
+- **In CI, budget the waits.** `OpenPersistent` waits up to 15 minutes, `Close` up to 10 for the save, `SaveSnapshot` up to 15 and a copy's start another 15. A job killed by its timeout never runs your deferred `Close`. Set `StartTimeout`, `WaitTimeout` and `Timeout` (the run's lifetime, enforced by Revyl even when your job dies) so their sum fits the job; the [guide](https://github.com/RevylAI/verify/blob/go/v0.8.0/packages/verify/docs/guides/persistent-computers.md#in-ci-a-timeout-budget) has a recipe.
 - **Lists.** `ListPersistent(ctx)` lists your organization's persistent computers by ID, because Revyl stores no names: compare with the `ID()` of a session `OpenPersistent` returned. `ListSnapshots(ctx)` lists snapshots.
 - **Busy or unavailable.** `ErrSessionBusy` (`run_conflict`) means the last run hasn't finished stopping: its disk is kept, so try again in a few minutes. `ErrSessionStartFailed` (`saved_disk_unavailable`) means the Mac holding the save is offline or no Mac can start it right now: the disk is kept, so try again later.
 

@@ -24,7 +24,7 @@ try {
 
 Use `appId` when you want to target your own uploaded app.
 
-Run it with `node verify/check.mts`. For a Web target, create a Web app in Revyl first (see [web.md](web.md#create-the-web-app)), then use `open({ platform: 'web', app: { appId, url } })`; for a computer, use `open({ platform: 'mac' })`.
+Run it with `node verify/check.mts`. For a Web target, use `open({ platform: 'web', app: { url: 'https://example.com' } })`: Verify finds or creates one Revyl web app for the URL's origin and prints its id, which `appId` pins (see [web.md](web.md)). For a computer, use `open({ platform: 'mac' })`.
 
 On the first interactive run, Verify opens the Revyl browser approval flow once and saves the login in `~/.revyl/credentials.json` for the CLI and SDK to share. It prints a live session link, then ordered step results:
 
@@ -57,11 +57,11 @@ In scripts and CI, pass the answers as flags. Non-interactive runs never prompt 
 ```bash
 npx @revyl/verify init --platform ios
 npx @revyl/verify init --platform android --app-id <revyl-app-id>
-npx @revyl/verify init --platform web --app-id <revyl-web-app-id> --url https://example.com
+npx @revyl/verify init --platform web --url https://example.com
 npx @revyl/verify init --platform mac
 ```
 
-Use `--yes` to accept installation without a prompt, or `--no-install` when Verify is already installed. Without an app id, an iOS or Android target opens the device's built-in Settings app (`com.apple.Preferences` or `com.android.settings`) by bundle id, so the generated example runs on a brand-new account before you upload anything. A Web target needs a Web app id; without one, `init` writes no files and tells you how to create the app. A Mac target needs no app id. The generated config is ordinary TypeScript, so edit it when the example needs your own app, a pinned build, a public Web URL, or a different target.
+Use `--yes` to accept installation without a prompt, or `--no-install` when Verify is already installed. Without an app id, an iOS or Android target opens the device's built-in Settings app (`com.apple.Preferences` or `com.android.settings`) by bundle id, so the generated example runs on a brand-new account before you upload anything. A Web target needs only `--url` (default `https://example.com`): its first run finds or creates one Revyl web app for the URL's origin and prints the id, and `--app-id` pins one instead. A Mac target needs no app id. The generated config is ordinary TypeScript, so edit it when the example needs your own app, a pinned build, a public Web URL, or a different target.
 
 ## Manual setup
 
@@ -85,7 +85,7 @@ In CI, keep the key in a secret manager rather than in source, command arguments
 
 The generated iOS and Android targets open Settings. To test your own app, replace `bundleId` in `verify.config.ts` with `appId: '<your Revyl app id>'`, copied from the app's page in Revyl, or with the `bundleId` of an app already on the device. Mac targets need no app id.
 
-- **Web:** create a Web app in Revyl (see [web.md](web.md#create-the-web-app)) and set `app.url` to a public HTTPS URL. Revyl's cloud browser cannot reach `localhost`.
+- **Web:** set `app.url` to a public HTTPS URL; Revyl's cloud browser cannot reach `localhost`. Add `appId` only to pin a Revyl web app (see [web.md](web.md#pin-a-web-app-optional)).
 - **iOS and Android:** upload a build to the app in Revyl, for example with `revyl build upload`; each session installs the newest one. See [mobile.md](mobile.md).
 - **Mac:** computers are available to organizations on a current paid Revyl plan. `instruction()` is unavailable there; `validation()` and `extract()` work on a Mac opened with `inference: true`. See [computers.md](computers.md#availability-and-errors).
 

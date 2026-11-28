@@ -7,14 +7,24 @@ Web is available to every organization, including the Free plan.
 ```ts
 {
   platform: 'web',
-  app: { appId: '…', url: 'https://pr-123.preview.example.com' },
+  app: { url: 'https://pr-123.preview.example.com' },
   viewport: { width: 1440, height: 900 },
 }
 ```
 
-## Create the Web app
+A URL is all a web target needs. Every web session belongs to a web app in Revyl, so on the first `open()` for a URL's origin (`https://pr-123.preview.example.com` above), Verify finds or creates one Revyl web app for it, named `Verify: <host>`, and prints its id once:
 
-A web target opens a Web app in Revyl, so create one first and copy its id:
+```text
+[verify] web: Revyl web app 3f6c2a4e-… for https://pr-123.preview.example.com (created; pin it with app: { appId: '3f6c2a4e-…' })
+```
+
+Later opens of the same origin reuse that app, and in the same process they make no extra call. Creating the app needs an API key whose role can create apps; with a key that can't, `open()` fails with `AUTH_REJECTED` and you pass the `appId` of an existing Web app instead.
+
+`npx @revyl/verify init --platform web --url https://example.com` writes a config with this target.
+
+## Pin a Web app (optional)
+
+Add `app.appId` to use one particular Revyl web app, such as the one Verify printed, or one your team already has. `buildId` and `branch` belong to an app, so they need `appId` too, and a Web session inside a cloud Mac (`computer.open()`) still takes `app: { appId, buildId }` of an existing build. To create a web app yourself:
 
 1. **In the dashboard:** open [app.revyl.ai](https://app.revyl.ai), click **Create app**, keep **Web** selected, and enter your site's public HTTPS URL. Copy the app id from the app's page.
 2. **Or with the [Revyl CLI](https://github.com/RevylAI/revyl-cli#install):** `revyl app create --name "My Web App" --platform web` prints the app id.
@@ -27,9 +37,9 @@ npx @revyl/verify init --platform web --app-id <app-id> --url https://example.co
 
 ## What it opens
 
-- With `app.url`, each `open()` registers the URL as a build of the Revyl app (on `app.branch` when set) and opens it. The URL must be public HTTPS; Revyl's browser cannot reach `localhost` or a private network.
-- With `app.buildId`, it opens that exact build.
-- With neither, it opens the newest web build of the app, on `app.branch` when set and otherwise on the app's default branch.
+- With `app.url`, each `open()` registers the URL as a build of the Revyl web app (the one for the URL's origin, or `app.appId`; on `app.branch` when set) and opens it. The URL must be public HTTPS; Revyl's browser cannot reach `localhost` or a private network.
+- With `app.appId` and `app.buildId`, it opens that exact build.
+- With `app.appId` alone, it opens the newest web build of the app, on `app.branch` when set and otherwise on the app's default branch.
 
 ## Signing in
 
@@ -53,7 +63,7 @@ Revyl runs one step at a time on a session. A step sent while another is still r
 
 ## Exact actions
 
-**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. The [Python](https://github.com/RevylAI/verify/blob/v0.8.2/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.8.2/go/README.md#exact-actions) READMEs show them with each language's names. When you know exactly what to click, skip the agent. Exact actions run in the browser as given, with no model, and mix freely with `instruction()` and `validation()`:
+**Early access.** Since TypeScript (`@revyl/verify`) 0.4.0, Python (`revyl-verify`) 0.2.0 and Go v0.3.0. `doubleTap`, `longPress`, `drag`, `typeFocused`, `goHome`, and Web keys and modifiers in `pressKey`, are new in TypeScript 0.5.0, Python 0.3.0 and Go v0.4.0. The [Python](https://github.com/RevylAI/verify/blob/v0.9.0/python/README.md#exact-actions) and [Go](https://github.com/RevylAI/verify/blob/v0.9.0/go/README.md#exact-actions) READMEs show them with each language's names. When you know exactly what to click, skip the agent. Exact actions run in the browser as given, with no model, and mix freely with `instruction()` and `validation()`:
 
 ```ts
 import { open } from '@revyl/verify';

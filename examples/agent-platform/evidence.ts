@@ -8,8 +8,6 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
 const exec = promisify(execFile);
-const appName = 'Verify Agent Platform Demo';
-const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Unexpected CLI response');
@@ -27,21 +25,6 @@ export function httpsUrl(value: unknown): string | undefined {
   const url = new URL(value);
   if (url.protocol !== 'https:' || url.username || url.password) throw new Error('Invalid evidence URL');
   return url.href;
-}
-
-export async function webAppId(): Promise<string> {
-  const result = await cli(['app', 'list', '--platform', 'web', '--search', appName]);
-  if (!Array.isArray(result.apps) || typeof result.total !== 'number' || result.total > result.apps.length) {
-    throw new Error('Could not completely list demo apps');
-  }
-  const matches = result.apps.map(object).filter(app => app.name === appName && app.platform === 'web');
-  if (matches.length > 1) throw new Error('Multiple demo apps have the same name');
-  if (!matches.length) console.log('Creating the reusable web app: Verify Agent Platform Demo');
-  const app = matches[0] ?? await cli(['app', 'create', '--name', appName, '--platform', 'web']);
-  if (app.name !== appName || app.platform !== 'web' || typeof app.id !== 'string' || !uuid.test(app.id)) {
-    throw new Error('Unexpected demo app response');
-  }
-  return app.id;
 }
 
 export async function collectEvidence(sessionId: string, directory: string): Promise<{ reportUrl?: string; hasRecording?: boolean; evidenceError?: string }> {

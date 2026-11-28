@@ -11,6 +11,6 @@
     "start": "node --env-file-if-exists=.env macs-from-snapshot.mts"
   },
   "devDependencies": {
-    "@revyl/verify": "0.8.2"
+    "@revyl/verify": "0.9.0"
   }
 }
